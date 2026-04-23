@@ -1,0 +1,262 @@
+import { useState, useEffect } from 'react';
+import { BarChart3, Mic, Brain, User, TrendingUp, Clock, Newspaper, Loader } from 'lucide-react';
+import {
+  fetchAllEntityMentions, fetchMemoryGraph, fetchConversationSessions,
+  fetchTasks, fetchReminders,
+  type DbEntityMention, type DbMemoryFact,
+} from '../../lib/api';
+import { speakResponse } from '../../lib/tts';
+
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+
+interface Stats {
+  totalTransmissions: number;
+  totalMemories: number;
+  totalEntities: number;
+  totalFacts: number;
+  topEntities: DbEntityMention[];
+  recentFacts: DbMemoryFact[];
+  sessionCount: number;
+  todayCount: number;
+}
+
+const FACT_COLORS: Record<string, string> = {
+  person: '#f59e0b',
+  company: '#3b82f6',
+  project: '#8b5cf6',
+  preference: '#ec4899',
+  goal: '#ef4444',
+  habit: '#10b981',
+  relationship: '#f97316',
+  location: '#6366f1',
+};
+
+export default function UserAnalytics({ userId }: { userId: string }) {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [digestState, setDigestState] = useState<'idle' | 'loading' | 'speaking' | 'done'>('idle');
+  const [digestText, setDigestText] = useState('');
+
+  const generateWeeklyDigest = async () => {
+    if (!stats) return;
+    setDigestState('loading');
+    try {
+      const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
+      const [tasks, reminders] = await Promise.all([
+        fetchTasks(userId).catch(() => []),
+        fetchReminders(userId).catch(() => []),
+      ]);
+      const recentTasks = tasks.filter(t => t.created_at > weekAgo);
+      const doneTasks   = recentTasks.filter(t => t.status === 'done');
+      const openTasks   = recentTasks.filter(t => t.status === 'open');
+      const recentReminders = reminders.filter(r => r.created_at > weekAgo);
+
+      const topPeopleLines = stats.topEntities
+        .filter(e => e.entity_type === 'PERSON').slice(0, 5)
+        .map(e => `${e.entity_text} (${e.mention_count}×)`).join(', ');
+
+      const prompt = `You are Roger AI delivering a weekly digest briefing.
+Summarise this week in 120–160 words. Be warm, analytical, and specific.
+
+This week stats:
+- Tasks created: ${recentTasks.length} (${doneTasks.length} done, ${openTasks.length} still open)
+- Reminders set: ${recentReminders.length}
+- Total voice transmissions: ${stats.totalTransmissions}
+- People most mentioned: ${topPeopleLines || 'none tracked yet'}
+- Memory facts total: ${stats.totalFacts}
+
+Close with one forward-looking suggestion and "Standing by. Over."
+Return plain text only.`;
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+        body: JSON.stringify({ model: 'gpt-4o', temperature: 0.5, messages: [{ role: 'user', content: prompt }] }),
+      });
+      const data = await res.json() as { choices: { message: { content: string } }[] };
+      const text = data.choices[0]?.message?.content ?? 'Weekly digest unavailable. Over.';
+      setDigestText(text);
+      setDigestState('speaking');
+      try { await speakResponse(text); } catch { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
+      setDigestState('done');
+    } catch { setDigestState('idle'); }
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetchAllEntityMentions(userId).catch(() => []),
+      fetchMemoryGraph(userId).catch(() => []),
+      fetchConversationSessions(userId).catch(() => []),
+    ]).then(([entities, facts, sessions]) => {
+      const today = new Date().toDateString();
+      const todaySessions = sessions.filter(s => new Date(s.created_at).toDateString() === today);
+      const userTurns = sessions.filter(s => s.role === 'user');
+      const todayTurns = todaySessions.filter(s => s.role === 'user');
+
+      // Group sessions by session_id
+      const sessionIds = new Set(sessions.map(s => s.session_id));
+
+      setStats({
+        totalTransmissions: userTurns.length,
+        totalMemories: facts.filter(f => f.source_tx !== 'onboarding').length,
+        totalEntities: entities.length,
+        totalFacts: facts.length,
+        topEntities: entities.slice(0, 8),
+        recentFacts: facts.slice(0, 6),
+        sessionCount: sessionIds.size,
+        todayCount: todayTurns.length,
+      });
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [userId]);
+
+  const mono = (s: string | number, size = 28, color = 'var(--amber)') => (
+    <span style={{ fontFamily: 'monospace', fontSize: size, fontWeight: 700, color, letterSpacing: '-0.02em' }}>
+      {s}
+    </span>
+  );
+
+  if (loading) return (
+    <div style={{ padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+      <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.2em' }}>
+        Loading stats...
+      </span>
+    </div>
+  );
+
+  if (!stats) return null;
+
+  return (
+    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <BarChart3 size={15} style={{ color: 'var(--amber)' }} />
+        <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>
+          Your Stats
+        </span>
+      </div>
+
+      {/* Weekly Digest */}
+      <div style={{ borderTop: '1px solid var(--border-subtle)', borderBottom: '1px solid var(--border-subtle)', padding: '12px 0' }}>
+        {digestState === 'idle' && (
+          <button onClick={generateWeeklyDigest} style={{ width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.15em', background: 'rgba(212,160,68,0.06)', border: '1px solid rgba(212,160,68,0.25)', color: 'var(--amber)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Newspaper size={13} /> Request Weekly Digest
+          </button>
+        )}
+        {digestState === 'loading' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px' }}>
+            <Loader size={13} style={{ color: 'var(--amber)', animation: 'spin 1s linear infinite' }} />
+            <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Compiling weekly digest...</span>
+          </div>
+        )}
+        {(digestState === 'speaking' || digestState === 'done') && digestText && (
+          <div>
+            <div style={{ padding: '12px 14px', border: '1px solid rgba(212,160,68,0.2)', background: 'rgba(212,160,68,0.04)', marginBottom: 8 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: 0, lineHeight: 1.7 }}>
+                {digestText}
+                {digestState === 'speaking' && <span style={{ color: 'var(--amber)', animation: 'blink 1s infinite' }}>▌</span>}
+              </p>
+            </div>
+            {digestState === 'done' && (
+              <button onClick={() => { setDigestState('idle'); setDigestText(''); }} style={{ background: 'transparent', border: '1px solid var(--border-subtle)', padding: '5px 14px', fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Dismiss
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Key metrics grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {[
+          { icon: Mic, label: 'Transmissions', value: stats.totalTransmissions, sub: `${stats.todayCount} today` },
+          { icon: Brain, label: 'Memory Facts', value: stats.totalFacts, sub: `${stats.totalEntities} entities tracked` },
+          { icon: User, label: 'People Tracked', value: stats.topEntities.filter(e => e.entity_type === 'PERSON').length, sub: 'in your orbit' },
+          { icon: Clock, label: 'Sessions', value: stats.sessionCount, sub: 'total conversations' },
+        ].map(({ icon: Icon, label, value, sub }) => (
+          <div key={label} style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Icon size={11} style={{ color: 'var(--amber)', opacity: 0.7 }} />
+              <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{label}</span>
+            </div>
+            {mono(value, 26)}
+            <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '4px 0 0', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Top entities */}
+      {stats.topEntities.length > 0 && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <TrendingUp size={11} style={{ color: 'var(--amber)', opacity: 0.7 }} />
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+              Most Mentioned
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {stats.topEntities.map(e => {
+              const pct = Math.min(100, (e.mention_count / (stats.topEntities[0]?.mention_count ?? 1)) * 100);
+              const typeColor = e.entity_type === 'PERSON' ? '#f59e0b'
+                : e.entity_type === 'COMPANY' ? '#3b82f6'
+                : e.entity_type === 'PROJECT' ? '#8b5cf6' : '#10b981';
+              return (
+                <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', minWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.entity_text}
+                  </span>
+                  <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: typeColor, borderRadius: 2, transition: 'width 600ms ease' }} />
+                  </div>
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, color: typeColor, minWidth: 28, textAlign: 'right' }}>
+                    {e.mention_count}×
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Recent memory facts */}
+      {stats.recentFacts.length > 0 && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <Brain size={11} style={{ color: '#a78bfa', opacity: 0.8 }} />
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+              Roger Knows
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {stats.recentFacts.map(f => {
+              const color = FACT_COLORS[f.fact_type] ?? 'var(--amber)';
+              return (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', borderLeft: `3px solid ${color}` }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, color, textTransform: 'uppercase', letterSpacing: '0.1em', minWidth: 70, paddingTop: 1 }}>
+                    {f.fact_type}
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                    {f.subject} {f.predicate} <strong style={{ color }}>{f.object}</strong>
+                    {f.is_confirmed && <span style={{ color: '#10b981', marginLeft: 4 }}>✓</span>}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {stats.totalTransmissions === 0 && (
+        <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.4 }}>
+          <Mic size={28} style={{ color: 'var(--text-muted)', marginBottom: 8 }} />
+          <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+            Start talking to Roger to build your stats
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}

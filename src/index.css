@@ -1,0 +1,178 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════
+   ROGER AI ADMIN — DESIGN SYSTEM
+   Neo-retro military grade. 1970s NASA Mission Control.
+   Walkie-Talkie PTT aesthetic. Amber-on-dark command gold.
+═══════════════════════════════════════════════════════════════ */
+
+@layer base {
+  :root {
+    /* ── Backgrounds ── */
+    --bg-primary:   #1a1f1e;   /* Gunmetal charcoal — main body */
+    --bg-elevated:  #242827;   /* Dark slate — cards, panels */
+    --bg-recessed:  #141817;   /* Deeper charcoal — StatusBar, NavRail */
+    --bg-cell:      #1e2423;   /* Data cell background */
+
+    /* ── Borders ── */
+    --border-subtle:  rgba(74, 82, 64, 0.3);   /* Field olive 30% */
+    --border-dim:     rgba(74, 82, 64, 0.15);  /* Very subtle */
+    --border-active:  rgba(212, 160, 68, 0.6); /* Amber active */
+
+    /* ── Text ── */
+    --text-primary:   #e8e5d8;  /* Warm parchment */
+    --text-secondary: #9a9785;  /* Khaki gray — labels, timestamps */
+    --text-muted:     #6b6a5e;  /* Very muted */
+
+    /* ── Accent — Command Gold ── */
+    --amber:        #d4a044;
+    --amber-dim:    rgba(212, 160, 68, 0.2);
+    --amber-border: rgba(212, 160, 68, 0.4);
+
+    /* ── Status Colors ── */
+    --green:        #5a9c69;   /* Military green — success/online */
+    --green-dim:    rgba(90, 156, 105, 0.08);
+    --green-border: rgba(90, 156, 105, 0.4);
+
+    --rust:         #a84832;   /* Burnt red — error/critical */
+    --rust-dim:     rgba(168, 72, 50, 0.08);
+    --rust-border:  rgba(168, 72, 50, 0.4);
+
+    --olive:        #4a5240;   /* Field olive — secondary/inactive */
+    --olive-dim:    rgba(74, 82, 64, 0.15);
+    --olive-border: rgba(74, 82, 64, 0.4);
+
+    --amber-warn-dim: rgba(212, 160, 68, 0.08);
+  }
+
+  * {
+    border-radius: 2px !important; /* Brutalist — near-zero rounding everywhere */
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+
+  /* CRT Scanline Overlay — subtle 2% texture across entire viewport */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.02) 2px,
+      rgba(0, 0, 0, 0.02) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--olive); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--amber); }
+
+  #root {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   TYPOGRAPHY UTILITIES
+═══════════════════════════════════════════════════ */
+@layer utilities {
+  .font-mono {
+    font-family: 'JetBrains Mono', 'Space Mono', monospace;
+  }
+
+  /* ── Glow Effects ── */
+  .glow-amber {
+    box-shadow: 0 0 10px rgba(212, 160, 68, 0.3);
+  }
+  .glow-amber-strong {
+    box-shadow: 0 0 10px rgba(212, 160, 68, 0.4),
+                0 0 20px rgba(212, 160, 68, 0.2);
+  }
+  .glow-green {
+    box-shadow: 0 0 8px rgba(90, 156, 105, 0.4);
+  }
+  .text-glow-amber {
+    text-shadow: 0 0 10px rgba(212, 160, 68, 0.6);
+  }
+  .text-glow-green {
+    text-shadow: 0 0 8px rgba(90, 156, 105, 0.5);
+  }
+
+  /* ── Status Tier Borders & Backgrounds ── */
+  .status-success {
+    border-color: var(--green-border) !important;
+    background-color: var(--green-dim) !important;
+  }
+  .status-warning {
+    border-color: var(--amber-border) !important;
+    background-color: var(--amber-warn-dim) !important;
+  }
+  .status-error {
+    border-color: var(--rust-border) !important;
+    background-color: var(--rust-dim) !important;
+  }
+  .status-neutral {
+    border-color: var(--olive-border) !important;
+    background-color: var(--bg-elevated) !important;
+  }
+
+  /* ── Scrollbar ── */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--olive) transparent;
+  }
+
+  /* ── Dense micro-typography ── */
+  .text-micro { font-size: 8px; line-height: 1.2; }
+  .text-nano  { font-size: 9px; line-height: 1.3; }
+  .text-mini  { font-size: 10px; line-height: 1.4; }
+  .text-label { font-size: 11px; line-height: 1.4; }
+}
+
+/* ═══════════════════════════════════════════════════
+   KEYFRAME ANIMATIONS
+═══════════════════════════════════════════════════ */
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+@keyframes scanline-pass {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+@keyframes amber-flicker {
+  0%, 95%, 100% { opacity: 1; }
+  96%           { opacity: 0.85; }
+  97%           { opacity: 1; }
+  98%           { opacity: 0.9; }
+}
+@keyframes bar-grow {
+  from { width: 0%; }
+  to   { width: var(--bar-width); }
+}
+
+.led-pulse   { animation: led-pulse 2s ease-in-out infinite; }
+.amber-flicker { animation: amber-flicker 8s ease-in-out infinite; }

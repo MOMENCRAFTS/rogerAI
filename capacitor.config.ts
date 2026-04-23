@@ -1,0 +1,48 @@
+import type { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: 'com.rogerai.app',
+  appName: 'Roger AI',
+  webDir: 'dist',
+
+  // Allow loading from local dev server during development
+  server: {
+    // Uncomment during live dev reload on device:
+    // url: 'http://192.168.x.x:5173',
+    // cleartext: true,
+    allowNavigation: ['*.supabase.co', 'api.openai.com'],
+  },
+
+  plugins: {
+    SplashScreen: {
+      launchShowDuration: 0,        // We control splash from the web layer
+      launchAutoHide: false,        // Don't auto-hide — web SplashScreen component controls dismissal
+      backgroundColor: '#0d0d0a',   // Matches --bg-primary dark background
+      androidSplashResourceName: 'splash',
+      androidScaleType: 'CENTER_CROP',
+      showSpinner: false,
+      iosSpinnerStyle: 'small',
+      splashFullScreen: true,
+      splashImmersive: true,
+    },
+
+    CapacitorHttp: {
+      enabled: true,
+    },
+  },
+
+  android: {
+    // Allow cleartext for local dev server if needed
+    allowMixedContent: true,
+    captureInput: true,
+    webContentsDebuggingEnabled: true, // Enable Chrome DevTools debugging on device
+  },
+
+  ios: {
+    contentInset: 'automatic',
+    scrollEnabled: true,
+    limitsNavigationsToAppBoundDomains: false,
+  },
+};
+
+export default config;
