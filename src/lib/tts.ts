@@ -5,15 +5,18 @@
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
 
 let currentAudio: HTMLAudioElement | null = null;
+let currentAudioCtx: AudioContext | null = null;
 
 export function stopSpeaking() {
-  // Stop OpenAI audio stream
   if (currentAudio) {
     currentAudio.pause();
     currentAudio.src = '';
     currentAudio = null;
   }
-  // Also cancel any active browser speechSynthesis (prevents double-voice overlap)
+  if (currentAudioCtx) {
+    currentAudioCtx.close().catch(() => {});
+    currentAudioCtx = null;
+  }
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
@@ -22,7 +25,6 @@ export function stopSpeaking() {
 export async function speakResponse(text: string): Promise<void> {
   if (!OPENAI_API_KEY) throw new Error('OpenAI API key not configured');
 
-  // Stop any currently playing audio
   stopSpeaking();
 
   const res = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -34,7 +36,7 @@ export async function speakResponse(text: string): Promise<void> {
     body: JSON.stringify({
       model: 'tts-1',
       input: text,
-      voice: 'onyx',    // Deep, clear, radio-operator style
+      voice: 'onyx',
       speed: 1.0,
     }),
   });
@@ -44,10 +46,13 @@ export async function speakResponse(text: string): Promise<void> {
     throw new Error((err as { error?: { message?: string } }).error?.message ?? `TTS error ${res.status}`);
   }
 
-  const blob   = await res.blob();
-  const url    = URL.createObjectURL(blob);
-  const audio  = new Audio(url);
+  const blob  = await res.blob();
+  const url   = URL.createObjectURL(blob);
+  const audio = new Audio(url);
   currentAudio = audio;
+
+  // Explicitly max out volume — mobile browsers default to ~0.5 on some devices
+  audio.volume = 1.0;
 
   return new Promise((resolve, reject) => {
     audio.onended = () => {
@@ -60,6 +65,24 @@ export async function speakResponse(text: string): Promise<void> {
       currentAudio = null;
       reject(e);
     };
-    audio.play().catch(reject);
+
+    audio.play()
+      .then(() => {
+        try {
+          // Route through Web Audio API → forces speaker channel (not earpiece/call)
+          // on iOS Safari & Android Chrome, and allows gain boosting.
+          const ctx = new AudioContext();
+          currentAudioCtx = ctx;
+          const source = ctx.createMediaElementSource(audio);
+          const gain   = ctx.createGain();
+          gain.gain.value = 1.5; // 1.5× boost — crisp loudness, no clipping
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          if (ctx.state === 'suspended') ctx.resume();
+        } catch {
+          // Web Audio unavailable — plain play() already started, fine
+        }
+      })
+      .catch(reject);
   });
 }

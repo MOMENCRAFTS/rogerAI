@@ -13,6 +13,7 @@ import IntentRegistry from './modules/IntentRegistry';
 import MemoryMonitor from './modules/MemoryMonitor';
 import PatternLab from './modules/PatternLab';
 import UserApp from './modules/user/UserApp';
+import ApiSettings from './modules/ApiSettings';
 import RichPlaceholder from './components/shared/RichPlaceholder';
 import SplashScreen from './components/SplashScreen';
 import { moduleInfoMap } from './data/mockData';
@@ -28,6 +29,7 @@ function ModuleRenderer({ activeModule }: { activeModule: string }) {
     case 'intents':         return <IntentRegistry />;
     case 'memory_monitor':  return <MemoryMonitor />;
     case 'pattern_lab':     return <PatternLab />;
+    case 'settings':        return <ApiSettings />;
     default: {
       const info = moduleInfoMap[activeModule];
       if (!info) return (

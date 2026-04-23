@@ -150,15 +150,29 @@ export default function UserApp() {
         </button>
       </div>
 
-      {/* ── Active Tab Content ── */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {tab === 'home'      && <UserHome userId={USER_ID} sessionId={sessionId.current} onTabChange={setTab} location={location} />}
-        {tab === 'reminders' && <RemindersView userId={USER_ID} />}
-        {tab === 'tasks'     && <TasksView userId={USER_ID} />}
-        {tab === 'memory'    && <MemoryView userId={USER_ID} />}
-        {tab === 'analytics' && <UserAnalytics userId={USER_ID} />}
-        {tab === 'location'  && <LocationView userId={USER_ID} location={location} />}
-        {tab === 'settings'  && <RogerSettings userId={USER_ID} />}
+      {/* ── Tab Content — all panels stay mounted, hidden via CSS to preserve state ── */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'home'      ? 'flex' : 'none', flexDirection: 'column' }}>
+          <UserHome userId={USER_ID} sessionId={sessionId.current} onTabChange={setTab} location={location} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'reminders' ? 'block' : 'none' }}>
+          <RemindersView userId={USER_ID} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'tasks'     ? 'block' : 'none' }}>
+          <TasksView userId={USER_ID} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'memory'    ? 'block' : 'none' }}>
+          <MemoryView userId={USER_ID} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'analytics' ? 'block' : 'none' }}>
+          <UserAnalytics userId={USER_ID} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'location'  ? 'block' : 'none' }}>
+          <LocationView userId={USER_ID} location={location} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings'  ? 'block' : 'none' }}>
+          <RogerSettings userId={USER_ID} />
+        </div>
       </div>
 
       {/* ── Bottom Tab Bar ── */}

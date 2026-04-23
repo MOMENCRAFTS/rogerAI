@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, StickyNote, Mic, Brain, Check, Trash2 } from 'lucide-react';
 
 import {
@@ -36,18 +36,26 @@ export default function MemoryView({ userId }: { userId: string }) {
   const [factFilter, setFactFilter] = useState<string>('all');
 
   // Load vault
-  useEffect(() => {
-    if (mainTab !== 'vault') return;
+  const loadVault = useCallback(() => {
     setVaultLoading(true);
     fetchMemories(userId).then(d => { setMemories(d); setVaultLoading(false); }).catch(() => setVaultLoading(false));
-  }, [userId, mainTab]);
+  }, [userId]);
 
   // Load memory graph
-  useEffect(() => {
-    if (mainTab !== 'roger_knows') return;
+  const loadFacts = useCallback(() => {
     setFactsLoading(true);
     fetchMemoryGraph(userId).then(d => { setFacts(d); setFactsLoading(false); }).catch(() => setFactsLoading(false));
-  }, [userId, mainTab]);
+  }, [userId]);
+
+  useEffect(() => { if (mainTab === 'vault') loadVault(); }, [mainTab, loadVault]);
+  useEffect(() => { if (mainTab === 'roger_knows') loadFacts(); }, [mainTab, loadFacts]);
+
+  // Live-refresh on every Roger conversation turn
+  useEffect(() => {
+    const handler = () => { loadVault(); loadFacts(); };
+    window.addEventListener('roger:refresh', handler);
+    return () => window.removeEventListener('roger:refresh', handler);
+  }, [loadVault, loadFacts]);
 
   const handleConfirmFact = async (id: string) => {
     await confirmMemoryFact(id).catch(() => {});

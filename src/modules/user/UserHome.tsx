@@ -262,6 +262,34 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // Persist Roger's turn
       insertConversationTurn({ user_id: userId, session_id: sessionId, role: 'assistant', content: result.roger_response, intent: result.intent, is_admin_test: isTest }).catch(() => {});
 
+      // ── Auto-create proposed tasks (from every turn, not just action intents) ──
+      if (result.proposed_tasks?.length) {
+        result.proposed_tasks.forEach(pt => {
+          insertTask({
+            user_id: userId, text: pt.text,
+            priority: pt.priority ?? 5, status: 'open',
+            due_at: null, source_tx_id: null, is_admin_test: isTest,
+          }).catch(() => {});
+        });
+      }
+
+      // ── Save every exchange as a memory capture (enriches Memory panel) ─────
+      insertMemory({
+        user_id: userId,
+        type: 'capture',
+        text: `Q: ${transcript}\nA: ${result.roger_response.split('\n\n📋')[0]}`, // strip proposals from stored text
+        entities: result.entities ?? null,
+        tags: [result.intent, ...(result.proposed_tasks?.length ? ['HAS_PROPOSALS'] : [])],
+        source_tx_id: sessionId,
+        is_admin_test: isTest,
+        location_label: location?.city ?? null,
+        location_lat:   location?.latitude  ?? null,
+        location_lng:   location?.longitude ?? null,
+      }).catch(() => {});
+
+      // ── Signal all panels to refresh ─────────────────────────────────────────
+      window.dispatchEvent(new CustomEvent('roger:refresh'));
+
       // Track entity mentions + pattern detection (fire-and-forget)
       if (result.entities?.length) {
         Promise.all(
@@ -452,9 +480,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           </div>
         )}
         {messages.map(msg => (
-          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+          <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 6 }}>
             <div style={{
-              maxWidth: '80%', padding: '10px 14px',
+              maxWidth: '85%', padding: '10px 14px',
               background: msg.role === 'user' ? 'rgba(212,160,68,0.1)' : msg.outcome === 'clarification' ? 'rgba(212,160,68,0.06)' : 'rgba(74,222,128,0.06)',
               border: `1px solid ${msg.role === 'user' ? 'rgba(212,160,68,0.2)' : msg.outcome === 'clarification' ? 'rgba(212,160,68,0.2)' : 'rgba(74,222,128,0.15)'}`,
             }}>
@@ -463,6 +491,42 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               </div>
               <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: 0, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
             </div>
+
+            {/* News article cards */}
+            {msg.news && msg.news.length > 0 && (
+              <div style={{ maxWidth: '85%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {msg.news.map((article, i) => (
+                  <a
+                    key={i}
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'block', padding: '10px 12px', textDecoration: 'none',
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(74,222,128,0.1)',
+                      borderLeft: '3px solid var(--green)',
+                      transition: 'background 150ms',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(74,222,128,0.07)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+                  >
+                    <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>
+                      📰 {article.source} · {new Date(article.publishedAt).toLocaleDateString()}
+                    </div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                      {article.title}
+                    </div>
+                    {article.description && (
+                      <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.3,
+                        overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                        {article.description}
+                      </div>
+                    )}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {(pttState === 'transcribing' || pttState === 'processing') && (
