@@ -2,6 +2,8 @@ package com.rogerai.app;
 
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -13,6 +15,17 @@ public class MainActivity extends BridgeActivity {
         // Register the PTT Button plugin before super.onCreate
         registerPlugin(PttButtonPlugin.class);
         super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        // Unlock audio in Capacitor WebView.
+        // Android WebView silences ALL media by default (setMediaPlaybackRequiresUserGesture=true).
+        // Without this override, Roger's TTS is completely silent on device even after a user tap.
+        WebView webView = getBridge().getWebView();
+        WebSettings settings = webView.getSettings();
+        settings.setMediaPlaybackRequiresUserGesture(false);
     }
 
     private PttButtonPlugin getPttPlugin() {
