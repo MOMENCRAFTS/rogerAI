@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Navigation, MapPin, Package, Clock, RefreshCw, Plus, CheckCircle, X, Car, Train, PersonStanding, Bike } from 'lucide-react';
 import {
   fetchCommuteProfile, upsertCommuteProfile,
@@ -50,9 +50,13 @@ export default function Commute() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Live ETA when profile + location are available
+  // Live ETA — throttled to once per 60 s to avoid hammering commute-eta edge fn
+  const etaLastFetchRef = useRef<number>(0);
   useEffect(() => {
     if (!profile?.work_address || !location) return;
+    const now = Date.now();
+    if (now - etaLastFetchRef.current < 60_000) return; // skip if called <60s ago
+    etaLastFetchRef.current = now;
     setEtaLoading(true);
     getCommute(location.latitude, location.longitude, profile.work_address, profile.commute_mode ?? 'driving')
       .then(result => { if (result) setEta(result); })

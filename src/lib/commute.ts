@@ -2,6 +2,7 @@
 // Calls the commute-eta Supabase edge function and caches results.
 
 import { supabase } from './supabase';
+import { fetchCommuteProfile } from './api';
 
 export interface CommuteDestination {
   label: string;
@@ -95,24 +96,15 @@ export function trafficLevel(durationSeconds: number | null): 'clear' | 'moderat
   return 'heavy';
 }
 
-/** Load user's saved home/work addresses from user_preferences */
+/** Load user's saved home/work addresses from commute profile */
 export async function loadUserDestinations(userId: string): Promise<CommuteDestination[]> {
   try {
-    const res = await supabase
-      .from('user_preferences')
-      .select('home_address, work_address, home_label, work_label')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (res.error || !res.data) return DEFAULT_DESTINATIONS;
+    const profile = await fetchCommuteProfile(userId);
+    if (!profile) return DEFAULT_DESTINATIONS;
 
     const dests: CommuteDestination[] = [];
-    if (res.data.home_address) {
-      dests.push({ label: res.data.home_label ?? 'Home', address: res.data.home_address });
-    }
-    if (res.data.work_address) {
-      dests.push({ label: res.data.work_label ?? 'Office', address: res.data.work_address });
-    }
+    if (profile.home_address) dests.push({ label: 'Home',   address: profile.home_address });
+    if (profile.work_address) dests.push({ label: 'Office', address: profile.work_address });
     return dests.length > 0 ? dests : DEFAULT_DESTINATIONS;
   } catch {
     return DEFAULT_DESTINATIONS;
