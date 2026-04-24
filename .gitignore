@@ -12,6 +12,7 @@ dist
 dist-ssr
 dist-apk
 *.local
+supabase.exe
 
 # Environment / secrets — NEVER commit these
 .env
