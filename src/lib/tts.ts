@@ -1,21 +1,21 @@
 // ─── Roger AI — Text-to-Speech ──────────────────────────────────────────────
 // Uses OpenAI TTS (tts-1 model, onyx voice) to speak Roger's responses.
 // Onyx = deep, clear, authoritative — perfect for radio/PTT aesthetic.
+//
+// ANDROID NOTE: Do NOT use Web Audio API (createMediaElementSource) here.
+// Connecting an HTMLAudioElement to an AudioContext detaches it from the
+// speaker pipeline in Android WebView, causing complete silence.
+// setMediaPlaybackRequiresUserGesture(false) in MainActivity handles autoplay.
 
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
 
 let currentAudio: HTMLAudioElement | null = null;
-let currentAudioCtx: AudioContext | null = null;
 
 export function stopSpeaking() {
   if (currentAudio) {
     currentAudio.pause();
     currentAudio.src = '';
     currentAudio = null;
-  }
-  if (currentAudioCtx) {
-    currentAudioCtx.close().catch(() => {});
-    currentAudioCtx = null;
   }
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     window.speechSynthesis.cancel();
@@ -51,7 +51,7 @@ export async function speakResponse(text: string): Promise<void> {
   const audio = new Audio(url);
   currentAudio = audio;
 
-  // Explicitly max out volume — mobile browsers default to ~0.5 on some devices
+  // Max volume — direct on the element, no Web Audio API routing
   audio.volume = 1.0;
 
   return new Promise((resolve, reject) => {
@@ -65,24 +65,6 @@ export async function speakResponse(text: string): Promise<void> {
       currentAudio = null;
       reject(e);
     };
-
-    audio.play()
-      .then(() => {
-        try {
-          // Route through Web Audio API → forces speaker channel (not earpiece/call)
-          // on iOS Safari & Android Chrome, and allows gain boosting.
-          const ctx = new AudioContext();
-          currentAudioCtx = ctx;
-          const source = ctx.createMediaElementSource(audio);
-          const gain   = ctx.createGain();
-          gain.gain.value = 1.5; // 1.5× boost — crisp loudness, no clipping
-          source.connect(gain);
-          gain.connect(ctx.destination);
-          if (ctx.state === 'suspended') ctx.resume();
-        } catch {
-          // Web Audio unavailable — plain play() already started, fine
-        }
-      })
-      .catch(reject);
+    audio.play().catch(reject);
   });
 }

@@ -18,6 +18,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- ─── OAuth deep link — Supabase redirects to com.rogerai.app:// ─── -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Custom URI scheme: com.rogerai.app://login-callback -->
+                <data android:scheme="com.rogerai.app" />
+            </intent-filter>
         </activity>
 
         <provider
@@ -37,6 +46,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" />
+    <!-- Required by @capacitor/haptics for vibration on Android -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- ─── Speech Recognition ──────────────────────────── -->
     <!-- Enables SpeechRecognizer API on Android 13+ -->

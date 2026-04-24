@@ -1,24 +1,40 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, MapPin } from 'lucide-react';
 import MorningBriefing from './MorningBriefing';
+import SpotifyMiniPlayer from './SpotifyMiniPlayer';
 import { useLocation, type UserLocation } from '../../lib/useLocation';
 import { getCommute } from '../../lib/api';
 import { checkGeoFences, geocodePlace } from '../../lib/geoFence';
 import { supabase } from '../../lib/supabase';
+import {
+  hapticPTTDown, hapticPTTUp, hapticRogerSpeaking,
+  hapticResponseReceived, hapticError, hapticGeoAlert, hapticSurface,
+} from '../../lib/haptics';
+import {
+  preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError,
+} from '../../lib/sfx';
 
 import { processTransmission, extractMemoryFacts, type ConversationTurn } from '../../lib/openai';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
 import { fetchNews, type NewsArticle } from '../../lib/news';
+import { fetchQuote, detectTicker, fetchMarketContext, quoteToSpeech } from '../../lib/finance';
+import { fetchFlightStatus, parseFlight, flightToSpeech } from '../../lib/flight';
+import { fetchTodayEvents, createCalendarEvent, deleteCalendarEvent, eventToSpeech } from '../../lib/googleCalendar';
+import { playSearch, pausePlayback, nextTrack, isSpotifyConnected } from '../../lib/spotify';
+import { pushTaskToNotion } from '../../lib/notion';
 import { createAudioRecorder } from '../../lib/audioRecorder';
+import { logClarification } from '../../lib/clarificationLogger';
 import {
   insertReminder, insertTask, insertMemory,
   fetchSurfaceQueue, updateSurfaceItem,
+  subscribeToRelayMessages, deferRelayMessage, markRelayRead,
   insertConversationTurn, upsertEntityMention,
   fetchFrequentEntities, markEntitySurfaced, insertSurfaceItem,
   fetchReminders, fetchTasks, fetchMemoryGraph,
-  type DbSurfaceItem,
+  type DbSurfaceItem, type DbRelayMessage,
 } from '../../lib/api';
+import { useArrivalDebrief } from '../../lib/useArrivalDebrief';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
@@ -37,6 +53,17 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [surfaceItems, setSurfaceItems] = useState<DbSurfaceItem[]>([]);
   const [activeSurface, setActiveSurface] = useState<DbSurfaceItem | null>(null);
   const [rogerMode]               = useState<'quiet' | 'active' | 'briefing'>('active');
+  const [clarifQuestion, setClarifQuestion] = useState<string>('');
+  const [clarifCountdown, setClarifCountdown] = useState(0);
+  const clarifTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // ── Relay inbox state ──────────────────────────────────────────────────────
+  const [incomingRelay, setIncomingRelay] = useState<DbRelayMessage | null>(null);
+  // ── Tune In state ──────────────────────────────────────────────────────────
+  const [activeTuneInSession, setActiveTuneInSession] = useState<{ sessionId: string; withName: string } | null>(null);
+  const [incomingTuneInRequest, setIncomingTuneInRequest] = useState<{ requestId: string; from: string; callsign: string; reason: string | null; expiresAt: string } | null>(null);
+  const [pendingContactSave, setPendingContactSave] = useState<{ callsign: string; contactName: string } | null>(null);
+  const [contactSaveInput, setContactSaveInput] = useState('');
+  const [myCallsign, setMyCallsign] = useState<string | null>(null);
 
   // Use prop location if provided (lifted from UserApp), fall back to own hook for standalone use
   const { location: hookLocation, locationLabel: hookLabel } = useLocation(userId);
@@ -50,6 +77,28 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const awaitRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Arrival debrief — geo-triggered spoken brief on arriving at work/home
+  useArrivalDebrief(userId, location ?? null, (text) => {
+    setMessages(prev => [...prev, {
+      id: `arrival-${Date.now()}`, role: 'roger',
+      text, ts: Date.now(), type: 'response' as const,
+    }]);
+    speakResponse(text).catch(() => {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    });
+  });
+
+  // Load own callsign
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('user_callsigns').select('callsign').eq('user_id', userId).maybeSingle();
+        if (data?.callsign) setMyCallsign(data.callsign);
+      } catch { /* silent */ }
+    })();
+  }, [userId]);
 
   // Auto-scroll
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
@@ -85,6 +134,84 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     }).catch(() => {});
   }, [userId]);
 
+  // Subscribe to incoming relay messages via Supabase Realtime
+  useEffect(() => {
+    const channel = subscribeToRelayMessages(userId, (msg) => {
+      setIncomingRelay(msg);
+      // Speak Roger's delivery line via TTS
+      const timeRef = (() => {
+        const m = Math.floor((Date.now() - new Date(msg.created_at).getTime()) / 60000);
+        return m < 1 ? 'just now' : m < 60 ? `${m} minutes ago` : `${Math.floor(m / 60)} hours ago`;
+      })();
+      const prefix = msg.priority === 'emergency' ? 'EMERGENCY relay incoming from'
+        : msg.priority === 'urgent' ? 'Urgent message from'
+        : 'Message from';
+      const spoken = `${prefix} one of your contacts, ${timeRef}: ${msg.roger_summary ?? msg.transcript}. Over.`;
+      speakResponse(spoken).catch(() => {});
+    });
+    return () => { channel.unsubscribe(); };
+  }, [userId]);
+
+  // Subscribe to Tune In Realtime events
+  useEffect(() => {
+    // tunein-{userId} — incoming requests / accepted / declined
+    const requestCh = supabase
+      .channel(`tunein-${userId}`)
+      .on('broadcast', { event: 'tune_in_request' }, ({ payload }) => {
+        const p = payload as { requestId: string; from: string; callsign: string; reason: string | null; expiresAt: string; rogerSpeak?: string };
+        setIncomingTuneInRequest({ requestId: p.requestId, from: p.from, callsign: p.callsign, reason: p.reason, expiresAt: p.expiresAt });
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+      })
+      .on('broadcast', { event: 'tune_in_accepted' }, ({ payload }) => {
+        const p = payload as { sessionId: string; withName: string; rogerSpeak?: string };
+        setActiveTuneInSession({ sessionId: p.sessionId, withName: p.withName });
+        setIncomingTuneInRequest(null);
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+      })
+      .on('broadcast', { event: 'tune_in_declined' }, ({ payload }) => {
+        const p = payload as { rogerSpeak?: string };
+        setIncomingTuneInRequest(null);
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+      })
+      .subscribe();
+
+    return () => { requestCh.unsubscribe(); };
+  }, [userId]);
+
+  // Subscribe to active session events (turn relay + session end)
+  useEffect(() => {
+    if (!activeTuneInSession) return;
+    const { sessionId: sid, withName } = activeTuneInSession;
+
+    const sessionCh = supabase
+      .channel(`tunein-session-${sid}`)
+      .on('broadcast', { event: 'session_turn' }, ({ payload }) => {
+        const p = payload as { speakerId: string; spokenLine: string; transcript: string };
+        // Only speak turns from the OTHER person
+        if (p.speakerId !== userId && p.spokenLine) {
+          speakResponse(p.spokenLine).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.spokenLine)); });
+          setMessages(prev => [...prev, { id: `turn-${Date.now()}`, role: 'roger', text: `📡 ${withName}: ${p.transcript}`, ts: Date.now() }]);
+        }
+      })
+      .on('broadcast', { event: 'session_ended' }, ({ payload }) => {
+        const p = payload as { rogerSpeak?: string };
+        const prevSession = activeTuneInSession; // capture before clearing
+        setActiveTuneInSession(null);
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+        // If the other person was a stranger (not yet saved as contact), prompt to save
+        if (prevSession?.withName?.startsWith('Callsign ')) {
+          const cs = prevSession.withName.replace('Callsign ', '');
+          setPendingContactSave({ callsign: cs, contactName: '' });
+          setContactSaveInput('');
+          const prompt = `That was Callsign ${cs}. Want to save them as a contact? Just type or say their name.`;
+          setTimeout(() => speakResponse(prompt).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(prompt)); }), 2000);
+        }
+      })
+      .subscribe();
+
+    return () => { sessionCh.unsubscribe(); };
+  }, [activeTuneInSession, userId]);
+
   // ── Geo-fence check — runs every time GPS updates (~60s) ─────────────────────
   useEffect(() => {
     if (!location) return;
@@ -92,6 +219,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       triggered.forEach(reminder => {
         // Mark as geo_triggered so it won't fire again
         Promise.resolve(supabase.from('reminders').update({ geo_triggered: true }).eq('id', reminder.id)).then(() => {}).catch(() => {});
+        // Haptic alert for geo-fence trigger
+        hapticGeoAlert();
         // Surface as high-priority card
         insertSurfaceItem({
           user_id: userId, type: 'GEO_REMINDER',
@@ -113,6 +242,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     if (rogerMode !== 'active' || surfaceItems.length === 0 || pttState !== 'idle') return;
     const item = surfaceItems[0];
     setActiveSurface(item);
+    hapticSurface();
     const script = `${item.content} Over.`;
     setPttState('speaking');
     setIsSpeaking(true);
@@ -129,6 +259,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
   useEffect(() => { resetIdleTimer(); return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); }; }, [resetIdleTimer]);
 
+  // Preload SFX buffers once on mount
+  useEffect(() => { preloadAll(); }, []);
+
   // ── PTT Down ──────────────────────────────────────────────────────────────
   const handlePTTDown = useCallback(async () => {
     resetIdleTimer();
@@ -136,6 +269,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     else if (pttState !== 'idle' && pttState !== 'responded' && pttState !== 'awaiting_answer') return;
     if (awaitRef.current) clearTimeout(awaitRef.current);
     stopSpeaking(); setIsSpeaking(false);
+    hapticPTTDown();
+    sfxPTTDown();
     setPttState('recording'); setHoldMs(0);
     holdRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
 
@@ -152,8 +287,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     if (pttState !== 'recording') return;
     if (holdRef.current) clearInterval(holdRef.current);
     resetIdleTimer();
+    hapticPTTUp();
+    sfxPTTUp();
 
     if (holdMs < 300) {
+      hapticError();
+      sfxError();
       setPttState('idle');
       const m = 'Too brief. Hold and speak clearly. Over.';
       speakResponse(m).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); });
@@ -190,7 +329,33 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     setPttState('processing');
 
     try {
-      // Build location context string for GPT-4o injection
+    // ── SESSION MODE: In active Tune In session — relay PTT to partner ──────
+    if (activeTuneInSession) {
+      const sess = activeTuneInSession;
+      const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+      // Check for TUNE_IN_FLAG keyword before relaying
+      const isFlagged = /flag this|note this|mark this|remember this/i.test(transcript);
+
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        const token = session?.access_token ?? SUPABASE_ANON_KEY;
+        await fetch(`${SUPABASE_URL}/functions/v1/relay-session-turn`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ sessionId: sess.sessionId, transcript, isFlagged }),
+        });
+      }).catch(() => {});
+
+      // Show transcript in message log
+      setMessages(prev => [...prev, { id: `r-${Date.now()}`, role: 'roger', text: `📡 You → ${sess.withName}: ${transcript}${isFlagged ? ' ⭐' : ''}`, ts: Date.now() }]);
+      setPttState('responded');
+      const ack = isFlagged ? 'Flagged and relayed. Over.' : 'Relayed. Over.';
+      speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+      return;
+    }
+
+    // Build location context string for GPT-4o injection
       const locationContext = location
         ? `${location.city ? `${location.city}, ` : ''}${location.country ?? ''} (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`.trim()
         : undefined;
@@ -203,7 +368,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       ]);
 
       // Persist turns to conversation_history (fire-and-forget)
-      const isTest = userId.includes('ADMIN');
+      const isTest = false;
       insertConversationTurn({ user_id: userId, session_id: sessionId, role: 'user', content: transcript, intent: null, is_admin_test: isTest }).catch(() => {});
 
       // Save to DB based on intent
@@ -327,10 +492,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             intent: result.intent, outcome: 'success',
             news: brief.articles,
           }]);
+          hapticRogerSpeaking();
+          sfxRogerIn();
           setPttState('speaking'); setIsSpeaking(true);
           try { await speakResponse(newsText); }
           catch { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(newsText)); }
-          setIsSpeaking(false); setPttState('responded');
+          setIsSpeaking(false);
+          sfxRogerOut();
+          setPttState('responded');
           return;
         } catch {
           // Fall through to GPT-4o response if news fetch fails
@@ -352,7 +521,468 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }).catch(() => {});
         }
       }
+
+      // ── DEPARTURE_SIGNAL — log departure + prep brief ─────────────────────
+      if (result.intent === 'DEPARTURE_SIGNAL') {
+        import('../../lib/api').then(async ({ fetchCommuteProfile, fetchErrands }) => {
+          const [prof, errands] = await Promise.all([
+            fetchCommuteProfile(userId).catch(() => null),
+            fetchErrands(userId, 'pending').catch(() => []),
+          ]);
+          const parts: string[] = ['Departure logged.'];
+          if (prof?.work_address) parts.push(`ETA to ${prof.work_address} calculating.`);
+          if (errands.length > 0) parts.push(`${errands.length} errand${errands.length > 1 ? 's' : ''} on your list.`);
+          parts.push('Have a safe drive. Over.');
+          const brief = parts.join(' ');
+          speakResponse(brief).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(brief)); });
+        }).catch(() => {});
+      }
+
+      // ── PARK_REMEMBER — log parking spot ──────────────────────────────────
+      if (result.intent === 'PARK_REMEMBER') {
+        const spotEntity = result.entities?.find(e => e.type === 'PARKING_SPOT' || e.type === 'LOCATION');
+        const label = (spotEntity?.text ?? transcript.replace(/parked|park|remember|i'm|at|on/gi, '').trim()) || 'Parking location';
+        import('../../lib/api').then(({ logParking }) => {
+          logParking(userId, label, {
+            lat:  location?.latitude  ?? undefined,
+            lng:  location?.longitude ?? undefined,
+          }).catch(() => {});
+        }).catch(() => {});
+      }
+
+      // ── PARK_RECALL — fetch and speak last parking spot ───────────────────
+      if (result.intent === 'PARK_RECALL') {
+        import('../../lib/api').then(async ({ fetchLatestParking }) => {
+          const park = await fetchLatestParking(userId).catch(() => null);
+          const msg = park
+            ? `Your last logged parking: ${park.location_label}. Logged ${Math.floor((Date.now() - new Date(park.created_at).getTime()) / 60000)} minutes ago. Over.`
+            : 'No parking location logged. To save it, say: I parked at Level B2. Over.';
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        }).catch(() => {});
+      }
+
+      // ── ERRAND_ADD — insert errand item ───────────────────────────────────
+      if (result.intent === 'ERRAND_ADD') {
+        const item  = result.entities?.find(e => e.type === 'ERRAND_ITEM');
+        const place = result.entities?.find(e => e.type === 'ERRAND_LOCATION');
+        if (item?.text) {
+          import('../../lib/api').then(({ insertErrand }) => {
+            insertErrand({
+              user_id: userId, item: item.text,
+              location_hint: place?.text ?? null,
+              location_lat: null, location_lng: null,
+              radius_m: 300, status: 'pending', source_tx_id: null,
+            }).catch(() => {});
+          }).catch(() => {});
+        }
+      }
+
+      // ── ROAD_BRIEF — speak a quick road summary ───────────────────────────
+      if (result.intent === 'ROAD_BRIEF' && location) {
+        import('../../lib/api').then(async ({ fetchCommuteProfile, fetchErrands, getCommute }) => {
+          const [prof, errands] = await Promise.all([
+            fetchCommuteProfile(userId).catch(() => null),
+            fetchErrands(userId, 'pending').catch(() => []),
+          ]);
+          const parts: string[] = ['Road brief:'];
+          if (prof?.work_address) {
+            const eta = await getCommute(location.latitude, location.longitude, prof.work_address, prof.commute_mode ?? 'driving').catch(() => null);
+            if (eta) parts.push(`${eta.duration} to ${prof.work_address}.`);
+          }
+          if (errands.length > 0) {
+            const top = errands.slice(0, 2).map(e => e.item).join(', ');
+            parts.push(`${errands.length} errands including: ${top}.`);
+          }
+          parts.push('Over.');
+          const brief = parts.join(' ');
+          speakResponse(brief).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(brief)); });
+        }).catch(() => {});
+      }
+
+      // ── TUNE_IN_REQUEST — dial by code or by contact name ────────────────
+      if (result.intent === 'TUNE_IN_REQUEST') {
+        const callsignEnt = result.entities?.find(e => e.type === 'CALLSIGN');
+        const nameEnt     = result.entities?.find(e => e.type === 'CONTACT_NAME');
+        const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+        const doTuneInRequest = async (targetCallsign: string, reason?: string) => {
+          const { data: { session } } = await (await import('../../lib/supabase')).supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+          const token = session?.access_token ?? SUPABASE_ANON_KEY;
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/request-tune-in`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ targetCallsign, reason }),
+          }).then(r => r.json()).catch(() => ({ ok: false, rogerResponse: 'Connection failed. Over.' }));
+          const msg = res.rogerResponse ?? result.roger_response;
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        };
+
+        if (callsignEnt?.text) {
+          doTuneInRequest(callsignEnt.text.toUpperCase(), nameEnt?.text).catch(() => {});
+        } else if (nameEnt?.text) {
+          // Resolve name → callsign from roger_contacts
+          import('../../lib/supabase').then(async ({ supabase }) => {
+            const { data: contact } = await supabase
+              .from('roger_contacts')
+              .select('callsign, display_name')
+              .ilike('display_name', `%${nameEnt.text}%`)
+              .eq('user_id', userId)
+              .maybeSingle();
+            if (contact?.callsign) {
+              doTuneInRequest(contact.callsign, `Request from ${contact.display_name}`).catch(() => {});
+            } else {
+              const msg = `${nameEnt.text} doesn't have a callsign saved. Ask them to share their Roger code. Over.`;
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            }
+          }).catch(() => {});
+        }
+      }
+
+      // ── TUNE_IN_ACCEPT — accept incoming request by voice ─────────────────
+      if (result.intent === 'TUNE_IN_ACCEPT' && incomingTuneInRequest) {
+        const req = incomingTuneInRequest;
+        const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+        import('../../lib/supabase').then(async ({ supabase }) => {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token ?? SUPABASE_ANON_KEY;
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/accept-tune-in`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ requestId: req.requestId }),
+          }).then(r => r.json()).catch(() => ({ ok: false }));
+          if (res.ok) {
+            setActiveTuneInSession({ sessionId: res.sessionId, withName: res.withName ?? req.from });
+            setIncomingTuneInRequest(null);
+            const msg = res.rogerResponse ?? result.roger_response;
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }
+        }).catch(() => {});
+      }
+
+      // ── TUNE_IN_DECLINE ───────────────────────────────────────────────────
+      if (result.intent === 'TUNE_IN_DECLINE' && incomingTuneInRequest) {
+        const req = incomingTuneInRequest;
+        const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+        import('../../lib/supabase').then(async ({ supabase }) => {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token ?? SUPABASE_ANON_KEY;
+          await fetch(`${SUPABASE_URL}/functions/v1/decline-tune-in`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ requestId: req.requestId }),
+          }).catch(() => {});
+          setIncomingTuneInRequest(null);
+        }).catch(() => {});
+      }
+
+      // ── TUNE_IN_END ───────────────────────────────────────────────────────
+      if (result.intent === 'TUNE_IN_END' && activeTuneInSession) {
+        const sess = activeTuneInSession;
+        const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+        import('../../lib/supabase').then(async ({ supabase }) => {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token ?? SUPABASE_ANON_KEY;
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/end-tune-in`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ sessionId: (sess as { sessionId: string; withName: string }).sessionId }),
+          }).then(r => r.json()).catch(() => ({ ok: false }));
+          setActiveTuneInSession(null);
+          const msg = res.rogerResponse ?? result.roger_response;
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        }).catch(() => {});
+      }
+
+      // ── TUNE_IN_FLAG — mark current turn in session ───────────────────────
+      if (result.intent === 'TUNE_IN_FLAG' && activeTuneInSession) {
+        const sess = activeTuneInSession;
+        const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+        import('../../lib/supabase').then(async ({ supabase }) => {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token ?? SUPABASE_ANON_KEY;
+          await fetch(`${SUPABASE_URL}/functions/v1/relay-session-turn`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ sessionId: (sess as { sessionId: string; withName: string }).sessionId, transcript: `[FLAGGED] ${transcript}`, isFlagged: true }),
+          }).catch(() => {});
+        }).catch(() => {});
+      }
+
+      // ── SAVE_CONTACT — voice-save a stranger met via Tune In ─────────────────
+      if (result.intent === 'SAVE_CONTACT' && pendingContactSave) {
+        const nameEnt = result.entities?.find(e => e.type === 'CONTACT_NAME');
+        const name = nameEnt?.text ?? transcript.replace(/save (as|contact|them as)?/i, '').trim();
+        if (name) {
+          Promise.resolve(
+            supabase.from('user_callsigns').select('user_id').eq('callsign', pendingContactSave.callsign).maybeSingle()
+          ).then(async ({ data: csRow }) => {
+              if (csRow?.user_id) {
+                await supabase.from('roger_contacts').upsert(
+                  { user_id: userId, contact_id: csRow.user_id, display_name: name, callsign: pendingContactSave.callsign },
+                  { onConflict: 'user_id,contact_id' }
+                );
+              }
+              setPendingContactSave(null);
+              setContactSaveInput('');
+              const conf = `${name} saved. You can now say "tune in with ${name}" to reach them. Over.`;
+              speakResponse(conf).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(conf)); });
+            }).catch(() => {});
+
+        }
+      }
+
+      // ── SESSION_QUERY — search + read back past session notes ──────────────
+      if (result.intent === 'SESSION_QUERY') {
+        const nameEnt  = result.entities?.find(e => e.type === 'CONTACT_NAME');
+        const topicEnt = result.entities?.find(e => e.type === 'TOPIC');
+        const keyword  = nameEnt?.text ?? topicEnt?.text ?? '';
+
+        import('../../lib/api').then(async ({ searchSessions, fetchSessionArchive }) => {
+          const results = keyword
+            ? await searchSessions(userId, keyword)
+            : await fetchSessionArchive(userId);
+
+          if (results.length === 0) {
+            const msg = `No sessions found${keyword ? ` mentioning ${keyword}` : ''}. Over.`;
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            return;
+          }
+
+          const top = results[0];
+          const who = top.contact_name ?? top.contact_callsign ?? 'Unknown';
+          const when = new Date(top.session_start).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+          const dur = top.duration_min < 1 ? 'under a minute' : `${top.duration_min} minute${top.duration_min !== 1 ? 's' : ''}`;
+
+          let msg = `Your most recent session with ${who} was ${when}, ${dur} long.`;
+          if (top.roger_notes) {
+            // Speak a trimmed version (first 180 chars)
+            const notePreview = top.roger_notes.length > 180
+              ? top.roger_notes.slice(0, 180).replace(/\s\S+$/, '') + '...'
+              : top.roger_notes;
+            msg += ` Roger's debrief: ${notePreview}`;
+          }
+          msg += ' Full transcript is in your Session Log. Over.';
+
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+
+          // Surface a card pointing to the archive
+          insertSurfaceItem({
+            user_id: userId, type: 'SESSION_RECAP',
+            content: `Session with ${who} (${when}) — tap to view full transcript & notes`,
+            priority: 7, dismissed: false, snooze_count: 0,
+            surface_at: new Date().toISOString(),
+            context: top.id, source_tx_id: null,
+          }).catch(() => {});
+        }).catch(() => {});
+      }
+
+      // ── QUERY_STOCK — live stock quote ──────────────────────────────────────
+      if (result.intent === 'QUERY_STOCK' || result.intent === 'MARKET_BRIEF') {
+        const tickerEnt = result.entities?.find(e => e.type === 'STOCK_TICKER');
+        const ticker = tickerEnt?.text ?? detectTicker(transcript);
+
+        if (result.intent === 'MARKET_BRIEF' || !ticker) {
+          // Market overview
+          fetchMarketContext(['AAPL', 'MSFT', 'NVDA', 'TSLA']).then(ctx => {
+            const msg = ctx ? `Market brief: ${ctx}. Over.` : 'Market data unavailable at this time. Over.';
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {});
+        } else {
+          fetchQuote(ticker).then(quote => {
+            const msg = quote ? quoteToSpeech(quote) : `Could not retrieve ${ticker} data right now. Over.`;
+            if (quote) {
+              setMessages(prev => [...prev, {
+                id: `stock-${Date.now()}`, role: 'roger' as const,
+                text: `📈 ${quote.ticker} · $${quote.price} · ${quote.changePct >= 0 ? '▲' : '▼'}${Math.abs(quote.changePct).toFixed(2)}%`,
+                ts: Date.now(), intent: result.intent, outcome: 'success',
+              }]);
+            }
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {});
+        }
+      }
+
+      // ── QUERY_FLIGHT — live flight status ────────────────────────────────────
+      if (result.intent === 'QUERY_FLIGHT') {
+        const flightEnt = result.entities?.find(e => e.type === 'FLIGHT_NUMBER');
+        const flightNum = flightEnt?.text ?? parseFlight(transcript);
+
+        if (flightNum) {
+          fetchFlightStatus(flightNum).then(flight => {
+            const msg = flight ? flightToSpeech(flight) : `Could not find status for flight ${flightNum}. Over.`;
+            if (flight) {
+              const statusEmoji = { scheduled:'🕐', active:'✈️', landed:'🛬', cancelled:'❌', incident:'⚠️', diverted:'🔀', unknown:'❓' }[flight.status] ?? '✈️';
+              setMessages(prev => [...prev, {
+                id: `flight-${Date.now()}`, role: 'roger' as const,
+                text: `${statusEmoji} ${flight.flightNumber} · ${flight.airline} · ${flight.status.toUpperCase()}${flight.delayMinutes ? ` · +${flight.delayMinutes}min` : ''}`,
+                ts: Date.now(), intent: result.intent, outcome: 'success',
+              }]);
+            }
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {
+            const msg = 'Flight tracking unavailable. Check your AviationStack API key. Over.';
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          });
+        }
+      }
+
+      // ── SEND_SMS — Twilio outbound text message ───────────────────────────────
+      if (result.intent === 'SEND_SMS') {
+        const recipientEnt = result.entities?.find(e => e.type === 'RELAY_RECIPIENT' || e.type === 'PHONE_NUMBER');
+        const contentEnt   = result.entities?.find(e => e.type === 'RELAY_CONTENT');
+        const recipient    = recipientEnt?.text;
+        const content      = contentEnt?.text ?? transcript.replace(/text|sms|message|send to/gi, '').trim();
+
+        if (recipient && content) {
+          // Look up phone number from contacts
+          import('../../lib/supabase').then(async ({ supabase: sb }) => {
+            const { data: contact } = await sb
+              .from('roger_contacts')
+              .select('display_name, phone_number')
+              .ilike('display_name', `%${recipient}%`)
+              .eq('user_id', userId)
+              .maybeSingle();
+
+            const phone = contact?.phone_number ?? (recipientEnt?.type === 'PHONE_NUMBER' ? recipient : null);
+            if (!phone) {
+              const noPhone = `${recipient} doesn't have a phone number saved. Add it in your Memory Vault. Over.`;
+              speakResponse(noPhone).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(noPhone)); });
+              return;
+            }
+
+            const SUPABASE_URL_VAL      = import.meta.env.VITE_SUPABASE_URL as string;
+            const SUPABASE_ANON_KEY_VAL = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+            const { data: { session: authSess } } = await sb.auth.getSession();
+            const authToken = authSess?.access_token ?? SUPABASE_ANON_KEY_VAL;
+
+            const smsRes = await fetch(`${SUPABASE_URL_VAL}/functions/v1/twilio-sms`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+              body: JSON.stringify({ to: phone, message: content }),
+            });
+            const smsData = await smsRes.json() as { ok?: boolean; error?: string };
+            const msg = smsData.ok
+              ? `SMS sent to ${contact?.display_name ?? recipient}. Over.`
+              : `SMS failed: ${smsData.error ?? 'unknown error'}. Over.`;
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {});
+        }
+      }
+
+      // ── CHECK_CALENDAR / BOOK_MEETING / CANCEL_MEETING ───────────────────────
+      if (['CHECK_CALENDAR','FIND_FREE_SLOT','BOOK_MEETING','CANCEL_MEETING'].includes(result.intent)) {
+        if (result.intent === 'CHECK_CALENDAR' || result.intent === 'FIND_FREE_SLOT') {
+          fetchTodayEvents(userId).then(cal => {
+            if (!cal.events.length) {
+              const msg = 'Your calendar is clear today. Over.';
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              return;
+            }
+            const summary = cal.events.slice(0, 3).map(eventToSpeech).join(', then ');
+            const msg = `You have ${cal.events.length} event${cal.events.length > 1 ? 's' : ''} today. ${summary}. Over.`;
+            setMessages(prev => [...prev, {
+              id: `cal-${Date.now()}`, role: 'roger' as const,
+              text: `📅 ${cal.events.length} events today`,
+              ts: Date.now(), intent: result.intent, outcome: 'success',
+            }]);
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {
+            const msg = 'Calendar not connected. Go to Settings to link your Google Calendar. Over.';
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          });
+        }
+
+        if (result.intent === 'BOOK_MEETING') {
+          const titleEnt = result.entities?.find(e => e.type === 'MEETING_TITLE');
+          const timeEnt  = result.entities?.find(e => e.type === 'MEETING_TIME');
+          const title = titleEnt?.text ?? 'Meeting';
+          // Simple time parsing — GPT-4o gives natural language hints like "3pm tomorrow"
+          // For now surface as a task if no parseable time; a full NLP date parser can be added
+          if (timeEnt?.text) {
+            const now = new Date();
+            // Attempt basic hour extraction for same-day events
+            const hourMatch = timeEnt.text.match(/(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+            let startIso = now.toISOString();
+            if (hourMatch) {
+              let hour = parseInt(hourMatch[1], 10);
+              const min = parseInt(hourMatch[2] ?? '0', 10);
+              const ampm = hourMatch[3]?.toLowerCase();
+              if (ampm === 'pm' && hour < 12) hour += 12;
+              if (ampm === 'am' && hour === 12) hour = 0;
+              const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, min);
+              if (timeEnt.text.toLowerCase().includes('tomorrow')) start.setDate(start.getDate() + 1);
+              startIso = start.toISOString();
+            }
+            const endIso = new Date(new Date(startIso).getTime() + 60 * 60 * 1000).toISOString();
+            createCalendarEvent(userId, { title, startIso, endIso }).then(() => {
+              const msg = `${title} booked at ${timeEnt.text}. Confirmed. Over.`;
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            }).catch(() => {
+              const msg = 'Could not book meeting. Calendar not connected. Over.';
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            });
+          }
+        }
+
+        if (result.intent === 'CANCEL_MEETING') {
+          const titleEnt = result.entities?.find(e => e.type === 'MEETING_TITLE');
+          if (titleEnt?.text) {
+            deleteCalendarEvent(userId, titleEnt.text).then(ok => {
+              const msg = ok ? `${titleEnt.text} cancelled. Over.` : `Could not find that meeting to cancel. Over.`;
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            }).catch(() => {});
+          }
+        }
+      }
+
+      // ── SPOTIFY MUSIC INTENTS ─────────────────────────────────────────────────
+      if (['PLAY_MUSIC','PLAY_PLAYLIST','PAUSE_MUSIC','SKIP_TRACK'].includes(result.intent)) {
+        if (!isSpotifyConnected()) {
+          const msg = 'Spotify not connected. Go to Settings to link your account. Over.';
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        } else if (result.intent === 'PAUSE_MUSIC') {
+          pausePlayback().then(() => {
+            const msg = 'Music paused. Over.';
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {});
+        } else if (result.intent === 'SKIP_TRACK') {
+          nextTrack().then(() => {
+            const msg = 'Skipping. Over.';
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {});
+        } else {
+          // PLAY_MUSIC or PLAY_PLAYLIST
+          const moodEnt    = result.entities?.find(e => e.type === 'MOOD');
+          const playlistEnt = result.entities?.find(e => e.type === 'PLAYLIST_NAME');
+          const artistEnt  = result.entities?.find(e => e.type === 'ARTIST_NAME');
+          const query = playlistEnt?.text ?? artistEnt?.text ?? moodEnt?.text ?? transcript.replace(/play|music|queue|spotify/gi, '').trim();
+          playSearch(query).then(label => {
+            const msg = label ? `Playing ${label}. Over.` : 'Could not find that on Spotify. Over.';
+            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          }).catch(() => {});
+        }
+      }
+
+      // ── LOG_TO_NOTION ────────────────────────────────────────────────────────
+      if (result.intent === 'LOG_TO_NOTION') {
+        pushTaskToNotion(userId, {
+          title: transcript,
+          priority: 5,
+          tags: [result.intent, ...(result.entities?.map(e => e.text) ?? [])],
+        }).then(page => {
+          const msg = page ? `Logged to Notion. Over.` : 'Notion not connected. Add your token in Settings. Over.';
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        }).catch(() => {});
+      }
+
       extractMemoryFacts(transcript, result.roger_response, userId).catch(() => {});
+
+
 
       // Meeting Prep Cards — surface what Roger knows about mentioned people
       const mentionedPeople = (result.entities ?? []).filter(e => e.type === 'PERSON');
@@ -385,20 +1015,55 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         ts: Date.now(), intent: result.intent, outcome: result.outcome,
       }]);
 
+      hapticResponseReceived();
+
       // TTS
+      hapticRogerSpeaking();
+      sfxRogerIn();
       setPttState('speaking'); setIsSpeaking(true);
       try { await speakResponse(result.roger_response); }
       catch { try { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(result.roger_response); window.speechSynthesis.speak(u); await new Promise<void>(res => { u.onend = () => res(); }); } catch { /* silent */ } }
       setIsSpeaking(false);
+      sfxRogerOut();
 
       if (result.outcome === 'clarification') {
         setPttState('awaiting_answer');
+        // Store the question Roger asked for the overlay
+        setClarifQuestion(result.roger_response);
+        // Log clarification to DB so admin can see it
+        const txStart = Date.now();
+        logClarification({
+          userId,
+          sessionId,
+          transcript,
+          rogerQuestion:  result.roger_response,
+          ambiguity:      result.ambiguity ?? 70,
+          intent:         result.intent,
+          latencyMs:      Date.now() - txStart,
+        });
+        // Countdown ring: 8 seconds
+        setClarifCountdown(8);
+        if (clarifTimerRef.current) clearInterval(clarifTimerRef.current);
+        clarifTimerRef.current = setInterval(() => {
+          setClarifCountdown(c => {
+            if (c <= 1) {
+              clearInterval(clarifTimerRef.current!);
+              setClarifQuestion('');
+              setPttState(s => s === 'awaiting_answer' ? 'idle' : s);
+              return 0;
+            }
+            return c - 1;
+          });
+        }, 1000);
+        // Auto-PTT after 800ms so user can answer hands-free
         awaitRef.current = setTimeout(() => handlePTTDown(), 800);
-        setTimeout(() => { if (awaitRef.current) clearTimeout(awaitRef.current); setPttState(s => s === 'awaiting_answer' ? 'idle' : s); }, 8000);
       } else {
+        setClarifQuestion('');
         setPttState('responded');
       }
     } catch (e) {
+      hapticError();
+      sfxError();
       const m = e instanceof Error && e.message.includes('abort') ? 'Signal timeout. Retry. Over.' : 'AI offline. Retry. Over.';
       speakResponse(m).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); });
       setIsSpeaking(false); setPttState('responded');
@@ -420,16 +1085,37 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
   // ── State display ─────────────────────────────────────────────────────────
   const stateLabel = pttState === 'recording' ? `● REC ${(holdMs/1000).toFixed(1)}s`
-    : pttState === 'transcribing' ? 'WHISPER...'
-    : pttState === 'processing'   ? 'THINKING...'
-    : pttState === 'speaking'     ? 'ROGER SPEAKING'
-    : pttState === 'awaiting_answer' ? 'ANSWER ROGER'
-    : 'HOLD TO TRANSMIT';
+    : pttState === 'transcribing' ? '▸▸ TRANSCRIBING...'
+    : pttState === 'processing'   ? '◈ THINKING...'
+    : pttState === 'speaking'     ? '◉ ROGER SPEAKING'
+    : pttState === 'awaiting_answer' ? '⚡ ANSWER NOW'
+    : pttState === 'responded'    ? '✓ STANDING BY'
+    : '▣ HOLD TO TRANSMIT';
 
-  const btnColor = pttState === 'recording' ? '#d4a044'
-    : pttState === 'speaking' || pttState === 'awaiting_answer' ? '#4ade80'
-    : pttState === 'processing' || pttState === 'transcribing' ? '#a78bfa'
-    : 'var(--text-muted)';
+  const btnColor = pttState === 'recording'       ? '#d4a044'
+    : pttState === 'speaking'                     ? '#4ade80'
+    : pttState === 'awaiting_answer'              ? '#4ade80'
+    : pttState === 'processing'                   ? '#a78bfa'
+    : pttState === 'transcribing'                 ? '#a78bfa'
+    : pttState === 'responded'                    ? '#4ade8088'
+    : 'rgba(255,255,255,0.25)';
+
+  const intentColor = (intent?: string) => {
+    if (!intent) return 'var(--text-muted)';
+    if (intent.startsWith('CREATE_')) return '#4ade80';
+    if (intent.startsWith('QUERY_') || intent.includes('QUERY')) return '#3b82f6';
+    if (intent === 'MEMORY_CAPTURE' || intent === 'BOOK_UPDATE') return '#a78bfa';
+    if (intent === 'CONVERSE') return 'var(--text-muted)';
+    if (intent.startsWith('TUNE_IN')) return '#6366f1';
+    return 'var(--amber)';
+  };
+
+  const relativeTime = (ts: number) => {
+    const d = Math.floor((Date.now() - ts) / 1000);
+    if (d < 60) return 'just now';
+    if (d < 3600) return `${Math.floor(d/60)}m ago`;
+    return `${Math.floor(d/3600)}h ago`;
+  };
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 0 }}>
@@ -439,6 +1125,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Radio size={14} style={{ color: 'var(--green)' }} className="led-pulse" />
           <span style={{ fontFamily: 'monospace', fontSize: 12, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', fontWeight: 600 }}>Roger AI</span>
+          {myCallsign && (
+            <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: '1px solid rgba(212,160,68,0.25)', color: 'rgba(212,160,68,0.6)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+              {myCallsign}
+            </span>
+          )}
         </div>
         <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '2px 8px', border: '1px solid var(--green-border)', background: 'var(--green-dim)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
           📡 {rogerMode.toUpperCase()}
@@ -450,7 +1141,293 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         )}
       </div>
 
-      {/* ── Proactive Surface Card ── */}
+      {/* ── Incoming Relay Transmission Card ── */}
+      {incomingRelay && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '16px 18px',
+          background: incomingRelay.priority === 'emergency' ? 'rgba(239,68,68,0.08)'
+            : incomingRelay.priority === 'urgent' ? 'rgba(212,160,68,0.08)'
+            : 'rgba(59,130,246,0.06)',
+          border: `1px solid ${incomingRelay.priority === 'emergency' ? 'rgba(239,68,68,0.5)'
+            : incomingRelay.priority === 'urgent' ? 'rgba(212,160,68,0.4)'
+            : 'rgba(59,130,246,0.3)'}`,
+          animation: incomingRelay.priority === 'emergency' ? 'pulse 1s infinite' : 'none',
+        }}>
+          {/* Top row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{
+              fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700,
+              color: incomingRelay.priority === 'emergency' ? '#ef4444'
+                : incomingRelay.priority === 'urgent' ? 'var(--amber)' : '#3b82f6',
+            }}>
+              {incomingRelay.priority === 'emergency' ? '🚨 EMERGENCY TRANSMISSION'
+               : incomingRelay.priority === 'urgent'  ? '⚡ URGENT MESSAGE'
+               : '📨 INCOMING TRANSMISSION'}
+            </span>
+            <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)' }}>
+              {Math.floor((Date.now() - new Date(incomingRelay.created_at).getTime()) / 60000)}m ago
+            </span>
+          </div>
+          {/* Message */}
+          <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.55 }}>
+            {incomingRelay.roger_summary ?? incomingRelay.transcript}
+          </p>
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onPointerDown={handlePTTDown}
+              style={{
+                flex: 1, padding: '7px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
+                letterSpacing: '0.12em', cursor: 'pointer',
+                background: 'rgba(59,130,246,0.12)', border: '1px solid #3b82f6', color: '#3b82f6',
+              }}>
+              🎙 REPLY NOW
+            </button>
+            <button
+              onClick={async () => { await deferRelayMessage(incomingRelay.id); setIncomingRelay(null); }}
+              style={{
+                padding: '7px 12px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
+                letterSpacing: '0.12em', cursor: 'pointer',
+                background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)',
+              }}>
+              DEFER 2H
+            </button>
+            <button
+              onClick={async () => { await markRelayRead(incomingRelay.id); setIncomingRelay(null); }}
+              style={{
+                padding: '7px 12px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
+                letterSpacing: '0.12em', cursor: 'pointer',
+                background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)',
+              }}>
+              ✓ READ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tune In: Incoming Request Card ── */}
+      {incomingTuneInRequest && (() => {
+        const req = incomingTuneInRequest;
+        const secondsLeft = Math.max(0, Math.floor((new Date(req.expiresAt).getTime() - Date.now()) / 1000));
+        return (
+          <div style={{
+            margin: '12px 16px 0',
+            padding: '16px 18px',
+            background: 'rgba(99,102,241,0.08)',
+            border: '1px solid rgba(99,102,241,0.5)',
+            borderRadius: 4,
+            animation: 'pulse 1.5s infinite',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: '#6366f1' }}>
+                📡 INCOMING TUNE-IN REQUEST
+              </span>
+              <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>
+                {secondsLeft}s
+              </span>
+            </div>
+            <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: '0 0 4px', fontWeight: 600 }}>
+              {req.from}
+            </p>
+            <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 12px' }}>
+              {req.callsign}{req.reason ? ` — "${req.reason}"` : ''}
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+                  const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+                  const { data: { session } } = await supabase.auth.getSession();
+                  const token = session?.access_token ?? SUPABASE_ANON_KEY;
+                  const res = await fetch(`${SUPABASE_URL}/functions/v1/accept-tune-in`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ requestId: req.requestId }),
+                  }).then(r => r.json()).catch(() => ({ ok: false }));
+                  if (res.ok) { setActiveTuneInSession({ sessionId: res.sessionId, withName: res.withName ?? req.from }); setIncomingTuneInRequest(null); }
+                }}
+                style={{ flex: 1, padding: '9px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(99,102,241,0.15)', border: '1px solid #6366f1', color: '#6366f1', borderRadius: 3 }}>
+                ✅ ACCEPT
+              </button>
+              <button
+                onClick={async () => {
+                  const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+                  const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+                  const { data: { session } } = await supabase.auth.getSession();
+                  const token = session?.access_token ?? SUPABASE_ANON_KEY;
+                  await fetch(`${SUPABASE_URL}/functions/v1/decline-tune-in`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ requestId: req.requestId }),
+                  }).catch(() => {});
+                  setIncomingTuneInRequest(null);
+                }}
+                style={{ padding: '9px 16px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', borderRadius: 3 }}>
+                ✕ DECLINE
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Tune In: Active Session Banner ── */}
+      {activeTuneInSession && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '14px 18px',
+          background: 'rgba(16,185,129,0.06)',
+          border: '1px solid rgba(16,185,129,0.35)',
+          borderRadius: 4,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div>
+            <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#10b981', marginBottom: 4 }}>
+              📡 LIVE SESSION — ROGER LISTENING
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
+              {activeTuneInSession.withName}
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+              PTT relays your voice directly. Say "over and out" to end.
+            </div>
+          </div>
+          <button
+            style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', borderRadius: 3, flexShrink: 0 }}
+            onClick={async () => {
+              const SUPABASE_URL       = import.meta.env.VITE_SUPABASE_URL as string;
+              const SUPABASE_ANON_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session?.access_token ?? SUPABASE_ANON_KEY;
+              const prevSess = activeTuneInSession;
+              const res = await fetch(`${SUPABASE_URL}/functions/v1/end-tune-in`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ sessionId: activeTuneInSession!.sessionId }),
+              }).then(r => r.json()).catch(() => ({ ok: false }));
+              setActiveTuneInSession(null);
+              const msg = res.rogerResponse ?? 'Channel closed. Over.';
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              if (prevSess?.withName?.startsWith('Callsign ')) {
+                const cs = prevSess.withName.replace('Callsign ', '');
+                setPendingContactSave({ callsign: cs, contactName: '' });
+                setContactSaveInput('');
+                const prompt = `That was Callsign ${cs}. Want to save them? Type or say their name.`;
+                setTimeout(() => speakResponse(prompt).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(prompt)); }), 2000);
+              }
+            }}>
+            END SESSION
+          </button>
+
+        </div>
+      )}
+
+      {/* ── Save Contact Prompt ── */}
+      {pendingContactSave && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '16px 18px',
+          background: 'rgba(245,158,11,0.06)',
+          border: '1px solid rgba(245,158,11,0.35)',
+          borderRadius: 4,
+        }}>
+          <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--amber)', marginBottom: 8 }}>
+            💾 SAVE CONTACT — {pendingContactSave.callsign}
+          </div>
+          <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+            What should Roger call this person?
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              value={contactSaveInput}
+              onChange={e => setContactSaveInput(e.target.value)}
+              onKeyDown={async e => {
+                if (e.key !== 'Enter' || !contactSaveInput.trim()) return;
+                const name = contactSaveInput.trim();
+                const { data: csRow } = await supabase.from('user_callsigns').select('user_id').eq('callsign', pendingContactSave.callsign).maybeSingle();
+                if (csRow?.user_id) {
+                  await supabase.from('roger_contacts').upsert({ user_id: userId, contact_id: csRow.user_id, display_name: name, callsign: pendingContactSave.callsign }, { onConflict: 'user_id,contact_id' });
+                }
+                setPendingContactSave(null);
+                setContactSaveInput('');
+                const conf = `${name} saved. You can now say "tune in with ${name}". Over.`;
+                speakResponse(conf).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(conf)); });
+              }}
+              placeholder="Type name + Enter"
+              style={{ flex: 1, padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', borderRadius: 3, outline: 'none' }}
+            />
+            <button
+              onClick={() => { setPendingContactSave(null); setContactSaveInput(''); }}
+              style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', borderRadius: 3 }}>
+              SKIP
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Clarification Overlay Card ── */}
+      {pttState === 'awaiting_answer' && clarifQuestion && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '16px 18px',
+          background: 'rgba(212,160,68,0.07)',
+          border: '1px solid rgba(212,160,68,0.35)',
+          borderRadius: 2,
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          {/* Animated left-border progress bar */}
+          <div style={{
+            position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+            background: 'var(--amber)',
+            animation: 'none',
+            transformOrigin: 'top',
+            transform: `scaleY(${clarifCountdown / 8})`,
+            transition: 'transform 1s linear',
+          }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700 }}>
+              ⚡ ROGER NEEDS CLARIFICATION
+            </span>
+            {/* Countdown circle */}
+            <div style={{ position: 'relative', width: 28, height: 28 }}>
+              <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
+                <circle cx={14} cy={14} r={11} fill="none" stroke="rgba(212,160,68,0.15)" strokeWidth={2} />
+                <circle cx={14} cy={14} r={11} fill="none" stroke="var(--amber)" strokeWidth={2}
+                  strokeDasharray={`${2 * Math.PI * 11}`}
+                  strokeDashoffset={`${2 * Math.PI * 11 * (1 - clarifCountdown / 8)}`}
+                  style={{ transition: 'stroke-dashoffset 1s linear' }}
+                />
+              </svg>
+              <span style={{
+                position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', fontWeight: 700,
+              }}>{clarifCountdown}</span>
+            </div>
+          </div>
+          <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.55 }}>
+            {clarifQuestion.split('\n')[0]}
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onPointerDown={handlePTTDown}
+              style={{
+                flex: 1, padding: '7px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
+                letterSpacing: '0.12em', cursor: 'pointer',
+                background: 'rgba(212,160,68,0.1)', border: '1px solid var(--amber)', color: 'var(--amber)',
+              }}>
+              🎙 ANSWER NOW
+            </button>
+            <button
+              onClick={() => { if (clarifTimerRef.current) clearInterval(clarifTimerRef.current); setClarifQuestion(''); setPttState('idle'); }}
+              style={{
+                padding: '7px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
+                letterSpacing: '0.12em', cursor: 'pointer',
+                background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)',
+              }}>
+              DISMISS
+            </button>
+          </div>
+        </div>
+      )}
       {activeSurface && (
         <div style={{ margin: '12px 16px 0', padding: '14px 16px', background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: 2 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -472,56 +1449,64 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       )}
 
       {/* ── Messages ── */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {messages.length === 0 && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: 0.35 }}>
-            <Radio size={32} style={{ color: 'var(--amber)' }} />
-            <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.2em' }}>Press and hold to transmit</span>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: 0.3 }}>
+            <Radio size={36} style={{ color: 'var(--amber)' }} />
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.25em' }}>Hold to transmit</span>
           </div>
         )}
         {messages.map(msg => (
-          <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 6 }}>
+          <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 4 }}>
+
+            {/* Role label + timestamp */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: msg.role === 'user' ? 0 : 2, paddingRight: msg.role === 'user' ? 2 : 0 }}>
+              {msg.role === 'roger' && msg.intent && msg.intent !== 'CONVERSE' && (
+                <span style={{ fontFamily: 'monospace', fontSize: 8, color: intentColor(msg.intent), padding: '1px 6px', border: `1px solid ${intentColor(msg.intent)}44`, background: `${intentColor(msg.intent)}11`, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {msg.intent.replace(/_/g,' ')}
+                </span>
+              )}
+              <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                {msg.role === 'user' ? 'YOU' : 'ROGER'}
+              </span>
+              <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'rgba(255,255,255,0.2)' }}>
+                {relativeTime(msg.ts)}
+              </span>
+            </div>
+
+            {/* Bubble */}
             <div style={{
-              maxWidth: '85%', padding: '10px 14px',
-              background: msg.role === 'user' ? 'rgba(212,160,68,0.1)' : msg.outcome === 'clarification' ? 'rgba(212,160,68,0.06)' : 'rgba(74,222,128,0.06)',
-              border: `1px solid ${msg.role === 'user' ? 'rgba(212,160,68,0.2)' : msg.outcome === 'clarification' ? 'rgba(212,160,68,0.2)' : 'rgba(74,222,128,0.15)'}`,
+              maxWidth: '88%',
+              padding: '10px 14px',
+              background: msg.role === 'user'
+                ? 'rgba(212,160,68,0.08)'
+                : msg.outcome === 'clarification'
+                  ? 'rgba(212,160,68,0.05)'
+                  : 'rgba(255,255,255,0.04)',
+              borderLeft: msg.role === 'roger' ? `3px solid ${intentColor(msg.intent)}` : 'none',
+              borderRight: msg.role === 'user' ? '3px solid rgba(212,160,68,0.5)' : 'none',
+              border: `1px solid ${
+                msg.role === 'user' ? 'rgba(212,160,68,0.18)'
+                : msg.outcome === 'clarification' ? 'rgba(212,160,68,0.2)'
+                : 'rgba(255,255,255,0.08)'
+              }`,
             }}>
-              <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
-                {msg.role === 'user' ? 'YOU' : `ROGER${msg.intent ? ` · ${msg.intent}` : ''}`}
-              </div>
-              <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: 0, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
             </div>
 
             {/* News article cards */}
             {msg.news && msg.news.length > 0 && (
-              <div style={{ maxWidth: '85%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ maxWidth: '88%', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
                 {msg.news.map((article, i) => (
-                  <a
-                    key={i}
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'block', padding: '10px 12px', textDecoration: 'none',
-                      background: 'rgba(255,255,255,0.03)',
-                      border: '1px solid rgba(74,222,128,0.1)',
-                      borderLeft: '3px solid var(--green)',
-                      transition: 'background 150ms',
-                    }}
+                  <a key={i} href={article.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'block', padding: '10px 12px', textDecoration: 'none', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(74,222,128,0.12)', borderLeft: '3px solid var(--green)', transition: 'background 150ms' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(74,222,128,0.07)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
                   >
-                    <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>
-                      📰 {article.source} · {new Date(article.publishedAt).toLocaleDateString()}
-                    </div>
-                    <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                      {article.title}
-                    </div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>📰 {article.source} · {new Date(article.publishedAt).toLocaleDateString()}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.4 }}>{article.title}</div>
                     {article.description && (
-                      <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.3,
-                        overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                        {article.description}
-                      </div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{article.description}</div>
                     )}
                   </a>
                 ))}
@@ -529,48 +1514,116 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             )}
           </div>
         ))}
+
+        {/* Thinking indicator */}
         {(pttState === 'transcribing' || pttState === 'processing') && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.6 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', animation: 'pulse 1s infinite' }} />
-            <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{stateLabel}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {[0,1,2].map(i => (
+                <div key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: '#a78bfa', animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />
+              ))}
+            </div>
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.15em' }}>{stateLabel}</span>
           </div>
         )}
       </div>
 
+      {/* ── Spotify Mini Player — renders when connected and playing ── */}
+      <SpotifyMiniPlayer />
+
       {/* ── Morning Briefing ── */}
       {messages.length === 0 && <MorningBriefing userId={userId} location={location} />}
 
-      {/* ── Quick Nav Shortcuts ── */}
-      <div style={{ padding: '8px 16px', display: 'flex', gap: 8, borderTop: '1px solid var(--border-subtle)', overflowX: 'auto' }}>
-        {[['Reminders', 'reminders'], ['Tasks', 'tasks'], ['Memory', 'memory']].map(([label, tab]) => (
-          <button key={tab} onClick={() => onTabChange(tab as UserTab)}
-            style={{ flexShrink: 0, padding: '5px 12px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid var(--border-subtle)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-            {label}
+      {/* ── Quick Actions (tap to synthesise a voice command) ── */}
+      <div style={{ padding: '8px 16px 0', display: 'flex', gap: 6, borderTop: '1px solid var(--border-subtle)', overflowX: 'auto', flexShrink: 0 }}>
+        {([
+          { label: '📋 My tasks',       prompt: 'What tasks do I have open right now?' },
+          { label: '⏰ Reminders',       prompt: 'What reminders do I have coming up?' },
+          { label: '📅 Calendar',        prompt: "What's on my calendar today?" },
+          { label: '🧠 Memory',          prompt: 'What do you know about me?' },
+          { label: '📰 News',            prompt: 'Give me a quick news briefing.' },
+          { label: '📈 Markets',         prompt: 'Give me a market brief.' },
+          { label: '📍 Reminders',       prompt: 'Reminders', isNav: true as const, tab: 'reminders' as UserTab },
+        ] as { label: string; prompt?: string; isNav?: true; tab?: UserTab }[]).map((chip, i) => (
+          <button key={i}
+            onClick={() => {
+              if (chip.isNav && chip.tab) { onTabChange(chip.tab); return; }
+              if (!chip.prompt || pttState !== 'idle') return;
+              // Synthesise a pre-filled command without PTT
+              const syntheticMsg: Message = { id: `chip-${Date.now()}`, role: 'user', text: chip.prompt, ts: Date.now() };
+              setMessages(prev => [...prev, syntheticMsg]);
+              setHistory(prev => [...prev, { role: 'user', content: chip.prompt! }]);
+              setPttState('processing');
+            }}
+            style={{ flexShrink: 0, padding: '5px 11px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', border: '1px solid var(--border-subtle)', background: 'transparent', color: 'var(--text-muted)', cursor: pttState === 'idle' ? 'pointer' : 'default', opacity: pttState !== 'idle' ? 0.4 : 1, transition: 'all 150ms', whiteSpace: 'nowrap' }}
+            onMouseEnter={e => { if (pttState === 'idle') (e.currentTarget.style.borderColor = 'rgba(212,160,68,0.4)', e.currentTarget.style.color = 'var(--amber)'); }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+          >
+            {chip.label}
           </button>
         ))}
       </div>
 
       {/* ── PTT Button ── */}
-      <div style={{ padding: '20px 16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border-subtle)' }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 9, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.2em', transition: 'color 200ms' }}>
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, borderTop: '1px solid var(--border-subtle)', background: 'rgba(0,0,0,0.2)' }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 9, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 300ms', minHeight: 14 }}>
           {stateLabel}
         </span>
-        <button
-          onPointerDown={handlePTTDown}
-          onPointerUp={handlePTTUp}
-          onPointerLeave={handlePTTUp}
-          aria-label={isSpeaking ? 'Interrupt Roger — press to speak' : 'Push to talk'}
-          style={{
-            width: 88, height: 88, borderRadius: '50%', border: `3px solid ${btnColor}`,
-            background: pttState === 'recording' ? 'rgba(212,160,68,0.15)' : 'transparent',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', transition: 'all 200ms', marginBottom: 8,
-            boxShadow: pttState === 'recording' ? `0 0 24px ${btnColor}44` : 'none',
-          }}
-        >
-          <Radio size={32} style={{ color: btnColor, transition: 'color 200ms' }} />
-        </button>
+
+        {/* Sonar rings + button */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 110, height: 110 }}>
+          {/* Sonar ring 1 */}
+          {pttState === 'recording' && (
+            <>
+              <div style={{ position: 'absolute', width: 110, height: 110, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out infinite' }} />
+              <div style={{ position: 'absolute', width: 110, height: 110, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 0.5s infinite' }} />
+              <div style={{ position: 'absolute', width: 110, height: 110, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 1.0s infinite' }} />
+            </>
+          )}
+          {/* Speaking pulse */}
+          {(pttState === 'speaking') && (
+            <div style={{ position: 'absolute', width: 100, height: 100, borderRadius: '50%', background: `${btnColor}18`, animation: 'pulse 1.2s ease-in-out infinite' }} />
+          )}
+          <button
+            onPointerDown={handlePTTDown}
+            onPointerUp={handlePTTUp}
+            onPointerLeave={handlePTTUp}
+            aria-label={isSpeaking ? 'Interrupt Roger' : 'Push to talk'}
+            style={{
+              width: 80, height: 80, borderRadius: '50%',
+              border: `2px solid ${btnColor}`,
+              background: pttState === 'recording'
+                ? `radial-gradient(circle, ${btnColor}22 0%, ${btnColor}08 100%)`
+                : pttState === 'speaking' ? `${btnColor}12`
+                : 'rgba(255,255,255,0.03)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', transition: 'border-color 250ms, background 250ms',
+              boxShadow: pttState === 'recording' ? `0 0 32px ${btnColor}55, inset 0 0 16px ${btnColor}18`
+                : pttState === 'speaking' ? `0 0 20px ${btnColor}33` : 'none',
+              userSelect: 'none', WebkitUserSelect: 'none',
+            }}
+          >
+            <Radio size={28} style={{ color: btnColor, transition: 'color 250ms' }} />
+          </button>
+        </div>
+
+        {/* Speaking waveform bars */}
+        {pttState === 'speaking' && (
+          <div style={{ display: 'flex', gap: 3, alignItems: 'center', height: 16 }}>
+            {[0.4,0.7,1,0.8,0.5,0.9,0.6,1,0.7,0.4].map((h,i) => (
+              <div key={i} style={{ width: 3, borderRadius: 2, background: btnColor, opacity: 0.7, height: `${h*14}px`, animation: `pulse ${0.8+i*0.07}s ease-in-out infinite` }} />
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Sonar keyframe */}
+      <style>{`
+        @keyframes sonar {
+          0%   { transform: scale(0.7); opacity: 0.8; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   CheckCircle, XCircle, AlertCircle, RefreshCw,
   Eye, EyeOff, Save, Zap, Key, Server, Newspaper, Map, Bell, Brain
 } from 'lucide-react';
+import HelpBadge from '../components/shared/HelpBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ApiStatus = 'idle' | 'testing' | 'ok' | 'error';
@@ -154,7 +155,18 @@ function ApiRow({ api }: { api: ApiConfig }) {
         <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.12em', flex: 1 }}>
           {api.label}
         </span>
-        {/* Source badge */}
+        {/* Source badge with tooltip */}
+        <HelpBadge
+          placement="left"
+          title={lsValue ? 'Key Source: Override' : envValue ? 'Key Source: .env' : 'Key Source: Missing'}
+          text={
+            lsValue
+              ? 'This key was manually overridden in localStorage for this browser session. It takes priority over .env.local.'
+              : envValue
+              ? 'This key is loaded from the .env.local file at build time. Restart the dev server after editing .env.local.'
+              : 'No key is configured for this service. Enter one below and save, or add it to .env.local.'
+          }
+        />
         <span style={{
           fontFamily: 'monospace', fontSize: 9, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: '0.1em',
           border: `1px solid ${lsValue ? 'rgba(139,92,246,0.4)' : 'rgba(74,222,128,0.3)'}`,
@@ -198,19 +210,31 @@ function ApiRow({ api }: { api: ApiConfig }) {
             }}
           />
           {dirty && (
-            <button
-              onClick={handleSave}
-              title="Save override to localStorage"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
-                fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
-                background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
-                color: '#a78bfa', cursor: 'pointer',
-              }}
-            >
-              <Save size={12} /> Save
-            </button>
+            <>
+              <HelpBadge
+                title="Save Key"
+                text="Saves this key to browser localStorage for the current session. It will override the .env value until cleared. Does NOT persist across incognito windows."
+                placement="top"
+              />
+              <button
+                onClick={handleSave}
+                title="Save override to localStorage"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
+                  fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
+                  background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
+                  color: '#a78bfa', cursor: 'pointer',
+                }}
+              >
+                <Save size={12} /> Save
+              </button>
+            </>
           )}
+          <HelpBadge
+            title="Test API Key"
+            text="Sends a live request to the API to verify the key is valid and the service is reachable. Uses the currently effective key (override takes priority over .env)."
+            placement="top"
+          />
           <button
             onClick={handleTest}
             disabled={status === 'testing'}

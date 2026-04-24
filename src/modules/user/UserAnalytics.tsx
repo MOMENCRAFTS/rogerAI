@@ -7,7 +7,7 @@ import {
 } from '../../lib/api';
 import { speakResponse } from '../../lib/tts';
 
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+
 
 interface Stats {
   totalTransmissions: number;
@@ -18,6 +18,8 @@ interface Stats {
   recentFacts: DbMemoryFact[];
   sessionCount: number;
   todayCount: number;
+  dailyCounts: number[]; // last 7 days, index 0 = oldest
+  dayLabels: string[];   // e.g. ['Mon','Tue',...]
 }
 
 const FACT_COLORS: Record<string, string> = {
@@ -46,35 +48,35 @@ export default function UserAnalytics({ userId }: { userId: string }) {
         fetchTasks(userId).catch(() => []),
         fetchReminders(userId).catch(() => []),
       ]);
-      const recentTasks = tasks.filter(t => t.created_at > weekAgo);
-      const doneTasks   = recentTasks.filter(t => t.status === 'done');
-      const openTasks   = recentTasks.filter(t => t.status === 'open');
+      const recentTasks     = tasks.filter(t => t.created_at > weekAgo);
+      const doneTasks       = recentTasks.filter(t => t.status === 'done');
+      const openTasks       = recentTasks.filter(t => t.status === 'open');
       const recentReminders = reminders.filter(r => r.created_at > weekAgo);
-
-      const topPeopleLines = stats.topEntities
+      const topPeople       = stats.topEntities
         .filter(e => e.entity_type === 'PERSON').slice(0, 5)
         .map(e => `${e.entity_text} (${e.mention_count}×)`).join(', ');
 
-      const prompt = `You are Roger AI delivering a weekly digest briefing.
-Summarise this week in 120–160 words. Be warm, analytical, and specific.
+      const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-This week stats:
-- Tasks created: ${recentTasks.length} (${doneTasks.length} done, ${openTasks.length} still open)
-- Reminders set: ${recentReminders.length}
-- Total voice transmissions: ${stats.totalTransmissions}
-- People most mentioned: ${topPeopleLines || 'none tracked yet'}
-- Memory facts total: ${stats.totalFacts}
-
-Close with one forward-looking suggestion and "Standing by. Over."
-Return plain text only.`;
-
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/weekly-digest`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-        body: JSON.stringify({ model: 'gpt-4o', temperature: 0.5, messages: [{ role: 'user', content: prompt }] }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({
+          stats: {
+            totalTransmissions: stats.totalTransmissions,
+            totalFacts: stats.totalFacts,
+            topPeople,
+            tasksCreated: recentTasks.length,
+            tasksDone: doneTasks.length,
+            tasksOpen: openTasks.length,
+            remindersSet: recentReminders.length,
+          },
+        }),
       });
-      const data = await res.json() as { choices: { message: { content: string } }[] };
-      const text = data.choices[0]?.message?.content ?? 'Weekly digest unavailable. Over.';
+
+      const data = await res.json() as { text?: string; error?: string };
+      const text = data.text ?? 'Weekly digest unavailable. Over.';
       setDigestText(text);
       setDigestState('speaking');
       try { await speakResponse(text); } catch { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
@@ -106,6 +108,15 @@ Return plain text only.`;
         recentFacts: facts.slice(0, 6),
         sessionCount: sessionIds.size,
         todayCount: todayTurns.length,
+        dailyCounts: Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(); d.setDate(d.getDate() - (6 - i));
+          const ds = d.toDateString();
+          return sessions.filter(s => s.role === 'user' && new Date(s.created_at).toDateString() === ds).length;
+        }),
+        dayLabels: Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(); d.setDate(d.getDate() - (6 - i));
+          return d.toLocaleDateString('en', { weekday: 'short' });
+        }),
       });
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -166,6 +177,49 @@ Return plain text only.`;
             )}
           </div>
         )}
+      </div>
+
+      {/* 7-day activity bar chart */}
+      <div style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+          <BarChart3 size={11} style={{ color: 'var(--amber)', opacity: 0.7 }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>7-Day Transmission Activity</span>
+        </div>
+        {(() => {
+          const max = Math.max(...stats.dailyCounts, 1);
+          const W = 240, H = 56, barW = 24, gap = (W - 7 * barW) / 6;
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: 'visible' }}>
+                {stats.dailyCounts.map((count, i) => {
+                  const barH = Math.max(3, (count / max) * H);
+                  const x    = i * (barW + gap);
+                  const y    = H - barH;
+                  const isToday = i === 6;
+                  return (
+                    <g key={i}>
+                      <rect x={x} y={y} width={barW} height={barH}
+                        fill={isToday ? 'var(--amber)' : 'rgba(212,160,68,0.3)'}
+                        rx={2}
+                      />
+                      {count > 0 && (
+                        <text x={x + barW / 2} y={y - 4} textAnchor="middle"
+                          style={{ fontFamily: 'monospace', fontSize: 7, fill: isToday ? 'var(--amber)' : 'rgba(255,255,255,0.4)' }}>
+                          {count}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+              <div style={{ display: 'flex', gap: 0 }}>
+                {stats.dayLabels.map((label, i) => (
+                  <span key={i} style={{ flex: 1, textAlign: 'center', fontFamily: 'monospace', fontSize: 8, color: i === 6 ? 'var(--amber)' : 'var(--text-muted)', textTransform: 'uppercase' }}>{label}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Key metrics grid */}

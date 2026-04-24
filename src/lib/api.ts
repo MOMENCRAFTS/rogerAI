@@ -75,7 +75,23 @@ export type DbUserPreferences = {
   user_id: string;
   roger_mode: 'quiet' | 'active' | 'briefing';
   language: string; briefing_time: string; briefing_time2: string;
-  timezone: string; updated_at: string;
+  timezone: string;
+  haptic_enabled: boolean;
+  sfx_enabled:    boolean;
+  updated_at: string;
+  // ── Integration fields ────────────────────────
+  finnhub_tickers:    string[]      | null;
+  twilio_phone:       string        | null;
+  notion_token:       string        | null;
+  notion_db_id:       string        | null;
+  spotify_connected:  boolean;
+  gcal_connected:     boolean;
+  gcal_access_token:  string        | null;
+  gcal_refresh_token: string        | null;
+  gcal_token_expiry:  string        | null;
+  // ── Tour ────────────────────────────────────
+  tour_seen:          boolean;
+  tour_version:       number        | null;
 };
 
 // ─── Intent Registry ──────────────────────────────────────────────────────────
@@ -515,6 +531,34 @@ export async function updateOnboardingStep(
   await supabase.from('user_preferences').upsert(upsertData, { onConflict: 'user_id' });
 }
 
+// ─── Feature Tour helpers ─────────────────────────────────────────────────────
+
+/** Mark the mission brief tour as seen for this user at this version. */
+export async function markTourSeen(userId: string, version = 1): Promise<void> {
+  await supabase.from('user_preferences').upsert(
+    { user_id: userId, tour_seen: true, tour_version: version, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  );
+}
+
+/** Check whether the user has already seen the current tour version. */
+export async function hasTourBeenSeen(userId: string, currentVersion = 1): Promise<boolean> {
+  const { data } = await supabase
+    .from('user_preferences')
+    .select('tour_seen, tour_version')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return (data?.tour_seen === true) && ((data?.tour_version ?? 0) >= currentVersion);
+}
+
+/** Reset tour state so it will show again on next login (admin/testing use). */
+export async function flushTourSeen(userId: string): Promise<void> {
+  await supabase.from('user_preferences').upsert(
+    { user_id: userId, tour_seen: false, tour_version: 0, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  );
+}
+
 // ─── Admin Flush Utilities ────────────────────────────────────────────────────
 
 /**
@@ -647,7 +691,7 @@ export async function getCommute(
   originLat: number,
   originLng: number,
   destination: string,
-  mode: 'driving' | 'walking' | 'transit' = 'driving'
+  mode: 'driving' | 'walking' | 'transit' | 'cycling' = 'driving'
 ): Promise<CommuteResult | null> {
   if (!GOOGLE_MAPS_API_KEY) {
     console.warn('[Commute] VITE_GOOGLE_MAPS_API_KEY not set');
@@ -677,4 +721,629 @@ export async function getCommute(
   } catch {
     return null;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PTT NETWORK — roger_contacts, relay_messages, roger_channels
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DbRogerContact = {
+  id:            string;
+  user_id:       string;
+  contact_id:    string | null;
+  display_name:  string;
+  handle:        string | null;
+  status:        'pending' | 'active' | 'blocked';
+  invited_at:    string;
+  accepted_at:   string | null;
+  created_at:    string;
+};
+
+export type DbRelayMessage = {
+  id:             string;
+  channel_id:     string | null;
+  sender_id:      string;
+  recipient_id:   string | null;
+  transcript:     string;
+  roger_summary:  string | null;
+  audio_url:      string | null;
+  priority:       'normal' | 'urgent' | 'emergency';
+  status:         'queued' | 'delivered' | 'read' | 'deferred';
+  deferred_until: string | null;
+  intent:         string | null;
+  created_at:     string;
+  delivered_at:   string | null;
+  read_at:        string | null;
+};
+
+export type DbRogerChannel = {
+  id:         string;
+  name:       string;
+  type:       'direct' | 'group' | 'open';
+  owner_id:   string;
+  created_at: string;
+};
+
+// ─── Contacts ─────────────────────────────────────────────────────────────────
+
+export async function fetchContacts(userId: string): Promise<DbRogerContact[]> {
+  const { data, error } = await supabase
+    .from('roger_contacts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function inviteContact(
+  userId: string,
+  displayName: string,
+  handle: string   // email or handle
+): Promise<DbRogerContact> {
+  const { data, error } = await supabase
+    .from('roger_contacts')
+    .insert({ user_id: userId, display_name: displayName, handle, status: 'pending' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function acceptContact(contactRowId: string): Promise<void> {
+  const { error } = await supabase
+    .from('roger_contacts')
+    .update({ status: 'active', accepted_at: new Date().toISOString() })
+    .eq('id', contactRowId);
+  if (error) throw error;
+}
+
+export async function blockContact(contactRowId: string): Promise<void> {
+  const { error } = await supabase
+    .from('roger_contacts')
+    .update({ status: 'blocked' })
+    .eq('id', contactRowId);
+  if (error) throw error;
+}
+
+// ─── Relay Messages ───────────────────────────────────────────────────────────
+
+export async function fetchRelayHistory(
+  userId: string, contactId: string, limit = 50
+): Promise<DbRelayMessage[]> {
+  const { data, error } = await supabase
+    .from('relay_messages')
+    .select('*')
+    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
+    .or(`sender_id.eq.${contactId},recipient_id.eq.${contactId}`)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function deferRelayMessage(
+  messageId: string,
+  deferHours = 2
+): Promise<void> {
+  const deferUntil = new Date(Date.now() + deferHours * 3_600_000).toISOString();
+  const { error } = await supabase
+    .from('relay_messages')
+    .update({ status: 'deferred', deferred_until: deferUntil })
+    .eq('id', messageId);
+  if (error) throw error;
+}
+
+export async function markRelayRead(messageId: string): Promise<void> {
+  const { error } = await supabase
+    .from('relay_messages')
+    .update({ status: 'read', read_at: new Date().toISOString() })
+    .eq('id', messageId);
+  if (error) throw error;
+}
+
+// ─── Relay Realtime ───────────────────────────────────────────────────────────
+
+export function subscribeToRelayMessages(
+  userId: string,
+  onMessage: (msg: DbRelayMessage) => void
+) {
+  return supabase
+    .channel(`relay-inbox-${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event:  'INSERT',
+        schema: 'public',
+        table:  'relay_messages',
+        filter: `recipient_id=eq.${userId}`,
+      },
+      (payload) => onMessage(payload.new as DbRelayMessage)
+    )
+    .subscribe();
+}
+
+// ─── Channels ─────────────────────────────────────────────────────────────────
+
+export async function fetchChannels(userId: string): Promise<DbRogerChannel[]> {
+  const { data, error } = await supabase
+    .from('roger_channels')
+    .select('*, channel_members!inner(user_id)')
+    .eq('channel_members.user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as DbRogerChannel[];
+}
+
+export async function createChannel(
+  name: string, type: DbRogerChannel['type'], ownerId: string
+): Promise<DbRogerChannel> {
+  const { data: channel, error } = await supabase
+    .from('roger_channels')
+    .insert({ name, type, owner_id: ownerId })
+    .select()
+    .single();
+  if (error) throw error;
+  // Add owner as first member
+  await supabase.from('channel_members').insert({ channel_id: channel.id, user_id: ownerId });
+  return channel;
+}
+
+export async function addChannelMember(channelId: string, userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('channel_members')
+    .insert({ channel_id: channelId, user_id: userId });
+  if (error && error.code !== '23505') throw error; // ignore duplicate
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMUTE INTELLIGENCE — parking_logs, errand_list, user_preferences commute
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DbParkingLog = {
+  id:             string;
+  user_id:        string;
+  location_label: string;
+  lat:            number | null;
+  lng:            number | null;
+  address:        string | null;
+  notes:          string | null;
+  source_tx_id:   string | null;
+  created_at:     string;
+  retrieved_at:   string | null;
+};
+
+export type DbErrandItem = {
+  id:             string;
+  user_id:        string;
+  item:           string;
+  location_hint:  string | null;
+  location_lat:   number | null;
+  location_lng:   number | null;
+  radius_m:       number;
+  status:         'pending' | 'done' | 'skipped';
+  source_tx_id:   string | null;
+  created_at:     string;
+  completed_at:   string | null;
+};
+
+export type DbCommuteProfile = {
+  home_address:       string | null;
+  home_lat:           number | null;
+  home_lng:           number | null;
+  work_address:       string | null;
+  work_lat:           number | null;
+  work_lng:           number | null;
+  commute_mode:       'driving' | 'transit' | 'walking' | 'cycling';
+  commute_leave_time: string | null;  // "08:00:00"
+};
+
+// ─── Parking ──────────────────────────────────────────────────────────────────
+
+export async function logParking(
+  userId: string,
+  locationLabel: string,
+  opts?: { lat?: number; lng?: number; address?: string; notes?: string; sourceTxId?: string }
+): Promise<DbParkingLog> {
+  const { data, error } = await supabase
+    .from('parking_logs')
+    .insert({
+      user_id:        userId,
+      location_label: locationLabel,
+      lat:            opts?.lat ?? null,
+      lng:            opts?.lng ?? null,
+      address:        opts?.address ?? null,
+      notes:          opts?.notes ?? null,
+      source_tx_id:   opts?.sourceTxId ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchLatestParking(userId: string): Promise<DbParkingLog | null> {
+  const { data } = await supabase
+    .from('parking_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .is('retrieved_at', null)          // not yet retrieved
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (data) {
+    // Mark as retrieved
+    await supabase
+      .from('parking_logs')
+      .update({ retrieved_at: new Date().toISOString() })
+      .eq('id', data.id);
+  }
+  return data;
+}
+
+// ─── Errands ──────────────────────────────────────────────────────────────────
+
+export async function fetchErrands(
+  userId: string, status?: DbErrandItem['status']
+): Promise<DbErrandItem[]> {
+  let q = supabase
+    .from('errand_list')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (status) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function insertErrand(
+  errand: Omit<DbErrandItem, 'id' | 'created_at' | 'completed_at'>
+): Promise<DbErrandItem> {
+  const { data, error } = await supabase
+    .from('errand_list')
+    .insert(errand)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function completeErrand(errandId: string): Promise<void> {
+  const { error } = await supabase
+    .from('errand_list')
+    .update({ status: 'done', completed_at: new Date().toISOString() })
+    .eq('id', errandId);
+  if (error) throw error;
+}
+
+// ─── Commute Profile ──────────────────────────────────────────────────────────
+
+export async function fetchCommuteProfile(
+  userId: string
+): Promise<DbCommuteProfile | null> {
+  const { data } = await supabase
+    .from('user_preferences')
+    .select('home_address,home_lat,home_lng,work_address,work_lat,work_lng,commute_mode,commute_leave_time')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return data as DbCommuteProfile | null;
+}
+
+export async function upsertCommuteProfile(
+  userId: string,
+  profile: Partial<DbCommuteProfile>
+): Promise<void> {
+  const { error } = await supabase
+    .from('user_preferences')
+    .upsert({ user_id: userId, ...profile, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+  if (error) throw error;
+}
+
+// ─── Session Archive ───────────────────────────────────────────────────────────
+
+export interface DbSessionSummary {
+  id: string;
+  session_start: string;
+  session_end: string | null;
+  duration_min: number;
+  turn_count: number;
+  roger_notes: string | null;
+  contact_name: string | null;
+  contact_callsign: string | null;
+  other_user_id: string | null;
+}
+
+export interface DbSessionTurn {
+  id: string;
+  speaker_id: string;
+  transcript: string;
+  is_flagged: boolean;
+  created_at: string;
+  is_me: boolean;
+}
+
+export async function fetchSessionArchive(userId: string): Promise<DbSessionSummary[]> {
+  const { data, error } = await supabase
+    .from('tune_in_sessions')
+    .select('id, session_start, session_end, turn_count, roger_notes, participant_a, participant_b')
+    .or(`participant_a.eq.${userId},participant_b.eq.${userId}`)
+    .eq('status', 'ended')
+    .order('session_start', { ascending: false })
+    .limit(50);
+
+  if (error || !data) return [];
+
+  const otherIds = [...new Set(
+    data.map(s => s.participant_a === userId ? s.participant_b : s.participant_a).filter(Boolean)
+  )];
+  const { data: contacts } = otherIds.length
+    ? await supabase.from('roger_contacts').select('contact_id, display_name, callsign').eq('user_id', userId).in('contact_id', otherIds)
+    : { data: [] };
+
+  const contactMap = new Map((contacts ?? []).map(c => [c.contact_id, c]));
+
+  return data.map(s => {
+    const otherId = s.participant_a === userId ? s.participant_b : s.participant_a;
+    const contact = contactMap.get(otherId);
+    const startMs = new Date(s.session_start).getTime();
+    const endMs   = s.session_end ? new Date(s.session_end).getTime() : startMs;
+    return {
+      id: s.id,
+      session_start: s.session_start,
+      session_end: s.session_end,
+      duration_min: Math.round((endMs - startMs) / 60000),
+      turn_count: s.turn_count ?? 0,
+      roger_notes: s.roger_notes ?? null,
+      contact_name: contact?.display_name ?? null,
+      contact_callsign: contact?.callsign ?? null,
+      other_user_id: otherId ?? null,
+    };
+  });
+}
+
+export async function searchSessions(userId: string, keyword: string): Promise<DbSessionSummary[]> {
+  const all = await fetchSessionArchive(userId);
+  const q = keyword.toLowerCase();
+  return all.filter(s =>
+    s.roger_notes?.toLowerCase().includes(q) ||
+    s.contact_name?.toLowerCase().includes(q) ||
+    s.contact_callsign?.toLowerCase().includes(q)
+  );
+}
+
+export async function fetchSessionTurns(sessionId: string, userId: string): Promise<DbSessionTurn[]> {
+  const { data, error } = await supabase
+    .from('tune_in_turns')
+    .select('id, speaker_id, transcript, is_flagged, created_at')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: true });
+
+  if (error || !data) return [];
+  return data.map(t => ({ ...t, is_me: t.speaker_id === userId }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN PANEL — True DB functions (replaces mockData.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── System Health ────────────────────────────────────────────────────────────
+
+export type DbHealthCheck = {
+  id: string; service: string;
+  uptime_pct: number; status: 'operational' | 'degraded' | 'down';
+  message: string | null; checked_at: string;
+};
+
+export async function fetchLatestHealthChecks(): Promise<DbHealthCheck[]> {
+  const { data, error } = await supabase
+    .from('latest_health_checks')   // view from migration 014
+    .select('*');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function upsertHealthCheck(
+  service: string,
+  uptime_pct: number,
+  status: DbHealthCheck['status'],
+  message?: string
+): Promise<void> {
+  const { error } = await supabase.from('system_health_checks').insert({
+    service, uptime_pct, status, message: message ?? null,
+  });
+  if (error) throw error;
+}
+
+// ─── System Alerts ────────────────────────────────────────────────────────────
+
+export type DbSystemAlert = {
+  id: string; level: 'info' | 'warning' | 'critical';
+  message: string; source: string | null;
+  resolved: boolean; resolved_at: string | null;
+  created_at: string;
+};
+
+export async function fetchActiveAlerts(): Promise<DbSystemAlert[]> {
+  const { data, error } = await supabase
+    .from('system_alerts')
+    .select('*')
+    .eq('resolved', false)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function resolveAlert(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('system_alerts')
+    .update({ resolved: true, resolved_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function insertAlert(
+  level: DbSystemAlert['level'],
+  message: string,
+  source?: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('system_alerts')
+    .insert({ level, message, source: source ?? null });
+  if (error) throw error;
+}
+
+// ─── Live Platform Stats ───────────────────────────────────────────────────────
+
+export type DbLiveStat = {
+  stat_date: string;
+  active_users: number;
+  connected_devices: number;
+  tx_today: number;
+  success_rate: number;
+  clarification_rate: number;
+  avg_latency_ms: number;
+};
+
+/** Fetches today's live stats from the computed view first, falls back to the
+ *  historical platform_stats table row for today if the view returns nothing. */
+export async function fetchLivePlatformStats(): Promise<DbLiveStat | null> {
+  const { data: live } = await supabase
+    .from('live_platform_stats')
+    .select('*')
+    .maybeSingle();
+  if (live && (live.tx_today ?? 0) > 0) return live as DbLiveStat;
+
+  // Fallback to stored daily snapshot
+  const { data: stored } = await supabase
+    .from('platform_stats')
+    .select('*')
+    .order('stat_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (stored as DbLiveStat) ?? null;
+}
+
+
+
+
+// ─── Admin User List ──────────────────────────────────────────────────────────
+
+export type DbAdminUser = {
+  user_id: string;
+  email: string;
+  display_name: string;
+  onboarding_complete: boolean;
+  onboarding_step: number;
+  roger_mode: string;
+  language: string;
+  joined_at: string;
+  last_sign_in_at: string | null;
+};
+
+export async function fetchAdminUserList(): Promise<DbAdminUser[]> {
+  const { data, error } = await supabase
+    .from('admin_user_list')   // view from migration 016
+    .select('*');
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ─── Feature Flags ────────────────────────────────────────────────────────────
+
+export type DbFeatureFlag = {
+  id: string; key: string; name: string;
+  description: string | null; enabled: boolean;
+  rollout_pct: number; environment: string;
+  target_users: string[] | null;
+  category: 'general' | 'ui' | 'ai' | 'hardware' | 'experiment';
+  created_by: string | null;
+  updated_at: string; created_at: string;
+};
+
+export async function fetchFeatureFlags(env?: string): Promise<DbFeatureFlag[]> {
+  let q = supabase
+    .from('feature_flags')
+    .select('*')
+    .order('category')
+    .order('name');
+  if (env) q = q.eq('environment', env);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function toggleFeatureFlag(
+  id: string,
+  enabled: boolean,
+  rollout_pct?: number
+): Promise<void> {
+  const patch: Partial<DbFeatureFlag> = {
+    enabled,
+    updated_at: new Date().toISOString(),
+  };
+  if (rollout_pct !== undefined) patch.rollout_pct = rollout_pct;
+  const { error } = await supabase.from('feature_flags').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function upsertFeatureFlag(
+  flag: Omit<DbFeatureFlag, 'id' | 'created_at' | 'updated_at'>
+): Promise<void> {
+  const { error } = await supabase
+    .from('feature_flags')
+    .upsert({ ...flag, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  if (error) throw error;
+}
+
+// ─── Admin Audit Log ──────────────────────────────────────────────────────────
+
+export type DbAdminAuditEntry = {
+  id: string;
+  admin_id: string; admin_email: string | null;
+  module: string; action: string;
+  target_id: string | null; target_label: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export async function fetchAdminAuditLog(
+  opts?: { module?: string; adminId?: string; limit?: number }
+): Promise<DbAdminAuditEntry[]> {
+  let q = supabase
+    .from('admin_audit_log')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(opts?.limit ?? 100);
+  if (opts?.module)  q = q.eq('module', opts.module);
+  if (opts?.adminId) q = q.eq('admin_id', opts.adminId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function writeAuditEntry(
+  entry: Omit<DbAdminAuditEntry, 'id' | 'created_at'>
+): Promise<void> {
+  const { error } = await supabase.from('admin_audit_log').insert(entry);
+  if (error) throw error;
+}
+
+// ─── Realtime for system_alerts ───────────────────────────────────────────────
+export function subscribeToSystemAlerts(onChange: () => void) {
+  return supabase
+    .channel('system-alerts-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'system_alerts' }, onChange)
+    .subscribe();
+}
+
+export function subscribeToHealthChecks(onChange: () => void) {
+  return supabase
+    .channel('health-checks-live')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'system_health_checks' }, onChange)
+    .subscribe();
 }

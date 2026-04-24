@@ -2,8 +2,9 @@ import {
   LayoutDashboard, Users, Smartphone, Radio, Workflow,
   Boxes, HelpCircle, Brain, Zap, Newspaper, Eye, BookOpen,
   Mic, Bell, BarChart3, CreditCard, Headphones, Shield,
-  Flag, FileText, Settings, FlaskConical, Cpu,
+  Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive,
 } from 'lucide-react';
+import Tooltip from '../shared/Tooltip';
 import type { NavGroup } from '../../types';
 
 interface NavItem {
@@ -21,6 +22,16 @@ interface NavGroup2 {
 }
 
 const navGroups: NavGroup2[] = [
+  {
+    name: 'PTT NETWORK',
+    items: [
+      { key: 'contacts',        label: 'CONTACTS',       Icon: Radio,      group: 'PTT NETWORK', tooltip: 'Roger network contacts & callsigns' },
+      { key: 'channels',        label: 'CHANNELS',       Icon: Rss,        group: 'PTT NETWORK', tooltip: 'Group channels & convoy coordination' },
+      { key: 'tunein',          label: 'TUNE IN',        Icon: Headphones, group: 'PTT NETWORK', tooltip: 'Live peer-to-peer session via callsign' },
+      { key: 'commute',         label: 'COMMUTE CMD',    Icon: Car,        group: 'PTT NETWORK', tooltip: 'Route intelligence & departure brief' },
+      { key: 'session_archive', label: 'SESSION LOG',    Icon: Archive,    group: 'PTT NETWORK', tooltip: 'Past sessions, transcripts & debriefs' },
+    ],
+  },
   {
     name: 'OPERATIONS',
     items: [
@@ -120,50 +131,42 @@ export default function NavRail({ activeModule, onNavigate, isExpanded, isMobile
           {group.items.map(({ key, label, Icon, tooltip }) => {
             const isActive = activeModule === key;
             return (
-              <button
+              <Tooltip
                 key={key}
-                title={tooltip}
-                onClick={() => handleNav(key)}
-                className="flex items-center gap-3 px-4 py-3 w-full text-left transition-all duration-150 relative group"
-                style={{
-                  background: isActive ? 'rgba(212, 160, 68, 0.12)' : 'transparent',
-                  color: isActive ? 'var(--amber)' : 'var(--text-secondary)',
-                  borderLeft: isActive ? '2px solid var(--amber)' : '2px solid transparent',
-                }}
-                onMouseEnter={e => {
-                  if (!isActive) {
-                    (e.currentTarget as HTMLElement).style.background = 'rgba(74, 82, 64, 0.2)';
-                    (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (!isActive) {
-                    (e.currentTarget as HTMLElement).style.background = 'transparent';
-                    (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
-                  }
-                }}
+                content={tooltip}
+                placement="right"
+                delay={200}
+                maxWidth={200}
               >
-                <Icon size={16} className="shrink-0" />
-                {isExpanded && (
-                  <span className="font-mono text-label tracking-wide uppercase whitespace-nowrap overflow-hidden">
-                    {label}
-                  </span>
-                )}
-
-                {/* Tooltip on collapsed mode */}
-                {!isExpanded && (
-                  <div
-                    className="absolute left-full ml-2 px-2 py-1 text-nano font-mono whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50"
-                    style={{
-                      background: 'var(--bg-elevated)',
-                      border: '1px solid var(--border-subtle)',
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    {tooltip}
-                  </div>
-                )}
-              </button>
+                <button
+                  onClick={() => handleNav(key)}
+                  className="flex items-center gap-3 px-4 py-3 w-full text-left transition-all duration-150 relative group"
+                  style={{
+                    background: isActive ? 'rgba(212, 160, 68, 0.12)' : 'transparent',
+                    color: isActive ? 'var(--amber)' : 'var(--text-secondary)',
+                    borderLeft: isActive ? '2px solid var(--amber)' : '2px solid transparent',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLElement).style.background = 'rgba(74, 82, 64, 0.2)';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLElement).style.background = 'transparent';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
+                    }
+                  }}
+                >
+                  <Icon size={16} className="shrink-0" />
+                  {isExpanded && (
+                    <span className="font-mono text-label tracking-wide uppercase whitespace-nowrap overflow-hidden">
+                      {label}
+                    </span>
+                  )}
+                </button>
+              </Tooltip>
             );
           })}
         </div>

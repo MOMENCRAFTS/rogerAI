@@ -1,44 +1,53 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FlaskConical, RefreshCw, Zap } from 'lucide-react';
+import { FlaskConical, RefreshCw, Zap, User, ChevronDown } from 'lucide-react';
 import {
   fetchAllEntityMentions, fetchMemoryInsights, fetchSurfaceQueue,
-  insertSurfaceItem, markEntitySurfaced,
-  type DbEntityMention, type DbMemoryInsight, type DbSurfaceItem,
+  insertSurfaceItem, markEntitySurfaced, fetchAdminUserList,
+  type DbEntityMention, type DbMemoryInsight, type DbSurfaceItem, type DbAdminUser,
 } from '../lib/api';
-
-const USER_ID = 'ADMIN-TEST';
 
 type Tab = 'entities' | 'insights' | 'surface';
 
 export default function PatternLab() {
   const [tab, setTab]           = useState<Tab>('entities');
+  const [users, setUsers]       = useState<DbAdminUser[]>([]);
+  const [userId, setUserId]     = useState<string>('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [entities, setEntities] = useState<DbEntityMention[]>([]);
   const [insights, setInsights] = useState<DbMemoryInsight[]>([]);
   const [surface, setSurface]   = useState<DbSurfaceItem[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [loading, setLoading]   = useState(false);
   const [surfacing, setSurfacing] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    fetchAdminUserList()
+      .then(list => { setUsers(list); if (list.length > 0) setUserId(list[0].user_id); })
+      .catch(() => setUserId('ADMIN-TEST'));
+  }, []);
+
+  const load = useCallback((uid = userId) => {
+    if (!uid) return;
     setLoading(true);
     Promise.all([
-      fetchAllEntityMentions(USER_ID).catch(() => []),
-      fetchMemoryInsights(USER_ID).catch(() => []),
-      fetchSurfaceQueue(USER_ID).catch(() => []),
+      fetchAllEntityMentions(uid).catch(() => []),
+      fetchMemoryInsights(uid).catch(() => []),
+      fetchSurfaceQueue(uid).catch(() => []),
     ]).then(([e, i, s]) => {
       setEntities(e);
       setInsights(i);
       setSurface(s);
       setLoading(false);
     }).catch(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (userId) load(userId); }, [userId, load]);
 
   const handleSurfaceNow = async (entity: DbEntityMention) => {
     setSurfacing(entity.id);
     try {
       await insertSurfaceItem({
-        user_id: USER_ID,
+        user_id: userId,
         type: 'PATTERN_DETECTED',
         content: `Admin surfaced: You've mentioned ${entity.entity_text} ${entity.mention_count} times. Want to create a task or set a reminder?`,
         priority: 8, dismissed: false, snooze_count: 0,
@@ -61,6 +70,8 @@ export default function PatternLab() {
   const typeColor = (t: string) =>
     t === 'PERSON' ? '#f59e0b' : t === 'COMPANY' ? '#3b82f6' : t === 'PROJECT' ? '#8b5cf6' : '#10b981';
 
+  const selectedUser = users.find(u => u.user_id === userId);
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
 
@@ -72,9 +83,35 @@ export default function PatternLab() {
             Pattern Lab
           </span>
         </div>
-        <button onClick={load} style={{ background: 'transparent', border: '1px solid var(--border-subtle)', padding: '4px 8px', cursor: 'pointer', color: 'var(--text-muted)' }}>
-          <RefreshCw size={12} />
+        <button onClick={() => load()} disabled={!userId} style={{ background: 'transparent', border: '1px solid var(--border-subtle)', padding: '4px 8px', cursor: 'pointer', color: 'var(--text-muted)' }}>
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         </button>
+      </div>
+
+      {/* User Picker */}
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)', position: 'relative', flexShrink: 0 }}>
+        <button
+          onClick={() => setPickerOpen(p => !p)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', cursor: 'pointer', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <User size={11} style={{ color: 'var(--amber)' }} />
+            <span>{selectedUser ? `${selectedUser.display_name} · ${selectedUser.email}` : userId || 'Select user…'}</span>
+          </div>
+          <ChevronDown size={11} style={{ color: 'var(--text-muted)', transform: pickerOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }} />
+        </button>
+        {pickerOpen && (
+          <div style={{ position: 'absolute', top: '100%', left: 20, right: 20, zIndex: 50, border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', maxHeight: 200, overflowY: 'auto' }}>
+            {users.map(u => (
+              <button key={u.user_id} onClick={() => { setUserId(u.user_id); setPickerOpen(false); }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: u.user_id === userId ? 'rgba(212,160,68,0.08)' : 'transparent', border: 'none', borderBottom: '1px solid var(--border-dim)', cursor: 'pointer', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-primary)', textAlign: 'left' }}
+              >
+                <span>{u.display_name} · <span style={{ color: 'var(--text-muted)' }}>{u.email}</span></span>
+              </button>
+            ))}
+            {users.length === 0 && <p style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>Run migration 016 to see users</p>}
+          </div>
+        )}
       </div>
 
       {/* Tab bar */}

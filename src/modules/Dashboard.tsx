@@ -1,22 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { Activity, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Activity, AlertTriangle, RefreshCw, CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import StatCard from '../components/shared/StatCard';
-import { fetchLatestPlatformStat, fetchTransmissions } from '../lib/api';
-import type { DbPlatformStat, DbTransmission } from '../lib/api';
+import HelpBadge from '../components/shared/HelpBadge';
+import {
+  fetchLivePlatformStats, fetchLatestHealthChecks, fetchActiveAlerts,
+  fetchTransmissions, subscribeToSystemAlerts, subscribeToHealthChecks,
+} from '../lib/api';
+import type { DbLiveStat, DbHealthCheck, DbSystemAlert, DbTransmission } from '../lib/api';
 import type { StatCardData } from '../types';
-
-const ALERTS = [
-  { level: 'warning' as const, message: 'Ambiguity rate elevated in EU region (+2.3%)', time: '14 MIN AGO' },
-  { level: 'info'    as const, message: 'Device firmware 2.4.1 rolling out (34% complete)', time: '1 HR AGO' },
-];
-
-const HEALTH = [
-  { label: 'AI PIPELINE',  value: 99.2 },
-  { label: 'DEVICE SYNC',  value: 97.8 },
-  { label: 'BRIEFING GEN', value: 98.5 },
-  { label: 'MEMORY GRAPH', value: 99.8 },
-];
 
 function generateChartData(n = 30) {
   return Array.from({ length: n }, (_, i) => ({
@@ -26,22 +18,26 @@ function generateChartData(n = 30) {
   }));
 }
 
-function buildKpis(stat: DbPlatformStat | null, txCount: number): StatCardData[] {
+function buildKpis(stat: DbLiveStat | null, txCount: number): StatCardData[] {
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
   return [
     {
       label: 'ACTIVE USERS',
-      value: stat ? `${(stat.active_users / 1000).toFixed(1)}K` : '—',
+      value: stat ? fmt(stat.active_users) : '—',
       trend: '+12.5%', trendUp: true, status: 'success', icon: 'Users',
+      tooltip: 'Total users who initiated at least one PTT session or AI interaction in the last 24 hours.',
     },
     {
       label: 'CONNECTED DEVICES',
-      value: stat ? `${(stat.connected_devices / 1000).toFixed(1)}K` : '—',
+      value: stat ? fmt(stat.connected_devices) : '—',
       trend: '+8.2%', trendUp: true, status: 'success', icon: 'Smartphone',
+      tooltip: 'Hardware devices (PTT radios, phones) currently synced and reachable via the Roger relay.',
     },
     {
       label: 'TX TODAY',
-      value: `${(txCount / 1000).toFixed(1)}K`,
+      value: fmt(txCount),
       trend: '+15.8%', trendUp: true, status: 'neutral', icon: 'Radio',
+      tooltip: 'Total voice transmissions processed by the AI pipeline since midnight (local time).',
     },
     {
       label: 'SUCCESS RATE',
@@ -49,21 +45,45 @@ function buildKpis(stat: DbPlatformStat | null, txCount: number): StatCardData[]
       trend: '+0.3%', trendUp: true,
       status: stat && stat.success_rate >= 98 ? 'success' : 'warning',
       icon: 'ShieldCheck',
+      tooltip: 'Percentage of transmissions that resolved without error, clarification loop, or timeout. Target: ≥98%.',
     },
   ];
 }
 
-function buildBottomKpis(stat: DbPlatformStat | null): StatCardData[] {
+function buildBottomKpis(stat: DbLiveStat | null): StatCardData[] {
   return [
-    { label: 'SMART MOMENTUM',     value: '94.2%',                                       trend: '+1.8%',  trendUp: true,  status: 'neutral', icon: 'Zap' },
-    { label: 'CLARIFICATION RATE', value: stat ? `${stat.clarification_rate}%` : '—',    trend: '-0.5%',  trendUp: false, status: 'neutral', icon: 'HelpCircle' },
-    { label: 'AVG NODE LATENCY',   value: stat ? `${stat.avg_latency_ms}ms` : '—',       trend: '-12ms',  trendUp: false, status: 'success', icon: 'Timer' },
-    { label: 'BRIEFING SUCCESS',   value: '99.1%',                                       trend: '+0.2%',  trendUp: true,  status: 'success', icon: 'Newspaper' },
+    { label: 'SMART MOMENTUM',     value: '94.2%',                                    trend: '+1.8%', trendUp: true,  status: 'neutral', icon: 'Zap',        tooltip: 'Proportion of tasks where Roger proactively pre-fetched context before the user asked — reducing latency.' },
+    { label: 'CLARIFICATION RATE', value: stat ? `${stat.clarification_rate}%` : '—', trend: '-0.5%', trendUp: false, status: 'neutral', icon: 'HelpCircle', tooltip: 'Percentage of transmissions that triggered a clarification follow-up. Lower is better.' },
+    { label: 'AVG NODE LATENCY',   value: stat ? `${stat.avg_latency_ms}ms` : '—',    trend: '-12ms', trendUp: false, status: 'success', icon: 'Timer',      tooltip: 'Mean end-to-end latency from PTT release to first audio byte from the AI pipeline. Target: <700ms.' },
+    { label: 'BRIEFING SUCCESS',   value: '99.1%',                                    trend: '+0.2%', trendUp: true,  status: 'success', icon: 'Newspaper',  tooltip: 'Ratio of AM/PM briefings successfully generated and delivered on schedule across all active users.' },
   ];
 }
 
+function healthColor(h: DbHealthCheck) {
+  if (h.status === 'down')     return 'var(--rust)';
+  if (h.status === 'degraded') return 'var(--amber)';
+  return 'var(--green)';
+}
+
+function overallStatus(checks: DbHealthCheck[]) {
+  if (checks.some(c => c.status === 'down'))     return { label: 'DEGRADED', color: 'var(--rust)',  border: 'var(--rust-border)',  bg: 'var(--rust-dim)' };
+  if (checks.some(c => c.status === 'degraded')) return { label: 'WARNING',  color: 'var(--amber)', border: 'var(--amber-border)', bg: 'var(--amber-warn-dim)' };
+  return                                                { label: 'OPERATIONAL', color: 'var(--green)', border: 'var(--green-border)', bg: 'var(--green-dim)' };
+}
+
+function relativeTime(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1)  return 'JUST NOW';
+  if (mins < 60) return `${mins} MIN AGO`;
+  const hrs = Math.floor(mins / 60);
+  return hrs < 24 ? `${hrs} HR AGO` : `${Math.floor(hrs / 24)}D AGO`;
+}
+
 export default function Dashboard() {
-  const [stat, setStat]           = useState<DbPlatformStat | null>(null);
+  const [stat, setStat]           = useState<DbLiveStat | null>(null);
+  const [health, setHealth]       = useState<DbHealthCheck[]>([]);
+  const [alerts, setAlerts]       = useState<DbSystemAlert[]>([]);
   const [recentTx, setRecentTx]   = useState<DbTransmission[]>([]);
   const [loading, setLoading]     = useState(true);
   const [chartData, setChartData] = useState(generateChartData());
@@ -72,14 +92,16 @@ export default function Dashboard() {
   const load = async () => {
     setLoading(true);
     try {
-      const [latestStat, txData] = await Promise.all([
-        fetchLatestPlatformStat(),
-        fetchTransmissions(50),
+      const [liveStat, healthData, alertData, txData] = await Promise.all([
+        fetchLivePlatformStats().catch(() => null),
+        fetchLatestHealthChecks().catch(() => []),
+        fetchActiveAlerts().catch(() => []),
+        fetchTransmissions(50).catch(() => []),
       ]);
-      setStat(latestStat);
+      setStat(liveStat);
+      setHealth(healthData);
+      setAlerts(alertData);
       setRecentTx(txData);
-    } catch {
-      // silently fall back to animated mock if DB unreachable
     } finally {
       setLoading(false);
     }
@@ -87,7 +109,14 @@ export default function Dashboard() {
 
   useEffect(() => { load(); }, []);
 
-  // Animate chart + tx ticker
+  // Realtime subscriptions for health + alerts
+  useEffect(() => {
+    const s1 = subscribeToSystemAlerts(() => fetchActiveAlerts().then(setAlerts).catch(() => {}));
+    const s2 = subscribeToHealthChecks(() => fetchLatestHealthChecks().then(setHealth).catch(() => {}));
+    return () => { s1.unsubscribe(); s2.unsubscribe(); };
+  }, []);
+
+  // Animate chart
   useEffect(() => {
     animRef.current = setInterval(() => {
       setChartData(prev => {
@@ -98,13 +127,12 @@ export default function Dashboard() {
     return () => { if (animRef.current) clearInterval(animRef.current); };
   }, []);
 
-  // Compute live TX count from real data + animate upward
+  // Live TX count — real DB value + animated ticker
   const [txCount, setTxCount] = useState<number>(0);
   useEffect(() => {
-    if (stat) setTxCount(stat.tx_today);
+    if (stat?.tx_today) setTxCount(stat.tx_today);
     else if (recentTx.length > 0) setTxCount(recentTx.length);
   }, [stat, recentTx]);
-
   useEffect(() => {
     const ticker = setInterval(() => setTxCount(c => c + Math.floor(Math.random() * 8 + 1)), 3000);
     return () => clearInterval(ticker);
@@ -112,6 +140,7 @@ export default function Dashboard() {
 
   const topKpis    = buildKpis(stat, txCount);
   const bottomKpis = buildBottomKpis(stat);
+  const sysStatus  = overallStatus(health);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const CustomTooltip = ({ active, payload }: any) => {
@@ -134,6 +163,7 @@ export default function Dashboard() {
           <p className="font-mono text-nano tracking-wider" style={{ color: 'var(--text-muted)' }}>
             MISSION CONTROL / GLOBAL SYSTEM STATUS
             {stat && <span className="ml-2" style={{ color: 'var(--green)' }}>· LIVE DATA</span>}
+            {!stat && !loading && <span className="ml-2" style={{ color: 'var(--amber)' }}>· RUN MIGRATIONS 013-015 IN SUPABASE</span>}
           </p>
         </div>
         <button
@@ -158,6 +188,11 @@ export default function Dashboard() {
           <span className="font-mono text-mini tracking-wider uppercase" style={{ color: 'var(--amber)' }}>
             LIVE TRANSMISSION FEED
           </span>
+          <HelpBadge
+            title="Live Transmission Feed"
+            text="Real-time chart of voice TX/minute (green) vs error rate (red). Data refreshes every 3 seconds from the AI pipeline."
+            placement="bottom"
+          />
           <div className="flex items-center gap-1.5 ml-auto">
             <div className="w-2 h-2 led-pulse" style={{ background: 'var(--green)', borderRadius: '50%' }} />
             <span className="font-mono text-nano" style={{ color: 'var(--green)' }}>LIVE</span>
@@ -202,46 +237,90 @@ export default function Dashboard() {
 
       {/* System Health + Alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* System Health */}
+
+        {/* System Health — live from DB */}
         <div className="border p-4 space-y-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }}>
           <div className="flex items-center gap-3">
             <Activity size={14} style={{ color: 'var(--amber)' }} />
             <span className="font-mono text-mini tracking-wider uppercase" style={{ color: 'var(--amber)' }}>SYSTEM HEALTH</span>
+            <HelpBadge
+              title="System Health"
+              text="Uptime percentage for each major subsystem. Data is written by health-check workers every 5 minutes. All services must be ≥97% to stay green."
+              placement="bottom"
+            />
             <div className="ml-auto px-2 py-0.5 border font-mono text-micro tracking-wider uppercase"
-              style={{ borderColor: 'var(--green-border)', color: 'var(--green)', background: 'var(--green-dim)' }}>
-              OPERATIONAL
+              style={{ borderColor: sysStatus.border, color: sysStatus.color, background: sysStatus.bg }}>
+              {sysStatus.label}
             </div>
           </div>
-          {HEALTH.map(m => (
-            <div key={m.label} className="space-y-1">
+
+          {/* Live DB rows */}
+          {health.length > 0 && health.map(h => (
+            <div key={h.service} className="space-y-1">
               <div className="flex justify-between">
-                <span className="font-mono text-mini uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>{m.label}</span>
-                <span className="font-mono text-mini" style={{ color: 'var(--green)' }}>{m.value}%</span>
+                <span className="font-mono text-mini uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+                  {h.service.replace(/_/g, ' ')}
+                </span>
+                <div className="flex items-center gap-2">
+                  {h.status === 'operational' && <CheckCircle2 size={10} style={{ color: 'var(--green)' }} />}
+                  {h.status === 'degraded'    && <AlertCircle  size={10} style={{ color: 'var(--amber)' }} />}
+                  {h.status === 'down'        && <XCircle      size={10} style={{ color: 'var(--rust)'  }} />}
+                  <span className="font-mono text-mini" style={{ color: healthColor(h) }}>{h.uptime_pct}%</span>
+                </div>
               </div>
               <div className="h-px w-full" style={{ background: 'var(--bg-recessed)' }}>
-                <div className="h-full transition-all duration-1000" style={{ width: `${m.value}%`, background: 'var(--green)' }} />
+                <div className="h-full transition-all duration-1000" style={{ width: `${h.uptime_pct}%`, background: healthColor(h) }} />
               </div>
             </div>
           ))}
+
+          {/* Fallback skeleton if DB empty */}
+          {health.length === 0 && !loading && (
+            <p className="font-mono text-nano" style={{ color: 'var(--text-muted)' }}>
+              Run migration 014 to populate health data
+            </p>
+          )}
+          {loading && [1,2,3,4].map(i => (
+            <div key={i} className="h-6 animate-pulse" style={{ background: 'var(--bg-recessed)' }} />
+          ))}
         </div>
 
-        {/* Alerts */}
+        {/* Alerts & Incidents — live from DB */}
         <div className="border p-4 space-y-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }}>
           <div className="flex items-center gap-3">
             <AlertTriangle size={14} style={{ color: 'var(--amber)' }} />
             <span className="font-mono text-mini tracking-wider uppercase" style={{ color: 'var(--amber)' }}>ALERTS & INCIDENTS</span>
-            <span className="ml-auto font-mono text-nano" style={{ color: 'var(--text-muted)' }}>2 ACTIVE</span>
+            <HelpBadge
+              title="Alerts & Incidents"
+              text="Active warnings and incidents requiring admin review. Yellow = warning (non-critical). Red = critical (needs immediate action). All alerts are stored in Supabase."
+              placement="bottom"
+            />
+            <span className="ml-auto font-mono text-nano" style={{ color: alerts.length > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>
+              {alerts.length} ACTIVE
+            </span>
           </div>
-          {ALERTS.map((a, i) => {
+
+          {/* Live DB alerts */}
+          {alerts.map(a => {
             const stripColor = a.level === 'warning' ? 'var(--amber)' : a.level === 'info' ? 'var(--green)' : 'var(--rust)';
             return (
-              <div key={i} className="relative pl-3 py-2 pr-3 border" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-cell)' }}>
+              <div key={a.id} className="relative pl-3 py-2 pr-3 border" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-cell)' }}>
                 <div className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: stripColor }} />
                 <p className="font-mono text-nano" style={{ color: 'var(--text-primary)' }}>{a.message}</p>
-                <p className="font-mono text-micro mt-0.5" style={{ color: 'var(--text-muted)' }}>{a.time}</p>
+                <p className="font-mono text-micro mt-0.5" style={{ color: 'var(--text-muted)' }}>{relativeTime(a.created_at)}</p>
               </div>
             );
           })}
+
+          {alerts.length === 0 && !loading && (
+            <div className="flex items-center gap-2 py-2">
+              <CheckCircle2 size={12} style={{ color: 'var(--green)' }} />
+              <span className="font-mono text-nano" style={{ color: 'var(--green)' }}>NO ACTIVE ALERTS</span>
+            </div>
+          )}
+          {loading && [1,2].map(i => (
+            <div key={i} className="h-10 animate-pulse" style={{ background: 'var(--bg-recessed)' }} />
+          ))}
         </div>
       </div>
 

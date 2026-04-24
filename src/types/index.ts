@@ -10,6 +10,7 @@ export interface NavItem {
 }
 
 export type NavGroup =
+  | 'PTT NETWORK'
   | 'OPERATIONS'
   | 'AI & TESTING'
   | 'CONTENT'
@@ -76,6 +77,8 @@ export interface StatCardData {
   trendUp: boolean;
   status: StatusTier;
   icon: string;
+  /** Optional tooltip description shown on label hover via HelpBadge */
+  tooltip?: string;
 }
 
 export interface HealthMetric {

@@ -42,6 +42,8 @@ const config: CapacitorConfig = {
     contentInset: 'automatic',
     scrollEnabled: true,
     limitsNavigationsToAppBoundDomains: false,
+    // Custom URL scheme for Supabase OAuth callback
+    scheme: 'com.rogerai.app',
   },
 };
 

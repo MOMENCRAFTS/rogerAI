@@ -21,6 +21,11 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+        debug {
+            // Capacitor library sub-projects only publish a 'release' variant.
+            // Fall back to 'release' for debug compile classpath resolution.
+            matchingFallbacks = ['release']
+        }
     }
 }
 

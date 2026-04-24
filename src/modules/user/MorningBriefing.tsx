@@ -3,6 +3,8 @@ import { Newspaper, Mic, Loader, Wind } from 'lucide-react';
 import { fetchConversationHistory, fetchMemoryGraph, fetchSurfaceQueue, fetchReminders, fetchTasks } from '../../lib/api';
 import { speakResponse } from '../../lib/tts';
 import { fetchWeather, weatherToContextString, type WeatherData } from '../../lib/weather';
+import { fetchMarketContext } from '../../lib/finance';
+import { fetchTodayEvents, eventsToContext } from '../../lib/googleCalendar';
 import type { UserLocation } from '../../lib/useLocation';
 
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
@@ -27,13 +29,15 @@ export default function MorningBriefing({ userId, location }: { userId: string; 
   const generateBriefing = async () => {
     setState('loading');
     try {
-      const [history, facts, surfaceItems, reminders, tasks, wx] = await Promise.all([
+      const [history, facts, surfaceItems, reminders, tasks, wx, marketCtx, calEvents] = await Promise.all([
         fetchConversationHistory(userId, 10).catch(() => []),
         fetchMemoryGraph(userId).catch(() => []),
         fetchSurfaceQueue(userId).catch(() => []),
         fetchReminders(userId, 'pending').catch(() => []),
         fetchTasks(userId, 'open').catch(() => []),
         location ? fetchWeather(location.latitude, location.longitude, location.city).catch(() => null) : Promise.resolve(null),
+        fetchMarketContext(['AAPL','MSFT','NVDA']).catch(() => ''),
+        fetchTodayEvents(userId).catch(() => null),
       ]);
 
       if (wx) setWeather(wx);
@@ -52,11 +56,15 @@ export default function MorningBriefing({ userId, location }: { userId: string; 
         .map(t => `• [P${t.priority}] ${t.text}${t.due_at ? ` (due ${new Date(t.due_at).toLocaleDateString()})` : ''}`)
         .join('\n');
 
-      const weatherLine = wx ? weatherToContextString(wx) : 'unavailable';
+      const weatherLine  = wx ? weatherToContextString(wx) : 'unavailable';
+      const marketLine   = marketCtx || 'unavailable';
+      const calendarLine = calEvents?.events?.length ? eventsToContext(calEvents.events) : 'No calendar events today.';
 
       const contextPrompt = `Time of day: ${timeOfDay}
 Location: ${location?.city ?? 'unknown'}
 Weather: ${weatherLine}
+Market: ${marketLine}
+Calendar: ${calendarLine}
 
 User facts: ${factLines || 'none yet'}
 

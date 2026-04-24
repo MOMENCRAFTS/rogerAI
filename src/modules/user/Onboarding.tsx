@@ -12,6 +12,8 @@ import {
   upsertUserPreferences, upsertMemoryFact, upsertEntityMention,
   updateOnboardingStep,
 } from '../../lib/api';
+import { hapticPTTDown, hapticPTTUp, hapticTick, hapticSuccess, hapticError } from '../../lib/haptics';
+import { preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError } from '../../lib/sfx';
 
 interface Props {
   userId: string;
@@ -49,17 +51,20 @@ export default function Onboarding({ userId, onComplete }: Props) {
     setPhase('speaking');
     setScript(text);
     typewrite(text);
+    sfxRogerIn();
     try {
       await speakResponse(text);
     } catch {
       try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch { /* silent */ }
     }
+    sfxRogerOut();
     setPhase('waiting');
   }, [typewrite]);
 
   // ── Initial load: generate + speak welcome ───────────────────────────────
   useEffect(() => {
     generateNodeScript('welcome', {}).then(({ script: s }) => speakNode(s));
+    preloadAll();
     return () => {
       stopSpeaking();
       if (typeRef.current) clearInterval(typeRef.current);
@@ -80,6 +85,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
     updateOnboardingStep(userId, NODE_INDEX(next), updatedAnswers.name).catch(() => {});
 
     if (next === 'complete') {
+      hapticSuccess();
       // Write all memory graph facts
       await persistOnboardingMemory(userId, updatedAnswers);
 
@@ -101,6 +107,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
       return;
     }
 
+    hapticTick();
     // Generate next node script (AI-adaptive)
     setNode(next);
     const { script: nextScript } = await generateNodeScript(next, updatedAnswers, transcript);
@@ -111,6 +118,8 @@ export default function Onboarding({ userId, onComplete }: Props) {
   const handleDown = useCallback(async () => {
     if (phase !== 'waiting') return;
     stopSpeaking();
+    hapticPTTDown();
+    sfxPTTDown();
     setPhase('recording');
     setHoldMs(0);
     holdRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
@@ -124,6 +133,8 @@ export default function Onboarding({ userId, onComplete }: Props) {
   const handleUp = useCallback(async () => {
     if (phase !== 'recording') return;
     if (holdRef.current) clearInterval(holdRef.current);
+    hapticPTTUp();
+    sfxPTTUp();
 
     const recorder = recorderRef.current;
     recorderRef.current = null;
@@ -135,11 +146,15 @@ export default function Onboarding({ userId, onComplete }: Props) {
       recorder.dispose();
       const { transcript } = await transcribeAudio(blob);
       if (!transcript || transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '').length < 2) {
+        hapticError();
+        sfxError();
         setPhase('waiting');
         return;
       }
       await advanceNode(node, transcript, answers);
     } catch {
+      hapticError();
+      sfxError();
       setPhase('waiting');
     }
   }, [phase, node, answers, advanceNode]);
