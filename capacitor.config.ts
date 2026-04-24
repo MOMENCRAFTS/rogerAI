@@ -27,7 +27,12 @@ const config: CapacitorConfig = {
     },
 
     CapacitorHttp: {
-      enabled: true,
+      // DISABLED: CapacitorHttp patches both fetch() and XMLHttpRequest at the
+      // JS bridge level. For binary responses (audio/mpeg from OpenAI TTS),
+      // it returns xhr.response = undefined, breaking decodeAudioData.
+      // All external APIs (Supabase, OpenAI) have proper CORS headers and
+      // work correctly with the WebView's native networking stack.
+      enabled: false,
     },
   },
 

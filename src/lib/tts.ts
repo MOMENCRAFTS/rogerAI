@@ -2,20 +2,19 @@
 // Uses OpenAI TTS (tts-1 model, onyx voice) to speak Roger's responses.
 //
 // ANDROID / CAPACITOR NOTE:
-//   Capacitor's CapacitorHttp plugin patches window.fetch() and intercepts
-//   ALL outgoing requests — including binary audio downloads. The patched
-//   fetch() cannot correctly deliver binary MP3 data as ArrayBuffer, causing
-//   decodeAudioData() to receive corrupt data and throw an AudioContext error.
+//   CapacitorHttp (now DISABLED in capacitor.config.ts) patches both
+//   window.fetch() and XMLHttpRequest, returning xhr.response = undefined
+//   for binary (audio/mpeg) responses through the JS bridge.
 //
-//   FIX: We use XMLHttpRequest with responseType='arraybuffer' for the TTS
-//   download. XHR is NOT intercepted by CapacitorHttp, so we get raw binary.
+//   With CapacitorHttp disabled, the WebView uses its native networking stack.
+//   Supabase and OpenAI both have proper CORS headers, so all requests work.
+//   Binary responses now arrive as real ArrayBuffers — decodeAudioData works.
 //
-//   Pipeline: XHR (raw binary) → ArrayBuffer → decodeAudioData → BufferSource
-//   This is the same pipeline that sfx.ts uses for PTT beeps — works on device.
+//   Pipeline: fetch → arrayBuffer() → decodeAudioData → BufferSource → speaker
 
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
 
-// Shared AudioContext — lazy-created, recreated if it enters a closed/error state.
+// Shared AudioContext — lazy-created, recreated if it enters a closed state.
 let _ctx: AudioContext | null = null;
 
 // Currently playing source — allows stopSpeaking() to interrupt mid-sentence.
@@ -25,9 +24,7 @@ let _stopCallback: (() => void) | null = null;
 // ─── AudioContext lifecycle ────────────────────────────────────────────────────
 
 async function getAudioContext(): Promise<AudioContext> {
-  if (_ctx && _ctx.state === 'closed') {
-    _ctx = null; // recreate if closed
-  }
+  if (_ctx && _ctx.state === 'closed') _ctx = null;
   if (!_ctx) _ctx = new AudioContext();
   if (_ctx.state === 'suspended') {
     try { await _ctx.resume(); } catch { /* best effort */ }
@@ -39,86 +36,6 @@ function resetAudioContext(): void {
   if (_ctx) { try { _ctx.close(); } catch { /* ignore */ } }
   _ctx = null;
 }
-
-// ─── Convert any XHR response type to ArrayBuffer ────────────────────────────
-// Capacitor's native bridge can return binary data as:
-//   - ArrayBuffer  (ideal — direct pass-through)
-//   - base64 string (common on Android WebView bridge)
-//   - Blob          (some Capacitor versions wrap responses)
-//   - Uint8Array    (typed array variant)
-async function toArrayBuffer(response: unknown): Promise<ArrayBuffer> {
-  console.log('[TTS] response type:', typeof response, Object.prototype.toString.call(response));
-
-  if (response instanceof ArrayBuffer) {
-    return response;
-  }
-  if (response instanceof Blob) {
-    console.log('[TTS] Converting Blob →', response.size, 'bytes');
-    return response.arrayBuffer();
-  }
-  if (typeof response === 'string') {
-    // Capacitor Android bridge base64-encodes binary responses
-    console.log('[TTS] Decoding base64 string, length:', response.length);
-    const binary = atob(response);
-    const bytes   = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes.buffer;
-  }
-  if (ArrayBuffer.isView(response)) {
-    // Uint8Array / Int16Array etc. — copy into a plain ArrayBuffer to avoid
-    // SharedArrayBuffer type conflict in strict TypeScript.
-    const view = response as Uint8Array;
-    const copy = new ArrayBuffer(view.byteLength);
-    new Uint8Array(copy).set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
-    return copy;
-  }
-  throw new Error(`Cannot convert XHR response (${typeof response}) to ArrayBuffer`);
-}
-
-// ─── XHR audio download (bypasses Capacitor HTTP interceptor) ────────────────
-
-function fetchAudioBuffer(text: string): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', 'https://api.openai.com/v1/audio/speech', true);
-    xhr.responseType = 'arraybuffer'; // request binary; Capacitor may still convert it
-    xhr.setRequestHeader('Authorization', `Bearer ${OPENAI_API_KEY}`);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        toArrayBuffer(xhr.response)
-          .then(buf => {
-            console.log('[TTS] XHR audio bytes received:', buf.byteLength);
-            resolve(buf);
-          })
-          .catch(reject);
-      } else {
-        // Try to decode error message
-        try {
-          const errText = new TextDecoder().decode(xhr.response as ArrayBuffer);
-          const errJson = JSON.parse(errText) as { error?: { message?: string } };
-          reject(new Error(errJson.error?.message ?? `TTS HTTP ${xhr.status}`));
-        } catch {
-          reject(new Error(`TTS HTTP ${xhr.status}`));
-        }
-      }
-    };
-
-    xhr.onerror   = () => reject(new Error('TTS network error (XHR)'));
-    xhr.ontimeout = () => reject(new Error('TTS timeout'));
-    xhr.timeout   = 30_000;
-
-    xhr.send(JSON.stringify({
-      model: 'tts-1',
-      input: text,
-      voice: 'onyx',
-      speed: 1.0,
-      response_format: 'mp3',
-    }));
-  });
-}
-
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -158,15 +75,14 @@ export function stopSpeaking(): void {
 }
 
 /**
- * Speak text using OpenAI TTS via XHR (bypasses Capacitor HTTP interceptor)
- * and play through AudioContext BufferSource pipeline.
+ * Speak text using OpenAI TTS.
+ * Now uses native fetch (CapacitorHttp disabled) so binary audio arrives intact.
  */
 export async function speakResponse(text: string): Promise<void> {
   if (!OPENAI_API_KEY) throw new Error('OpenAI API key not configured');
 
   stopSpeaking();
 
-  // 1. Ensure AudioContext is alive and running
   let ctx: AudioContext;
   try {
     ctx = await getAudioContext();
@@ -174,45 +90,51 @@ export async function speakResponse(text: string): Promise<void> {
     resetAudioContext();
     throw new Error(`AudioContext init failed: ${(e as Error).message}`);
   }
-  console.log('[TTS] ctx state before fetch:', ctx.state);
+  console.log('[TTS] ctx state:', ctx.state);
 
-  // 2. Download audio via XHR (not fetch — Capacitor patches fetch for binary)
-  let arrayBuffer: ArrayBuffer;
-  try {
-    arrayBuffer = await fetchAudioBuffer(text);
-    console.log('[TTS] XHR audio bytes received:', arrayBuffer.byteLength);
-  } catch (e) {
-    throw new Error(`TTS fetch failed: ${(e as Error).message}`);
+  // Fetch TTS audio — now uses native WebView networking (CapacitorHttp disabled)
+  const res = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'tts-1',
+      input: text,
+      voice: 'onyx',
+      speed: 1.0,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? `TTS error ${res.status}`);
   }
 
-  // 3. Recreate context if it closed during the download
+  const arrayBuffer = await res.arrayBuffer();
+  console.log('[TTS] audio bytes received:', arrayBuffer.byteLength);
+
   if (ctx.state === 'closed') {
     resetAudioContext();
     ctx = await getAudioContext();
   }
 
-  // 4. Decode the MP3 into a Web Audio buffer
   let audioBuffer: AudioBuffer;
   try {
     audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    console.log('[TTS] decoded audio duration:', audioBuffer.duration.toFixed(2), 's');
+    console.log('[TTS] decoded duration:', audioBuffer.duration.toFixed(2), 's');
   } catch (decodeErr) {
-    console.warn('[TTS] decodeAudioData failed, resetting context and retrying:', decodeErr);
+    console.warn('[TTS] decodeAudioData failed, resetting ctx:', decodeErr);
     resetAudioContext();
     ctx = await getAudioContext();
-    try {
-      audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-    } catch (retryErr) {
-      throw new Error(`TTS decode failed: ${(retryErr as Error).message}`);
-    }
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
   }
 
-  // 5. Resume context if suspended after decode
   if (ctx.state === 'suspended') {
     try { await ctx.resume(); } catch { /* best effort */ }
   }
 
-  // 6. Play
   return new Promise((resolve, reject) => {
     if (ctx.state === 'closed') {
       reject(new Error('AudioContext closed before playback'));
@@ -222,7 +144,6 @@ export async function speakResponse(text: string): Promise<void> {
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
-
     _currentSource = source;
     _stopCallback  = resolve;
 
