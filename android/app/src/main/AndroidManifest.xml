@@ -45,13 +45,18 @@
     <!-- ─── Microphone / PTT ────────────────────────────── -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" />
+    <!-- NOTE: CAPTURE_AUDIO_OUTPUT is a system-level (signature) permission and
+         cannot be granted to third-party apps — removed to avoid routing conflicts. -->
     <!-- Required by @capacitor/haptics for vibration on Android -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- ─── Speech Recognition ──────────────────────────── -->
     <!-- Enables SpeechRecognizer API on Android 13+ -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ─── Location (GPS) ──────────────────────────────── -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- ─── Feature declarations (allows install on devices with mic) -->
     <uses-feature android:name="android.hardware.microphone" android:required="true" />

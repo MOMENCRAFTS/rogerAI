@@ -2,6 +2,11 @@
  * sfx.ts — Subtle PTT radio sound effects for Roger AI
  * Uses Web Audio API; lazy-inits AudioContext on first interaction.
  * Falls back silently on web/desktop or if files are missing.
+ *
+ * ANDROID FIX: AudioContext is always "suspended" on Android WebView until a real
+ * user gesture resumes it. The previous code called ctx.resume() fire-and-forget,
+ * which meant play() ran on a suspended context and produced silence. Fixed by
+ * awaiting resume() inside an async play() before scheduling the buffer source.
  */
 
 let ctx: AudioContext | null = null;
@@ -22,9 +27,20 @@ const SFX: Record<string, string> = {
 function getCtx(): AudioContext | null {
   try {
     if (!ctx) ctx = new AudioContext();
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     return ctx;
   } catch { return null; }
+}
+
+/** Ensure the AudioContext is running. Must be awaited before playback. */
+async function ensureRunning(): Promise<AudioContext | null> {
+  const c = getCtx();
+  if (!c) return null;
+  // Android WebView suspends AudioContext until a user gesture resumes it.
+  // We must properly await resume() — fire-and-forget causes silent playback.
+  if (c.state === 'suspended') {
+    try { await c.resume(); } catch { return null; }
+  }
+  return c.state === 'running' ? c : null;
 }
 
 async function loadBuf(name: string, url: string): Promise<void> {
@@ -43,9 +59,18 @@ export function preloadAll(): void {
   loading = Promise.all(Object.entries(SFX).map(([k, v]) => loadBuf(k, v))).then(() => {});
 }
 
-function play(name: string): void {
+/**
+ * Prime the AudioContext on the first user gesture (PTT touch / permission grant).
+ * Call this from any touch handler to guarantee context is running before the
+ * first sound needs to play. Safe to call multiple times.
+ */
+export async function unlockSfxContext(): Promise<void> {
+  await ensureRunning();
+}
+
+async function play(name: string): Promise<void> {
   if (!sfxEnabled) return;
-  const c   = getCtx();
+  const c   = await ensureRunning();
   const buf = buffers.get(name);
   if (!c || !buf) return;
   try {
@@ -65,8 +90,8 @@ export function setSfxVolume(v: number): void { masterGain = Math.max(0, Math.mi
 /** Enable or disable all SFX at runtime (called from RogerSettings). */
 export function setSfxEnabled(v: boolean): void { sfxEnabled = v; }
 
-export function sfxPTTDown():  void { play('ptt-down');  }
-export function sfxPTTUp():    void { play('ptt-up');    }
-export function sfxRogerIn():  void { play('roger-in');  }
-export function sfxRogerOut(): void { play('roger-out'); }
-export function sfxError():    void { play('error');     }
+export function sfxPTTDown():  void { play('ptt-down').catch(() => {}); }
+export function sfxPTTUp():    void { play('ptt-up').catch(() => {}); }
+export function sfxRogerIn():  void { play('roger-in').catch(() => {}); }
+export function sfxRogerOut(): void { play('roger-out').catch(() => {}); }
+export function sfxError():    void { play('error').catch(() => {}); }

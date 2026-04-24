@@ -365,7 +365,21 @@ LOG_TO_NOTION
              "Notion not connected. Add your token in Settings. Over." (if not)
   outcome: always "success"
 
-Return ONLY valid JSON:
+═══════════════════════════════════════
+RIDE BOOKING — UBER
+═══════════════════════════════════════
+
+BOOK_RIDE
+  Trigger: "book me a ride to [PLACE]", "get me an Uber to [PLACE]",
+           "call a cab to [PLACE]", "Uber to [PLACE]", "taxi to [PLACE]",
+           "get me a car to [PLACE]", "book a ride to [PLACE]",
+           "take me to [PLACE]", "I need a ride to [PLACE]"
+  Extract: DESTINATION entity — the drop-off location (e.g. "KAFD", "the airport", "King Khalid Hospital")
+  Response: "Opening Uber to [DESTINATION]. Confirm in the app. Over."
+  outcome: always "success"
+  Notes: Roger uses Uber's Universal Link (m.uber.com) to open the app pre-filled.
+         This works whether or not the Uber app is installed.
+
 
 
 

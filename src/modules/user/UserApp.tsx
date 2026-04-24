@@ -13,11 +13,13 @@ import FeatureTour   from './FeatureTour';
 import UserAnalytics from './UserAnalytics';
 import LocationView  from './LocationView';
 import JournalView   from './JournalView';
+import PermissionGate from '../../components/PermissionGate';
 import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasTourBeenSeen, markTourSeen, flushTourSeen } from '../../lib/api';
 import { TOUR_VERSION } from '../../lib/featureTour';
 import type { OnboardingAnswers } from '../../lib/onboarding';
 import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
+import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
 
 type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
@@ -51,6 +53,11 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const [taskCount, setTaskCount]   = useState(0);
   const sessionId = useRef(crypto.randomUUID());
   const { location } = useLocation(userId);
+
+  // ── Permission gate — shown once on first install ─────────────────────────
+  // Must be checked at component mount time (not lazily) so the gate renders
+  // before onboarding and primes the Android audio pipeline on first tap.
+  const [permsGranted, setPermsGranted] = useState<boolean>(hasGrantedPermissions);
 
   const refreshBadges = () => {
     fetchReminders(userId, 'pending').then(r => setReminderCount(r.length)).catch(() => {});
@@ -127,6 +134,21 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
           Initialising...
         </span>
       </div>
+    );
+  }
+
+  // ── Permission Gate (first launch only) ──────────────────────────────────
+  // Renders before onboarding so the very first user gesture (GRANT ACCESS tap)
+  // primes the Android WebView audio pipeline. unlockAudio() and unlockSfxContext()
+  // are called inside PermissionGate.onGranted before we proceed.
+  if (!permsGranted) {
+    return (
+      <PermissionGate
+        onGranted={() => {
+          markPermissionsGranted();
+          setPermsGranted(true);
+        }}
+      />
     );
   }
 

@@ -292,70 +292,61 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           background: `linear-gradient(90deg, transparent 10%, ${primaryHex}55 50%, transparent 90%)`,
         }} />
 
-        {/* ══ LAYER 6 — Centre UI ══ */}
+        {/* ══ LAYER 6 — Bottom branding block (sits UNDER post-processing filters) ══ */}
         <div style={{
-          position: 'absolute', inset: 0, zIndex: 6,
+          position: 'absolute',
+          bottom: 120,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 5,
           display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          gap: 0,
+          alignItems: 'center', gap: 6,
+          pointerEvents: 'none',
         }}>
           {/* Role badge */}
           <div style={{
-            marginBottom: 16,
             padding: '3px 16px',
-            border: `1px solid ${primaryHex}55`,
+            border: `1px solid ${primaryHex}44`,
             borderRadius: 100,
-            background: `${primaryHex}14`,
-            backdropFilter: 'blur(6px)',
+            background: `${primaryHex}0d`,
             animation: 'badge-in 0.9s cubic-bezier(0.34,1.56,0.64,1) both',
           }}>
             <span style={{
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: 9, letterSpacing: '0.38em',
-              color: primaryHex, textTransform: 'uppercase',
+              color: `${primaryHex}cc`, textTransform: 'uppercase',
             }}>
               ● {roleLabel}
             </span>
           </div>
 
-          {/* Mascot */}
-          <img
-            src="/mascot.png"
-            alt="Roger AI"
-            style={{
-              width: 190, height: 'auto',
-              filter: `drop-shadow(0 0 40px ${primaryHex}66) drop-shadow(0 0 12px ${secondaryHex}44)`,
-              animation: 'orb-pulse 4.5s ease-in-out infinite',
-            }}
-          />
-
           {/* ROGER·AI wordmark */}
-          <div style={{ marginTop: 18, textAlign: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
             <p style={{
               fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 28, fontWeight: 700, letterSpacing: '0.24em',
-              color: '#ffffff', margin: 0,
-              textShadow: `0 0 32px ${primaryHex}bb`,
+              fontSize: 26, fontWeight: 700, letterSpacing: '0.24em',
+              color: 'rgba(255,255,255,0.88)', margin: 0,
+              textShadow: `0 0 28px ${primaryHex}99`,
             }}>
               ROGER<span style={{ color: primaryHex }}>·</span>AI
             </p>
             <p style={{
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: 9, letterSpacing: '0.32em',
-              color: `${secondaryHex}aa`, textTransform: 'uppercase', margin: '4px 0 0',
+              color: `${secondaryHex}88`, textTransform: 'uppercase', margin: '4px 0 0',
             }}>
               YOUR AI CHIEF OF STAFF
             </p>
           </div>
 
           {/* Rotating status text */}
-          <div style={{ marginTop: 24, height: 18 }}>
+          <div style={{ height: 16 }}>
             <span
               key={textIndex}
               style={{
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 9, letterSpacing: '0.28em',
-                color: `${primaryHex}99`, textTransform: 'uppercase',
+                color: `${primaryHex}77`, textTransform: 'uppercase',
                 display: 'inline-block',
                 animation: 'txt-in 0.5s ease both',
               }}
@@ -368,7 +359,7 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
 
         {/* ══ LAYER 7 — Progress bar (bottom centre) ══ */}
         <div style={{
-          position: 'absolute', bottom: 82,
+          position: 'absolute', bottom: 36,
           left: '50%', transform: 'translateX(-50%)',
           width: 220, zIndex: 7,
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,

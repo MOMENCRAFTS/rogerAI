@@ -15,17 +15,32 @@ public class MainActivity extends BridgeActivity {
         // Register the PTT Button plugin before super.onCreate
         registerPlugin(PttButtonPlugin.class);
         super.onCreate(savedInstanceState);
+
+        // ── Audio unlock: must be applied in onCreate(), BEFORE any web content loads.
+        // If applied in onStart() (too late), Android WebView may have already enforced
+        // autoplay blocking, causing Roger's TTS to be completely silent on device.
+        WebView webView = getBridge().getWebView();
+        WebSettings settings = webView.getSettings();
+
+        // Allow HTMLAudioElement.play() without a prior user gesture.
+        // This is the primary fix for TTS silence on Android WebView.
+        settings.setMediaPlaybackRequiresUserGesture(false);
+
+        // Allow blob: URLs created by URL.createObjectURL() to be played back.
+        // Without these flags, the TTS audio blob URL is blocked by WebView's
+        // file:// sandbox — the audio element is created but plays nothing.
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+
+        // Required for AudioContext / Web Audio API state persistence
+        settings.setDomStorageEnabled(true);
     }
 
     @Override
     public void onStart() {
         super.onStart();
-        // Unlock audio in Capacitor WebView.
-        // Android WebView silences ALL media by default (setMediaPlaybackRequiresUserGesture=true).
-        // Without this override, Roger's TTS is completely silent on device even after a user tap.
-        WebView webView = getBridge().getWebView();
-        WebSettings settings = webView.getSettings();
-        settings.setMediaPlaybackRequiresUserGesture(false);
+        // Audio flags moved to onCreate() above — must be set before web content loads.
+        // Keeping onStart() for any future lifecycle hooks.
     }
 
     private PttButtonPlugin getPttPlugin() {

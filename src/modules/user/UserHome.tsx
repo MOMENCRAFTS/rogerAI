@@ -980,6 +980,51 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }).catch(() => {});
       }
 
+      // ── BOOK_RIDE — Uber Universal Link deep link ─────────────────────────
+      if (result.intent === 'BOOK_RIDE' || result.intent === 'OPEN_UBER') {
+        const destEnt = result.entities?.find(e =>
+          e.type === 'LOCATION' || e.type === 'PLACE' || e.type === 'DESTINATION'
+        );
+        const destText = destEnt?.text ??
+          transcript.replace(/book|ride|uber|careem|taxi|cab|take me|drive me|to|a/gi, '').trim();
+
+        const openUber = (lat?: number, lng?: number, label?: string) => {
+          let url: string;
+          if (lat && lng) {
+            // Uber Universal Link — officially supported, works with or without app installed
+            const params = new URLSearchParams({
+              'action': 'setPickup',
+              'dropoff[latitude]':          lat.toFixed(6),
+              'dropoff[longitude]':         lng.toFixed(6),
+              'dropoff[nickname]':          label ?? destText,
+              'dropoff[formatted_address]': label ?? destText,
+            });
+            url = `https://m.uber.com/ul/?${params.toString()}`;
+          } else {
+            // Fallback — no coords, open Uber homepage
+            url = 'https://www.uber.com';
+          }
+          // Open in a new tab — Capacitor will hand off to the OS / Uber app
+          window.open(url, '_blank', 'noopener');
+        };
+
+        if (destText && location) {
+          // Geocode the destination using the existing geocodePlace utility
+          geocodePlace(destText, location.latitude, location.longitude)
+            .then(coords => openUber(coords?.lat, coords?.lng, destText))
+            .catch(() => openUber(undefined, undefined, destText));
+        } else {
+          openUber(undefined, undefined, destText);
+        }
+
+        // Show a ride card in the message log
+        setMessages(prev => [...prev, {
+          id: `ride-${Date.now()}`, role: 'roger' as const,
+          text: `🚗 Opening Uber to ${destText || 'your destination'}`,
+          ts: Date.now(), intent: result.intent, outcome: 'success',
+        }]);
+      }
+
       extractMemoryFacts(transcript, result.roger_response, userId).catch(() => {});
 
 
@@ -1543,6 +1588,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           { label: '🧠 Memory',          prompt: 'What do you know about me?' },
           { label: '📰 News',            prompt: 'Give me a quick news briefing.' },
           { label: '📈 Markets',         prompt: 'Give me a market brief.' },
+          { label: '🚗 Uber',            prompt: 'Book me an Uber ride.' },
           { label: '📍 Reminders',       prompt: 'Reminders', isNav: true as const, tab: 'reminders' as UserTab },
         ] as { label: string; prompt?: string; isNav?: true; tab?: UserTab }[]).map((chip, i) => (
           <button key={i}
@@ -1588,6 +1634,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             onPointerDown={handlePTTDown}
             onPointerUp={handlePTTUp}
             onPointerLeave={handlePTTUp}
+            onPointerCancel={handlePTTUp}
+            // Prevent Android long-press context menu from stealing the touch event.
+            // Without this, holding the PTT for >500ms triggers the system menu,
+            // which fires pointerleave → handlePTTUp → premature transcription.
+            onContextMenu={e => e.preventDefault()}
             aria-label={isSpeaking ? 'Interrupt Roger' : 'Push to talk'}
             style={{
               width: 80, height: 80, borderRadius: '50%',
@@ -1601,6 +1652,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               boxShadow: pttState === 'recording' ? `0 0 32px ${btnColor}55, inset 0 0 16px ${btnColor}18`
                 : pttState === 'speaking' ? `0 0 20px ${btnColor}33` : 'none',
               userSelect: 'none', WebkitUserSelect: 'none',
+              // Prevent Android scroll-cancel from ending the pointer event during long holds
+              touchAction: 'none',
             }}
           >
             <Radio size={28} style={{ color: btnColor, transition: 'color 250ms' }} />
