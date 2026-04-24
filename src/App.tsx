@@ -155,7 +155,13 @@ function AppInner() {
     );
   }
 
-  // Wait for Supabase to resolve session from URL / storage
+  // Always show splash first — covers the auth loading state too.
+  // Once splash is done, we show login or app based on auth state.
+  if (showSplash) {
+    return <SplashScreen onDone={() => setShowSplash(false)} />;
+  }
+
+  // Splash done — wait for Supabase session check
   if (loading) {
     return (
       <div style={{
@@ -172,12 +178,11 @@ function AppInner() {
     );
   }
 
-  // Not logged in → show login screen (skip splash)
+  // Not logged in → show login
   if (!user) return <LoginScreen />;
 
   return (
     <ViewModeProvider>
-      {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
       <AdminLayout />
     </ViewModeProvider>
   );

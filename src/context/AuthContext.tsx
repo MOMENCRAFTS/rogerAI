@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { User } from '@supabase/supabase-js';
+import { App as CapApp } from '@capacitor/app';
 import { supabase } from '../lib/supabase';
 
 // ─── Admin email list from env ─────────────────────────────────────────────────
@@ -99,6 +100,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Capacitor deep link: handle OAuth callback on native mobile ────────────
+  // When Google redirects to com.rogerai.app://login-callback?code=xxx,
+  // Android opens the app but the WebView never sees the URL change.
+  // We must intercept it here and manually exchange the code for a session.
+  useEffect(() => {
+    let listener: { remove: () => void } | null = null;
+
+    const attachListener = async () => {
+      try {
+        listener = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+          if (!url.includes('login-callback')) return;
+
+          // ── PKCE flow (default in Supabase v2): ?code=xxxx ──
+          const urlObj = new URL(url);
+          const code = urlObj.searchParams.get('code');
+          if (code) {
+            const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+            if (!error && data.session) {
+              setUser(data.session.user);
+              provisionCallsign(data.session.user.id).catch(() => {});
+            }
+            return;
+          }
+
+          // ── Implicit flow fallback: #access_token=xxx ──
+          const hash = url.split('#')[1];
+          if (hash) {
+            const params = new URLSearchParams(hash);
+            const access_token  = params.get('access_token');
+            const refresh_token = params.get('refresh_token');
+            if (access_token && refresh_token) {
+              const { data, error } = await supabase.auth.setSession({ access_token, refresh_token });
+              if (!error && data.session) {
+                setUser(data.session.user);
+                provisionCallsign(data.session.user.id).catch(() => {});
+              }
+            }
+          }
+        });
+      } catch {
+        // Not running in Capacitor (web) — listener not needed
+      }
+    };
+
+    attachListener();
+    return () => { listener?.remove(); };
   }, []);
 
   const signInWithGoogle = async () => {
