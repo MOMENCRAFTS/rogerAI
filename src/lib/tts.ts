@@ -15,7 +15,7 @@
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
 
 // Shared AudioContext for TTS playback — persisted across calls so it stays
-// resumed. Lazy-created on first speakResponse() call.
+// resumed. Lazy-created on first speakResponse() call. Recreated on error.
 let _ctx: AudioContext | null = null;
 
 // Currently playing source — allows stopSpeaking() to cut it off mid-playback.
@@ -24,11 +24,23 @@ let _stopCallback: (() => void) | null = null;
 
 /** Get (or create) the shared AudioContext, ensuring it is running. */
 async function getAudioContext(): Promise<AudioContext> {
+  // Recreate if closed or in error state
+  if (_ctx && _ctx.state === 'closed') {
+    _ctx = null;
+  }
   if (!_ctx) _ctx = new AudioContext();
   if (_ctx.state === 'suspended') {
-    await _ctx.resume();
+    try { await _ctx.resume(); } catch { /* best effort */ }
   }
   return _ctx;
+}
+
+/** Force-recreate the AudioContext (called when a render error is detected). */
+function resetAudioContext(): void {
+  if (_ctx) {
+    try { _ctx.close(); } catch { /* ignore */ }
+    _ctx = null;
+  }
 }
 
 /**
@@ -57,10 +69,12 @@ export function stopSpeaking(): void {
     _stopCallback();
     _stopCallback = null;
   }
-  // Also cancel any browser speechSynthesis fallback
-  if (typeof window !== 'undefined' && window.speechSynthesis) {
-    window.speechSynthesis.cancel();
-  }
+  // Cancel browser speechSynthesis fallback — guard for Android WebView where it may be undefined
+  try {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  } catch { /* ignore — not available on all platforms */ }
 }
 
 /**
@@ -77,7 +91,13 @@ export async function speakResponse(text: string): Promise<void> {
 
   // Ensure AudioContext is running before we start the async fetch.
   // This is important: if the context suspended between unlock and now, resume it.
-  const ctx = await getAudioContext();
+  let ctx: AudioContext;
+  try {
+    ctx = await getAudioContext();
+  } catch (e) {
+    resetAudioContext();
+    throw new Error(`AudioContext init failed: ${(e as Error).message}`);
+  }
 
   const res = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
@@ -101,13 +121,35 @@ export async function speakResponse(text: string): Promise<void> {
   // Get raw binary — arrayBuffer() is safer than blob() through Capacitor HTTP bridge
   const arrayBuffer = await res.arrayBuffer();
 
+  // If the AudioContext errored during the fetch, recreate it
+  if (ctx.state === 'closed') {
+    resetAudioContext();
+    ctx = await getAudioContext();
+  }
+
   // Decode the MP3 audio into a Web Audio buffer
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  let audioBuffer: AudioBuffer;
+  try {
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  } catch (decodeErr) {
+    // decodeAudioData can fail if AudioContext hit an error — recreate and retry once
+    resetAudioContext();
+    ctx = await getAudioContext();
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  }
 
   // Re-check context state after the async decode (could have been interrupted)
-  if (ctx.state === 'suspended') await ctx.resume();
+  if (ctx.state === 'suspended') {
+    try { await ctx.resume(); } catch { /* best effort */ }
+  }
 
   return new Promise((resolve, reject) => {
+    // Safety: if context closed between decode and now
+    if (ctx.state === 'closed') {
+      reject(new Error('AudioContext closed before playback'));
+      return;
+    }
+
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
 
@@ -130,6 +172,8 @@ export async function speakResponse(text: string): Promise<void> {
     } catch (e) {
       _currentSource = null;
       _stopCallback = null;
+      // If playback start failed due to context error, reset for next attempt
+      resetAudioContext();
       reject(e);
     }
   });

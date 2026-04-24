@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { MapPin, Cloud, Bell, BookOpen, Loader, Car, Train, Navigation, RefreshCw, AlertCircle } from 'lucide-react';
 import { fetchWeather, type WeatherData } from '../../lib/weather';
 import { fetchReminders, fetchMemories, type DbReminder, type DbMemory } from '../../lib/api';
@@ -63,8 +63,15 @@ export default function LocationView({ userId, location }: LocationViewProps) {
     }
   }, [location, destinations, commuteMode, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch commute ETAs — auto-refresh at most once per 5 minutes
+  const lastAutoFetchRef = useRef<number>(0);
+  const AUTO_COMMUTE_GAP_MS = 5 * 60 * 1000; // 5 minutes
   useEffect(() => {
-    if (location && destinations.length) refreshCommute(commuteMode);
+    if (!location || !destinations.length) return;
+    const now = Date.now();
+    if (now - lastAutoFetchRef.current < AUTO_COMMUTE_GAP_MS) return;
+    lastAutoFetchRef.current = now;
+    refreshCommute(commuteMode);
   }, [location?.latitude, location?.longitude, destinations.length, commuteMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch geo reminders + place-tagged memories
