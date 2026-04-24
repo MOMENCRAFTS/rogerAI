@@ -40,21 +40,61 @@ function resetAudioContext(): void {
   _ctx = null;
 }
 
-// ─── XHR binary download (bypasses Capacitor HTTP interceptor) ───────────────
+// ─── Convert any XHR response type to ArrayBuffer ────────────────────────────
+// Capacitor's native bridge can return binary data as:
+//   - ArrayBuffer  (ideal — direct pass-through)
+//   - base64 string (common on Android WebView bridge)
+//   - Blob          (some Capacitor versions wrap responses)
+//   - Uint8Array    (typed array variant)
+async function toArrayBuffer(response: unknown): Promise<ArrayBuffer> {
+  console.log('[TTS] response type:', typeof response, Object.prototype.toString.call(response));
+
+  if (response instanceof ArrayBuffer) {
+    return response;
+  }
+  if (response instanceof Blob) {
+    console.log('[TTS] Converting Blob →', response.size, 'bytes');
+    return response.arrayBuffer();
+  }
+  if (typeof response === 'string') {
+    // Capacitor Android bridge base64-encodes binary responses
+    console.log('[TTS] Decoding base64 string, length:', response.length);
+    const binary = atob(response);
+    const bytes   = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+  if (ArrayBuffer.isView(response)) {
+    // Uint8Array / Int16Array etc. — copy into a plain ArrayBuffer to avoid
+    // SharedArrayBuffer type conflict in strict TypeScript.
+    const view = response as Uint8Array;
+    const copy = new ArrayBuffer(view.byteLength);
+    new Uint8Array(copy).set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+    return copy;
+  }
+  throw new Error(`Cannot convert XHR response (${typeof response}) to ArrayBuffer`);
+}
+
+// ─── XHR audio download (bypasses Capacitor HTTP interceptor) ────────────────
 
 function fetchAudioBuffer(text: string): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', 'https://api.openai.com/v1/audio/speech', true);
-    xhr.responseType = 'arraybuffer'; // CRITICAL: raw binary, not intercepted
+    xhr.responseType = 'arraybuffer'; // request binary; Capacitor may still convert it
     xhr.setRequestHeader('Authorization', `Bearer ${OPENAI_API_KEY}`);
     xhr.setRequestHeader('Content-Type', 'application/json');
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(xhr.response as ArrayBuffer);
+        toArrayBuffer(xhr.response)
+          .then(buf => {
+            console.log('[TTS] XHR audio bytes received:', buf.byteLength);
+            resolve(buf);
+          })
+          .catch(reject);
       } else {
-        // Try to extract an error message from the response
+        // Try to decode error message
         try {
           const errText = new TextDecoder().decode(xhr.response as ArrayBuffer);
           const errJson = JSON.parse(errText) as { error?: { message?: string } };
@@ -67,7 +107,7 @@ function fetchAudioBuffer(text: string): Promise<ArrayBuffer> {
 
     xhr.onerror   = () => reject(new Error('TTS network error (XHR)'));
     xhr.ontimeout = () => reject(new Error('TTS timeout'));
-    xhr.timeout   = 30_000; // 30 s max
+    xhr.timeout   = 30_000;
 
     xhr.send(JSON.stringify({
       model: 'tts-1',
@@ -78,6 +118,7 @@ function fetchAudioBuffer(text: string): Promise<ArrayBuffer> {
     }));
   });
 }
+
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 

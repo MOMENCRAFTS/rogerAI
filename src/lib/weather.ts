@@ -54,12 +54,24 @@ function getFeelsLike(tempC: number): string {
   return 'Cold';
 }
 
+// ─── Weather cache — 10 min TTL, keyed by rounded lat/lng ────────────────────
+const _cache = new Map<string, { data: WeatherData; ts: number }>();
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
 /**
  * Fetches current weather for a GPS coordinate.
  * Uses Open-Meteo — completely free, no API key required.
+ * Results are cached for 10 minutes to prevent 429 rate-limit errors.
  * Returns null gracefully on any network or parsing error.
  */
 export async function fetchWeather(lat: number, lng: number, city?: string): Promise<WeatherData | null> {
+  // Round to 2dp — avoids cache misses from GPS noise at the same location
+  const key = `${lat.toFixed(2)},${lng.toFixed(2)}`;
+  const cached = _cache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return { ...cached.data, city };
+  }
+
   try {
     const url = [
       'https://api.open-meteo.com/v1/forecast',
@@ -88,7 +100,7 @@ export async function fetchWeather(lat: number, lng: number, city?: string): Pro
 
     const wmo = WMO_MAP[c.weathercode] ?? { description: 'Unknown conditions', icon: '🌡️' };
 
-    return {
+    const result: WeatherData = {
       tempC:       Math.round(c.temperature_2m),
       description: wmo.description,
       icon:        wmo.icon,
@@ -97,10 +109,14 @@ export async function fetchWeather(lat: number, lng: number, city?: string): Pro
       feelsLike:   getFeelsLike(c.temperature_2m),
       city,
     };
+
+    _cache.set(key, { data: result, ts: Date.now() });
+    return result;
   } catch {
     return null; // Never interrupt the app — weather is best-effort
   }
 }
+
 
 /**
  * Formats weather data into a concise string for GPT-4o context injection.
