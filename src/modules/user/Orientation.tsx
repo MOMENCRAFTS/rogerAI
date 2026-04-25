@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, Volume2, VolumeX, Mic, MicOff } from 'lucide-react';
-import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION } from '../../lib/orientationScript';
+import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION, ISLAMIC_CHAPTER } from '../../lib/orientationScript';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { createAudioRecorder } from '../../lib/audioRecorder';
 import { transcribeAudio } from '../../lib/whisper';
@@ -25,10 +25,11 @@ const CONFIRM_KEYWORDS = [
 
 interface Props {
   displayName?: string;
+  islamicMode?: boolean;
   onComplete: () => void;
 }
 
-export default function Orientation({ displayName, onComplete }: Props) {
+export default function Orientation({ displayName, islamicMode, onComplete }: Props) {
   const [chapter, setChapter]         = useState(0);
   const [direction, setDirection]     = useState(1);
   const [speaking, setSpeaking]       = useState(false);
@@ -39,12 +40,17 @@ export default function Orientation({ displayName, onComplete }: Props) {
   const [flashMsg, setFlashMsg]       = useState<string | null>(null);
   const [showConfirmZone, setShowConfirmZone] = useState(false);
 
+  // Build chapter list: add Islamic chapter at the end if user opted in
+  const CHAPTERS = islamicMode
+    ? [...ORIENTATION_CHAPTERS, ISLAMIC_CHAPTER]
+    : ORIENTATION_CHAPTERS;
+
   const spokenRef  = useRef<Set<number>>(new Set());
   const recorderRef = useRef<ReturnType<typeof createAudioRecorder> | null>(null);
   // openaiKey is read from env inside whisper.ts — no need to pass it here
 
-  const total   = ORIENTATION_CHAPTERS.length;
-  const current = ORIENTATION_CHAPTERS[chapter];
+  const total   = CHAPTERS.length;
+  const current = CHAPTERS[chapter];
   const isLast  = chapter === total - 1;
   const Icon    = current.icon;
 
@@ -57,7 +63,7 @@ export default function Orientation({ displayName, onComplete }: Props) {
     spokenRef.current.add(idx);
     setSpeaking(true);
     setShowConfirmZone(false);
-    const text = ORIENTATION_CHAPTERS[idx].rogerSpeech(displayName);
+    const text = CHAPTERS[idx].rogerSpeech(displayName);
     speakResponse(text)
       .catch(() => {
         try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch { /* silent */ }
@@ -384,7 +390,7 @@ export default function Orientation({ displayName, onComplete }: Props) {
 
               {/* Progress dots */}
               <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 5, flexWrap: 'wrap' }}>
-                {ORIENTATION_CHAPTERS.map((ch, i) => (
+                {CHAPTERS.map((ch, i) => (
                   <div
                     key={i}
                     style={{

@@ -14,6 +14,7 @@ export type OnboardingNode =
   | 'tools_used'
   | 'interests'
   | 'feature_prefs'
+  | 'islamic_mode'
   | 'review_confirm'
   | 'complete';
 
@@ -28,16 +29,17 @@ export interface OnboardingAnswers {
   tools_used?: string[];
   interests?: string[];
   feature_prefs?: string[];
+  islamic_mode?: boolean;
 }
 
 const NODE_ORDER: OnboardingNode[] = [
   'welcome', 'name', 'name_confirm', 'role', 'key_priorities',
   'current_focus', 'work_schedule', 'location_base', 'comm_style',
-  'tools_used', 'interests', 'feature_prefs', 'review_confirm', 'complete',
+  'tools_used', 'interests', 'feature_prefs', 'islamic_mode', 'review_confirm', 'complete',
 ];
 
 export const NODE_INDEX  = (node: OnboardingNode) => NODE_ORDER.indexOf(node);
-export const TOTAL_NODES = 11; // answerable nodes (name→feature_prefs)
+export const TOTAL_NODES = 12; // answerable nodes (name→islamic_mode)
 
 export const NODE_LABELS: Partial<Record<OnboardingNode, string>> = {
   name:           'NAME',
@@ -51,6 +53,7 @@ export const NODE_LABELS: Partial<Record<OnboardingNode, string>> = {
   tools_used:     'TOOLS',
   interests:      'INTERESTS',
   feature_prefs:  'FEATURES',
+  islamic_mode:   'ISLAMIC MODE',
   review_confirm: 'REVIEW',
 };
 
@@ -79,7 +82,8 @@ export const NEXT_NODE: Record<OnboardingNode, OnboardingNode> = {
   comm_style:     'tools_used',
   tools_used:     'interests',
   interests:      'feature_prefs',
-  feature_prefs:  'review_confirm',
+  feature_prefs:  'islamic_mode',
+  islamic_mode:   'review_confirm',
   review_confirm: 'complete',
   complete:       'complete',
 };
@@ -221,6 +225,7 @@ export async function generateNodeScript(
     tools_used:     'What 2 or 3 digital tools do you rely on most?',
     interests:      'What are your main interests or passions outside of work?',
     feature_prefs:  'I can help with calendar, tasks, briefings, hazard alerts, weather, news, finance, and commute. Which matter most to you?',
+    islamic_mode:   'One final question. Are you Muslim? If so, I can activate Islamic Mode — prayer times, Qibla direction, and salah reminders. Say yes to enable, or skip.',
     review_confirm: buildReviewScriptFallback(answers),
     complete:       `Profile locked, ${answers.name ?? 'Commander'}. Roger standing by.`,
   };
@@ -342,6 +347,13 @@ export function applyOnboardingAnswer(
       updated.feature_prefs = matched.length > 0 ? matched : [v];
       break;
     }
+
+    case 'islamic_mode': {
+      const lv = v.toLowerCase();
+      // Affirmative: yes, yeah, enable, activate, Muslim, Islam, نعم (Arabic 'yes')
+      updated.islamic_mode = /\b(yes|yeah|yep|sure|enable|activate|muslim|islam|نعم|اسلام|مسلم)\b/.test(lv);
+      break;
+    }
   }
   return updated;
 }
@@ -350,15 +362,16 @@ export function applyOnboardingAnswer(
 export function parseReviewIntent(transcript: string): OnboardingNode | 'confirm' {
   const lv = transcript.toLowerCase();
   if (/\b(confirm|yes|correct|good|lock|done|proceed|that'?s (right|it|good))\b/.test(lv)) return 'confirm';
-  if (/\bname\b/.test(lv))                        return 'name';
-  if (/\brole\b|\bjob\b|\btitle\b/.test(lv))      return 'role';
-  if (/\bpriorit/.test(lv))                       return 'key_priorities';
-  if (/\bfocus\b|\bchallenge\b/.test(lv))         return 'current_focus';
-  if (/\bschedul\b|\btime\b|\bhours\b/.test(lv))  return 'work_schedule';
-  if (/\bcity\b|\blocation\b|\bbased\b/.test(lv)) return 'location_base';
-  if (/\bstyle\b|\bbrief\b|\bdetail\b/.test(lv))  return 'comm_style';
-  if (/\btool\b|\bapp\b/.test(lv))                return 'tools_used';
-  if (/\binterest\b|\bpassion\b|\bhobb/.test(lv)) return 'interests';
-  if (/\bfeature\b|\bhelp\b|\bmodule\b/.test(lv)) return 'feature_prefs';
+  if (/\bname\b/.test(lv))                                return 'name';
+  if (/\brole\b|\bjob\b|\btitle\b/.test(lv))             return 'role';
+  if (/\bpriorit/.test(lv))                              return 'key_priorities';
+  if (/\bfocus\b|\bchallenge\b/.test(lv))                return 'current_focus';
+  if (/\bschedul\b|\btime\b|\bhours\b/.test(lv))         return 'work_schedule';
+  if (/\bcity\b|\blocation\b|\bbased\b/.test(lv))        return 'location_base';
+  if (/\bstyle\b|\bbrief\b|\bdetail\b/.test(lv))         return 'comm_style';
+  if (/\btool\b|\bapp\b/.test(lv))                       return 'tools_used';
+  if (/\binterest\b|\bpassion\b|\bhobb/.test(lv))        return 'interests';
+  if (/\bfeature\b|\bhelp\b|\bmodule\b/.test(lv))        return 'feature_prefs';
+  if (/\bislam\b|\bmuslim\b|\bsalah\b|\bprayer\b/.test(lv)) return 'islamic_mode';
   return 'confirm';
 }

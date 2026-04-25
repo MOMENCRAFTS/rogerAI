@@ -23,6 +23,7 @@ import HazardMonitor from './modules/HazardMonitor';
 import ProactiveMonitor from './modules/ProactiveMonitor';
 import CommuteRadar from './modules/user/CommuteRadar';
 import SubscriptionMonitor from './modules/SubscriptionMonitor';
+import IslamicModeMonitor from './modules/IslamicModeMonitor';
 import UserApp from './modules/user/UserApp';
 import ApiSettings from './modules/ApiSettings';
 import RichPlaceholder from './components/shared/RichPlaceholder';
@@ -54,6 +55,7 @@ function ModuleRenderer({ activeModule }: { activeModule: string }) {
     case 'drive_sim':       return <CommuteRadar userId="admin-preview" />;
     case 'settings':        return <ApiSettings />;
     case 'billing':         return <SubscriptionMonitor />;
+    case 'islamic_monitor': return <IslamicModeMonitor />;
     default: {
       const info = moduleInfoMap[activeModule];
       if (!info) return (

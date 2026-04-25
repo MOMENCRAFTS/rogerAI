@@ -132,6 +132,71 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   // ── Alarm engine (polls due reminders every 60s, fires voice alerts) ──────
   useAlarmEngine(userId);
 
+  // ── Islamic Mode: proactive prayer alerts ─────────────────────────────────
+  // Fires a TTS alert 10 minutes before each of the 5 daily prayers.
+  // Only activates if the user has islamic_mode === true in their preferences.
+  useEffect(() => {
+    let cancelled = false;
+    const timerIds: ReturnType<typeof setTimeout>[] = [];
+
+    (async () => {
+      try {
+        const { data: prefs } = await (await import('../../lib/supabase')).supabase
+          .from('user_preferences')
+          .select('islamic_mode, prayer_notifications')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (cancelled) return;
+        const islamicOn = !!(prefs as Record<string, unknown> | null)?.islamic_mode;
+        const notifOn   = (prefs as Record<string, unknown> | null)?.prayer_notifications !== false;
+
+        if (!islamicOn || !notifOn || rogerMode === 'quiet') return;
+
+        // Fetch today's prayer times based on current GPS or Riyadh fallback
+        const lat = location?.latitude  ?? 24.7136;
+        const lng = location?.longitude ?? 46.6753;
+        const { fetchPrayerTimes: fpt, getNextPrayer: gnp, bearingToCardinal: btc, getQiblaDirection: gqd } =
+          await import('../../lib/islamicApi');
+        const times = await fpt(lat, lng).catch(() => null);
+        if (!times || cancelled) return;
+
+        const PRAYER_NAMES = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] as const;
+        const now = new Date();
+        const nowSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+        const qibla = gqd(lat, lng);
+        const direction = btc(qibla);
+
+        PRAYER_NAMES.forEach(name => {
+          const [h, min] = (times[name] as string).split(':').map(Number);
+          const prayerSecs = h * 3600 + min * 60;
+          const alertSecs  = prayerSecs - 600; // 10 min before
+          const delayMs    = (alertSecs - nowSecs) * 1000;
+
+          if (delayMs > 0) {
+            const id = setTimeout(() => {
+              if (cancelled || rogerMode === 'quiet') return;
+              const msg = `Roger. ${name} prayer begins in 10 minutes. Qibla is to your ${direction}. Over.`;
+              speakResponse(msg).catch(() => {
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+              });
+              // Log to DB (fire-and-forget)
+              import('../../lib/supabase').then(({ supabase: sb }) => {
+                sb.from('islamic_alerts_log').insert({ user_id: userId, prayer_name: name }).catch(() => {});
+              }).catch(() => {});
+            }, delayMs);
+            timerIds.push(id);
+          }
+        });
+      } catch { /* silent — Islamic alerts are best-effort */ }
+    })();
+
+    return () => {
+      cancelled = true;
+      timerIds.forEach(id => clearTimeout(id));
+    };
+  }, [userId, location?.latitude, location?.longitude, rogerMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-scroll
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
 

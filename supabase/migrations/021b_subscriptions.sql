@@ -4,7 +4,7 @@
 
 -- ─── user_subscriptions ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS user_subscriptions (
-  user_id              text        PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id              text        PRIMARY KEY,
   plan                 text        NOT NULL DEFAULT 'free'
                          CHECK (plan IN ('free', 'pro', 'command')),
   status               text        NOT NULL DEFAULT 'active'

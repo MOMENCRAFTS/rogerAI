@@ -121,6 +121,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
         onboarding_step: TOTAL_NODES,
         response_style: currentAnswers.comm_style ?? 'balanced',
         display_name: currentAnswers.name,
+        ...(currentAnswers.islamic_mode !== undefined && { islamic_mode: currentAnswers.islamic_mode }),
       } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
       setTimeout(() => onComplete(currentAnswers), 1800);
       return;
@@ -321,6 +322,9 @@ export default function Onboarding({ userId, onComplete }: Props) {
             {answers.key_priorities?.map(p => (
               <span key={p} style={{ ...chipStyle, borderColor: 'rgba(96,165,250,0.3)', color: '#93c5fd' }}>▸ {p}</span>
             ))}
+            {answers.islamic_mode && (
+              <span style={{ ...chipStyle, borderColor: 'rgba(16,185,129,0.4)', color: '#34d399', background: 'rgba(16,185,129,0.06)' }}>☽ Islamic Mode</span>
+            )}
           </div>
 
           {/* Interests + features */}

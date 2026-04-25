@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Users, Smartphone, Radio, Workflow,
   Boxes, HelpCircle, Brain, Zap, Newspaper, Eye, BookOpen,
   Mic, Bell, BarChart3, CreditCard, Headphones, Shield,
-  Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive, AlertTriangle, Gauge,
+  Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive, AlertTriangle, Gauge, Moon,
 } from 'lucide-react';
 import Tooltip from '../shared/Tooltip';
 import type { NavGroup } from '../../types';
@@ -69,8 +69,9 @@ const navGroups: NavGroup2[] = [
   {
     name: 'ANALYTICS',
     items: [
-      { key: 'analytics', label: 'ANALYTICS',  Icon: BarChart3,  group: 'ANALYTICS', tooltip: 'Platform telemetry & growth' },
-      { key: 'billing',   label: 'BILLING',    Icon: CreditCard, group: 'ANALYTICS', tooltip: 'Subscriptions & entitlements' },
+      { key: 'analytics',       label: 'ANALYTICS',     Icon: BarChart3,  group: 'ANALYTICS', tooltip: 'Platform telemetry & growth' },
+      { key: 'billing',         label: 'BILLING',       Icon: CreditCard, group: 'ANALYTICS', tooltip: 'Subscriptions & entitlements' },
+      { key: 'islamic_monitor', label: 'ISLAMIC MODE',  Icon: Moon,       group: 'ANALYTICS', tooltip: 'Islamic Mode adoption & user alerts' },
     ],
   },
   {

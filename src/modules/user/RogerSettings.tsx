@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut } from 'lucide-react';
+import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon } from 'lucide-react';
 import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, type DbUserPreferences } from '../../lib/api';
 import { useLocation } from '../../lib/useLocation';
 import { setHapticsEnabled } from '../../lib/haptics';
@@ -405,6 +405,99 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </select>
       </div>
 
+
+      {/* ── Islamic Mode ── */}
+      <div style={{ marginBottom: 28 }}>
+        <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Islamic Mode</p>
+
+        <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).islamic_mode ? 'rgba(16,185,129,0.35)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).islamic_mode ? 'rgba(16,185,129,0.07)' : 'var(--bg-elevated)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, transition: 'all 200ms' }}>
+          <Moon size={18} style={{ color: (prefs as Record<string, unknown>).islamic_mode ? '#10b981' : 'var(--text-muted)', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 12, color: (prefs as Record<string, unknown>).islamic_mode ? '#10b981' : 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Islamic Mode</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Prayer times, Qibla compass, salah reminders, and verse of the day</p>
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[true, false].map(val => {
+              const active = !!(prefs as Record<string, unknown>).islamic_mode === val;
+              return (
+                <button key={String(val)}
+                  id={`islamic-mode-toggle-${val ? 'on' : 'off'}`}
+                  onClick={() => {
+                    const next = { ...prefs, islamic_mode: val } as Record<string, unknown>;
+                    setPrefs(next as typeof prefs);
+                    upsertUserPreferences(userId, { islamic_mode: val } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                    setSaved(true); setTimeout(() => setSaved(false), 1500);
+                  }}
+                  style={{
+                    padding: '6px 12px', fontFamily: 'monospace', fontSize: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
+                    border: `1px solid ${active ? 'rgba(16,185,129,0.5)' : 'var(--border-subtle)'}`,
+                    background: active ? 'rgba(16,185,129,0.15)' : 'transparent',
+                    color: active ? '#10b981' : 'var(--text-muted)',
+                  }}>
+                  {val ? 'On' : 'Off'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Prayer notifications sub-toggle — shown only when Islamic Mode is on */}
+        {!!(prefs as Record<string, unknown>).islamic_mode && (
+          <div style={{ padding: '12px 16px', border: '1px solid rgba(16,185,129,0.15)', background: 'rgba(16,185,129,0.04)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Bell size={14} style={{ color: '#10b981', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>Prayer Notifications</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Voice alert 10 minutes before each prayer</p>
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[true, false].map(val => {
+                const active = (prefs as Record<string, unknown>).prayer_notifications !== false ? val === true : val === false;
+                return (
+                  <button key={String(val)}
+                    id={`prayer-notif-toggle-${val ? 'on' : 'off'}`}
+                    onClick={() => {
+                      const next = { ...prefs, prayer_notifications: val } as Record<string, unknown>;
+                      setPrefs(next as typeof prefs);
+                      upsertUserPreferences(userId, { prayer_notifications: val } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                    }}
+                    style={{
+                      padding: '5px 10px', fontFamily: 'monospace', fontSize: 10,
+                      textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
+                      border: `1px solid ${active ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'}`,
+                      background: active ? 'rgba(16,185,129,0.1)' : 'transparent',
+                      color: active ? '#10b981' : 'var(--text-muted)',
+                    }}>
+                    {val ? 'On' : 'Off'}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Prayer calculation method */}
+        {!!(prefs as Record<string, unknown>).islamic_mode && (
+          <div style={{ padding: '12px 16px', border: '1px solid rgba(16,185,129,0.12)', background: 'rgba(16,185,129,0.03)' }}>
+            <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 9, color: 'rgba(16,185,129,0.7)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 6 }}>Prayer Calculation Method</label>
+            <select
+              id="prayer-method-select"
+              value={String((prefs as Record<string, unknown>).prayer_method ?? 3)}
+              onChange={e => {
+                const method = Number(e.target.value);
+                const next = { ...prefs, prayer_method: method } as Record<string, unknown>;
+                setPrefs(next as typeof prefs);
+                upsertUserPreferences(userId, { prayer_method: method } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+              }}
+              style={{ width: '100%', padding: '8px 10px', fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-recessed)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--text-primary)', outline: 'none' }}>
+              <option value="3">Muslim World League (MWL) — Global</option>
+              <option value="2">ISNA — North America</option>
+              <option value="4">Umm Al-Qura — Saudi Arabia / Makkah</option>
+              <option value="5">Egyptian General Authority</option>
+            </select>
+          </div>
+        )}
+      </div>
 
       {/* ── Integrations ── */}
       <div style={{ marginBottom: 28 }}>

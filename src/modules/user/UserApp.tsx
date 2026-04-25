@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map, Car, Mic, Crown } from 'lucide-react';
+import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map, Car, Mic, Crown, Moon } from 'lucide-react';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../lib/useLocation';
@@ -18,6 +18,7 @@ import RadarView     from './RadarView';
 import CommuteRadar  from './CommuteRadar';
 import MeetingRecorderView from './MeetingRecorderView';
 import SubscriptionView  from './SubscriptionView';
+import SalahView        from './SalahView';
 import PermissionGate from '../../components/PermissionGate';
 import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasTourBeenSeen, markTourSeen, flushTourSeen, hasOrientationBeenSeen, markOrientationSeen, resetOrientationSeen } from '../../lib/api';
 import { TOUR_VERSION } from '../../lib/featureTour';
@@ -27,7 +28,7 @@ import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
 
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
 
 interface UserAppProps {
@@ -46,6 +47,7 @@ const TABS: { key: UserTab; label: string; Icon: typeof Home }[] = [
   { key: 'location',  label: 'LOCATE',   Icon: MapPin },
   { key: 'commute',   label: 'DRIVE',    Icon: Car },
   { key: 'upgrade',   label: 'UPGRADE',  Icon: Crown },
+  { key: 'salah',     label: 'SALAH',    Icon: Moon },
   { key: 'settings',  label: 'SETTINGS', Icon: Settings },
 ];
 
@@ -63,6 +65,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const [taskCount, setTaskCount]   = useState(0);
   const sessionId = useRef(crypto.randomUUID());
   const { location } = useLocation(userId);
+  const [islamicMode, setIslamicMode] = useState(false);
 
   // ── Permission gate — shown once on first install ─────────────────────────
   // Must be checked at component mount time (not lazily) so the gate renders
@@ -109,6 +112,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       setHapticsEnabled(prefs.haptic_enabled ?? true);
       setSfxEnabled(prefs.sfx_enabled ?? true);
       setSfxVolume(Number(localStorage.getItem('sfxVolume') ?? 0.35));
+      setIslamicMode(!!(prefs as unknown as Record<string, unknown>).islamic_mode);
     }).catch(() => {});
   };
 
@@ -178,6 +182,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
     return (
       <Orientation
         displayName={displayName}
+        islamicMode={islamicMode}
         onComplete={() => {
           markOrientationSeen(userId, ORIENTATION_VERSION).catch(() => {});
           setOrientationSeen(true);
@@ -302,6 +307,11 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'meetings'  ? 'block' : 'none' }}>
           <MeetingRecorderView userId={userId} />
         </div>
+        {islamicMode && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'salah' ? 'block' : 'none' }}>
+            <SalahView userId={userId} location={location} />
+          </div>
+        )}
         <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings' ? 'block' : 'none' }}>
           <RogerSettings
             userId={userId}
@@ -322,6 +332,8 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
         {TABS.map(({ key, label, Icon }) => {
+          // Hide SALAH tab for non-Islamic Mode users
+          if (key === 'salah' && !islamicMode) return null;
           const active = tab === key;
           const badge = key === 'reminders' ? reminderCount : key === 'tasks' ? taskCount : 0;
           return (
@@ -332,7 +344,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
                 flex: '0 0 auto', minWidth: 60, display: 'flex', flexDirection: 'column', alignItems: 'center',
                 justifyContent: 'center', gap: 4, padding: '12px 8px', position: 'relative',
                 background: 'transparent', border: 'none', cursor: 'pointer',
-                borderTop: `2px solid ${active ? 'var(--amber)' : 'transparent'}`,
+                borderTop: `2px solid ${active ? (key === 'salah' ? '#10b981' : 'var(--amber)') : 'transparent'}`,
                 transition: 'border-color 150ms',
               }}
             >

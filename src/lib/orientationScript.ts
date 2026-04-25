@@ -10,7 +10,7 @@
 
 import {
   Radio, Brain, CheckSquare, Car, TrendingUp,
-  Calendar, Users, Mic, FileText, Zap,
+  Calendar, Users, Mic, FileText, Zap, Moon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -229,3 +229,22 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Roger is always learning. The more you use PTT, the sharper the context becomes.',
   },
 ];
+
+// ── Chapter 11 — Islamic Mode (conditional, shown only to Islamic Mode users) ──
+export const ISLAMIC_CHAPTER: OrientationChapter = {
+  id: 'islamic',
+  icon: Moon,
+  iconColor: '#10b981',
+  chapterLabel: 'Chapter 11 · Islamic Mode',
+  headline: 'Salah. I\'ve Got You Covered.',
+  body: 'Islamic Mode is now active. The SALAH tab in your navigation gives you live prayer times based on your GPS, a Qibla compass that points toward the Kaaba, a daily Quran verse, and a prayer tracker for the day. I will also remind you 10 minutes before each prayer.',
+  rogerSpeech: (name) =>
+    `${name ? `${name}, ` : ''}Islamic Mode is active. I'll track your five daily prayers based on your live location using the AlAdhan calculation method. The Salah tab has your prayer times, Qibla direction, and a daily verse. 10 minutes before each prayer, I'll alert you by voice — even while you're driving. You can adjust your prayer calculation method, or disable these alerts entirely, from Settings. Say "understood" when ready. Over.`,
+  confirmPrompt: 'Say "understood" or tap Continue to enter.',
+  keyExamples: [
+    '"Roger, when is Asr today?"',
+    '"Roger, which direction is Qibla?"',
+    '"Roger, verse of the day"',
+  ],
+  tip: 'Prayer times update automatically as you travel. The compass works best on a flat surface away from metal.',
+};
