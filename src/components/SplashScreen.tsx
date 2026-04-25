@@ -253,13 +253,13 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
         background: '#050505',
       }}>
 
-        {/* ══ LAYER 0 — Static background image ══ */}
+        {/* ══ LAYER 0 — Background image (user's dark metallic texture) ══ */}
         <div
           aria-hidden
           style={{
             position: 'absolute', inset: 0,
             zIndex: 0,
-            backgroundImage: 'url(/splash.png)',
+            backgroundImage: 'url(/splash_bg.png)',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             backgroundRepeat: 'no-repeat',
@@ -473,7 +473,7 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           aria-hidden
           style={{
             position: 'absolute',
-            top: '42%', left: '50%',
+            top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
             zIndex: 50,
             pointerEvents: 'none',
@@ -482,18 +482,18 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           }}
         >
           {/* Floating zzz labels */}
-          {[{ delay: '0s', size: 11, x: 28 }, { delay: '0.9s', size: 14, x: 44 }, { delay: '1.8s', size: 17, x: 58 }].map((z, i) => (
+          {[{ delay: '0s', size: 13, x: 40 }, { delay: '0.9s', size: 17, x: 62 }, { delay: '1.8s', size: 21, x: 82 }].map((z, i) => (
             <span
               key={i}
               style={{
                 position: 'absolute',
-                top: '-10px',
+                top: '-20px',
                 left: `calc(50% + ${z.x}px)`,
                 fontSize: z.size,
                 fontFamily: "'JetBrains Mono', monospace",
                 fontWeight: 700,
                 color: i === 0 ? '#38bdf8' : i === 1 ? '#a855f7' : '#ec4899',
-                textShadow: `0 0 12px currentColor`,
+                textShadow: `0 0 14px currentColor`,
                 animation: `zzz-float 2.7s ease-in-out ${z.delay} infinite`,
                 pointerEvents: 'none',
                 userSelect: 'none',
@@ -503,13 +503,14 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
             </span>
           ))}
 
-          {/* Mascot image */}
+          {/* Mascot image — screen blend removes black background (sticker effect) */}
           <img
             src="/mascot.png"
             alt="Roger AI Mascot"
             style={{
-              width: 220, height: 'auto',
+              width: 'min(320px, 60vw)', height: 'auto',
               objectFit: 'contain',
+              mixBlendMode: 'screen',
               animation: 'mascot-vibrate 3.6s ease-in-out infinite, mascot-glow-pulse 2.4s ease-in-out infinite',
             }}
           />
