@@ -10,7 +10,6 @@ import MemoryView    from './MemoryView';
 import RogerSettings from './RogerSettings';
 import Onboarding    from './Onboarding';
 import Orientation   from './Orientation';
-import FeatureTour   from './FeatureTour';
 import UserAnalytics from './UserAnalytics';
 import LocationView  from './LocationView';
 import JournalView   from './JournalView';
@@ -19,8 +18,7 @@ import MeetingRecorderView from './MeetingRecorderView';
 import SubscriptionView  from './SubscriptionView';
 import SalahView        from './SalahView';
 import PermissionGate from '../../components/PermissionGate';
-import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasTourBeenSeen, markTourSeen, flushTourSeen, hasOrientationBeenSeen, markOrientationSeen } from '../../lib/api';
-import { TOUR_VERSION } from '../../lib/featureTour';
+import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasOrientationBeenSeen, markOrientationSeen } from '../../lib/api';
 import { ORIENTATION_VERSION } from '../../lib/orientationScript';
 import type { OnboardingAnswers } from '../../lib/onboarding';
 import { setHapticsEnabled } from '../../lib/haptics';
@@ -56,7 +54,6 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const [tab, setTab]                   = useState<UserTab>('home');
   const [mountedTabs, setMountedTabs]   = useState<Set<UserTab>>(new Set(['home']));
   const [onboarded, setOnboarded]       = useState<boolean | null>(null);
-  const [tourSeen, setTourSeen]         = useState<boolean | null>(null);
   const [orientationSeen, setOrientationSeen] = useState<boolean | null>(null);
   const [displayName, setDisplayName]   = useState<string | undefined>();
   const [flushing, setFlushing]     = useState<FlushOp>(null);
@@ -96,17 +93,12 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         setOnboarded(state.complete);
         setDisplayName(state.displayName);
         if (state.complete) {
-          // Check orientation first (replaces old FeatureTour auto-show)
           hasOrientationBeenSeen(userId, ORIENTATION_VERSION)
             .then(seen => setOrientationSeen(seen))
             .catch(() => setOrientationSeen(true));
-          // Still load tour state for the admin replay button
-          hasTourBeenSeen(userId, TOUR_VERSION)
-            .then(seen => setTourSeen(seen))
-            .catch(() => setTourSeen(true));
         }
       })
-      .catch(() => { setOnboarded(true); setOrientationSeen(true); setTourSeen(true); });
+      .catch(() => { setOnboarded(true); setOrientationSeen(true); });
   };
 
   useEffect(() => { loadOnboardingState(); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -127,7 +119,6 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const handleOnboardingComplete = (answers: OnboardingAnswers) => {
     setOnboarded(true);
     setOrientationSeen(false); // Always show orientation after fresh onboarding
-    setTourSeen(true);         // Skip old FeatureTour — orientation replaces it
     if (answers.name) setDisplayName(answers.name);
     applyUXPrefs();
   };
@@ -143,7 +134,6 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       if (op !== 'memory') {
         setOnboarded(false);
         setOrientationSeen(null);
-        setTourSeen(null);
         setDisplayName(undefined);
         sessionId.current = crypto.randomUUID();
       }
@@ -197,18 +187,6 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
     );
   }
 
-  // ── FeatureTour (legacy — only shown if admin replays it via Settings) ───────
-  if (onboarded && orientationSeen === true && tourSeen === false) {
-    return (
-      <FeatureTour
-        displayName={displayName}
-        onComplete={() => {
-          markTourSeen(userId, TOUR_VERSION).catch(() => {});
-          setTourSeen(true);
-        }}
-      />
-    );
-  }
 
   // ── Main app ─────────────────────────────────────────────────────────────
   return (
@@ -250,16 +228,6 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
             style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.1em', color: flushing === 'onboarding' ? 'var(--amber)' : 'var(--text-muted)', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', padding: '3px 8px', cursor: flushing ? 'not-allowed' : 'pointer', textTransform: 'uppercase', opacity: flushing && flushing !== 'onboarding' ? 0.4 : 1 }}>
             <RotateCcw size={10} />
             {flushing === 'onboarding' ? 'Resetting...' : 'Re-board'}
-          </button>
-
-          {/* Replay tour button */}
-          <button
-            disabled={!!flushing}
-            onClick={() => { flushTourSeen(userId).catch(() => {}); setTourSeen(false); }}
-            title="Replay mission brief tour"
-            style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-muted)', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', padding: '3px 8px', cursor: flushing ? 'not-allowed' : 'pointer', textTransform: 'uppercase', opacity: flushing ? 0.4 : 1 }}>
-            <Map size={10} />
-            Tour
           </button>
 
           <button disabled={!!flushing} onClick={() => setConfirm('memory')} title="Flush all memory"
@@ -340,7 +308,6 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
           <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings' ? 'block' : 'none' }}>
             <RogerSettings
               userId={userId}
-              onReplayTour={() => setTourSeen(false)}
               onReplayOrientation={() => setOrientationSeen(false)}
             />
           </div>

@@ -649,6 +649,88 @@ export async function flushEverything(userId: string): Promise<void> {
   ]);
 }
 
+/**
+ * COMPLETE user factory reset — wipes every piece of user data across all
+ * tables and resets preferences to clean defaults.  The user will start
+ * from scratch (onboarding, orientation, tour, memory, tasks, reminders,
+ * contacts, channels, integrations, etc.).
+ *
+ * ⚠️  This is IRREVERSIBLE.  The caller must gate this behind strong
+ * confirmation UX (multi-step, type-to-confirm, cooldown).
+ */
+export async function fullUserReset(userId: string): Promise<void> {
+  // Phase 1 — Delete all user-owned rows across every table
+  await Promise.all([
+    // Memory & AI
+    supabase.from('conversation_history').delete().eq('user_id', userId),
+    supabase.from('entity_mentions').delete().eq('user_id', userId),
+    supabase.from('memory_graph').delete().eq('user_id', userId),
+    supabase.from('memory_insights').delete().eq('user_id', userId),
+    supabase.from('memories').delete().eq('user_id', userId),
+    supabase.from('surface_queue').delete().eq('user_id', userId),
+    // Tasks & Reminders
+    supabase.from('reminders').delete().eq('user_id', userId),
+    supabase.from('tasks').delete().eq('user_id', userId),
+    // Commute & Errands
+    supabase.from('parking_logs').delete().eq('user_id', userId),
+    supabase.from('errand_list').delete().eq('user_id', userId),
+    // PTT Network
+    supabase.from('roger_contacts').delete().eq('user_id', userId),
+    supabase.from('channel_members').delete().eq('user_id', userId),
+    // Push & Location
+    supabase.from('push_subscriptions').delete().eq('user_id', userId),
+    supabase.from('user_location').delete().eq('user_id', userId),
+    // Callsign
+    supabase.from('user_callsigns').delete().eq('user_id', userId),
+    // Hazards, listening, tune-in (best-effort — ignore errors for non-existent tables)
+    supabase.from('road_hazards').delete().eq('reporter_id', userId).then(() => {}, () => {}),
+    supabase.from('listening_sessions').delete().eq('user_id', userId).then(() => {}, () => {}),
+    supabase.from('tune_in_sessions').delete().eq('participant_a', userId).then(() => {}, () => {}),
+    supabase.from('tune_in_sessions').delete().eq('participant_b', userId).then(() => {}, () => {}),
+    supabase.from('transmissions').delete().eq('user_id', userId).then(() => {}, () => {}),
+  ]);
+
+  // Phase 2 — Reset user_preferences to clean defaults (keeps the row for auth)
+  await supabase.from('user_preferences').upsert({
+    user_id: userId,
+    roger_mode: 'active',
+    language: 'en',
+    briefing_time: '08:00',
+    briefing_time2: '18:00',
+    haptic_enabled: true,
+    sfx_enabled: true,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    onboarding_complete: false,
+    onboarding_step: 0,
+    display_name: null,
+    response_style: 'balanced',
+    tour_seen: false,
+    tour_version: 0,
+    orientation_seen: false,
+    orientation_version: 0,
+    islamic_mode: false,
+    prayer_notifications: false,
+    finnhub_tickers: null,
+    twilio_phone: null,
+    notion_token: null,
+    notion_db_id: null,
+    spotify_connected: false,
+    gcal_connected: false,
+    gcal_access_token: null,
+    gcal_refresh_token: null,
+    gcal_token_expiry: null,
+    home_address: null,
+    home_lat: null,
+    home_lng: null,
+    work_address: null,
+    work_lat: null,
+    work_lng: null,
+    commute_mode: 'driving',
+    commute_leave_time: null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' });
+}
+
 // ─── Push Subscriptions ───────────────────────────────────────────────────────
 
 export type DbPushSubscription = {
