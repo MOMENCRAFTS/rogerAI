@@ -86,7 +86,7 @@ export default function RadarView({ userId, location }: Props) {
   const [selected,    setSelected]    = useState<HazardEvent | null>(null);
   const [muteZone,    setMuteZone]    = useState(false);
   const [reported,    setReported]    = useState(false);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number>(0);
 
   // Radar sweep animation
   useEffect(() => {
