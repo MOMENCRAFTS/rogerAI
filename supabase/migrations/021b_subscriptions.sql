@@ -1,6 +1,7 @@
--- ─── Roger AI — Migration 021: Subscriptions & Usage Tracking ──────────────────
+-- ─── Roger AI — Migration 021b: Subscriptions & Usage Tracking ──────────────
 -- Mockup-ready schema for freemium monetization.
 -- Supports Free / Pro / Command tiers with usage enforcement and trial periods.
+-- NOTE: user_id is text (not uuid FK) to match all other tables in this project.
 
 -- ─── user_subscriptions ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -16,7 +17,7 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
   stripe_sub_id        text,
   -- Admin notes / override reason
   admin_note           text,
-  updated_by           text,           -- admin user_id who last changed this
+  updated_by           text,
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now()
 );
@@ -39,42 +40,42 @@ CREATE TABLE IF NOT EXISTS user_usage (
 ALTER TABLE user_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_usage         ENABLE ROW LEVEL SECURITY;
 
--- Users can read their own subscription
-CREATE POLICY "users_read_own_sub"
-  ON user_subscriptions FOR SELECT
-  USING (auth.uid()::text = user_id);
-
--- Users can read their own usage
-CREATE POLICY "users_read_own_usage"
-  ON user_usage FOR SELECT
-  USING (auth.uid()::text = user_id);
-
--- Service role has full access (used by Edge Functions + admin)
-CREATE POLICY "service_full_access_sub"
-  ON user_subscriptions FOR ALL
-  USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_full_access_usage"
-  ON user_usage FOR ALL
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='user_subscriptions' AND policyname='users_read_own_sub') THEN
+    CREATE POLICY "users_read_own_sub"
+      ON user_subscriptions FOR SELECT USING (auth.uid()::text = user_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='user_usage' AND policyname='users_read_own_usage') THEN
+    CREATE POLICY "users_read_own_usage"
+      ON user_usage FOR SELECT USING (auth.uid()::text = user_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='user_subscriptions' AND policyname='service_full_access_sub') THEN
+    CREATE POLICY "service_full_access_sub"
+      ON user_subscriptions FOR ALL USING (auth.role() = 'service_role');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='user_usage' AND policyname='service_full_access_usage') THEN
+    CREATE POLICY "service_full_access_usage"
+      ON user_usage FOR ALL USING (auth.role() = 'service_role');
+  END IF;
+END $$;
 
 -- ─── Indexes ─────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_user_subs_plan   ON user_subscriptions (plan, status);
-CREATE INDEX IF NOT EXISTS idx_user_subs_trial  ON user_subscriptions (trial_ends_at) WHERE trial_ends_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_user_subs_trial  ON user_subscriptions (trial_ends_at)
+  WHERE trial_ends_at IS NOT NULL;
 
--- ─── Helper function: upsert usage with date-reset logic ─────────────────────
+-- ─── Helper function: increment PTT usage with date-reset logic ───────────────
 CREATE OR REPLACE FUNCTION increment_ptt_usage(p_user_id text)
-RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   INSERT INTO user_usage (user_id, ptt_today, ptt_date)
   VALUES (p_user_id, 1, CURRENT_DATE)
   ON CONFLICT (user_id) DO UPDATE SET
-    ptt_today = CASE
+    ptt_today  = CASE
       WHEN user_usage.ptt_date < CURRENT_DATE THEN 1
       ELSE user_usage.ptt_today + 1
     END,
-    ptt_date  = CURRENT_DATE,
+    ptt_date   = CURRENT_DATE,
     updated_at = now();
 END;
 $$;
