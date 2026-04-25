@@ -24,13 +24,21 @@ export default function RemindersView({ userId }: { userId: string }) {
   const [editText, setEditText]   = useState('');
   const textRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
+  const loadReminders = () => {
     setLoading(true);
     fetchReminders(userId)
       .then(data => { setReminders(data); setLoading(false); })
       .catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadReminders();
     const sub = subscribeToReminders(userId, r => setReminders(prev => [r, ...prev]));
-    return () => { sub.unsubscribe(); };
+    // Also refresh on roger:refresh (fired after voice-confirmed writes)
+    const onRefresh = () => loadReminders();
+    window.addEventListener('roger:refresh', onRefresh);
+    return () => { sub.unsubscribe(); window.removeEventListener('roger:refresh', onRefresh); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   useEffect(() => {

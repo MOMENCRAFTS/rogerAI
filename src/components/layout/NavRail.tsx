@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Users, Smartphone, Radio, Workflow,
   Boxes, HelpCircle, Brain, Zap, Newspaper, Eye, BookOpen,
   Mic, Bell, BarChart3, CreditCard, Headphones, Shield,
-  Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive,
+  Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive, AlertTriangle,
 } from 'lucide-react';
 import Tooltip from '../shared/Tooltip';
 import type { NavGroup } from '../../types';
@@ -25,11 +25,12 @@ const navGroups: NavGroup2[] = [
   {
     name: 'PTT NETWORK',
     items: [
-      { key: 'contacts',        label: 'CONTACTS',       Icon: Radio,      group: 'PTT NETWORK', tooltip: 'Roger network contacts & callsigns' },
-      { key: 'channels',        label: 'CHANNELS',       Icon: Rss,        group: 'PTT NETWORK', tooltip: 'Group channels & convoy coordination' },
-      { key: 'tunein',          label: 'TUNE IN',        Icon: Headphones, group: 'PTT NETWORK', tooltip: 'Live peer-to-peer session via callsign' },
-      { key: 'commute',         label: 'COMMUTE CMD',    Icon: Car,        group: 'PTT NETWORK', tooltip: 'Route intelligence & departure brief' },
-      { key: 'session_archive', label: 'SESSION LOG',    Icon: Archive,    group: 'PTT NETWORK', tooltip: 'Past sessions, transcripts & debriefs' },
+      { key: 'contacts',        label: 'CONTACTS',       Icon: Radio,          group: 'PTT NETWORK', tooltip: 'Roger network contacts & callsigns' },
+      { key: 'channels',        label: 'CHANNELS',       Icon: Rss,            group: 'PTT NETWORK', tooltip: 'Group channels & convoy coordination' },
+      { key: 'tunein',          label: 'TUNE IN',        Icon: Headphones,     group: 'PTT NETWORK', tooltip: 'Live peer-to-peer session via callsign' },
+      { key: 'commute',         label: 'COMMUTE CMD',    Icon: Car,            group: 'PTT NETWORK', tooltip: 'Route intelligence & departure brief' },
+      { key: 'hazard_monitor',  label: 'HAZARD LAYER',  Icon: AlertTriangle,  group: 'PTT NETWORK', tooltip: 'Unified road hazard monitor & control' },
+      { key: 'session_archive', label: 'SESSION LOG',    Icon: Archive,        group: 'PTT NETWORK', tooltip: 'Past sessions, transcripts & debriefs' },
     ],
   },
   {

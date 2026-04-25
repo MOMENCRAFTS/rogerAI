@@ -19,6 +19,7 @@ import Channels from './modules/Channels';
 import Commute from './modules/Commute';
 import TuneIn from './modules/TuneIn';
 import SessionArchive from './modules/SessionArchive';
+import HazardMonitor from './modules/HazardMonitor';
 import UserApp from './modules/user/UserApp';
 import ApiSettings from './modules/ApiSettings';
 import RichPlaceholder from './components/shared/RichPlaceholder';
@@ -44,6 +45,7 @@ function ModuleRenderer({ activeModule }: { activeModule: string }) {
     case 'commute':         return <Commute />;
     case 'tunein':          return <TuneIn />;
     case 'session_archive': return <SessionArchive />;
+    case 'hazard_monitor':  return <HazardMonitor />;
     case 'settings':        return <ApiSettings />;
     default: {
       const info = moduleInfoMap[activeModule];

@@ -14,7 +14,7 @@ import {
   preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError,
 } from '../../lib/sfx';
 
-import { processTransmission, extractMemoryFacts, type ConversationTurn } from '../../lib/openai';
+import { processTransmission, extractMemoryFacts, generateSurfaceScript, type ConversationTurn } from '../../lib/openai';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
 import { fetchNews, type NewsArticle } from '../../lib/news';
@@ -35,10 +35,18 @@ import {
   type DbSurfaceItem, type DbRelayMessage,
 } from '../../lib/api';
 import { useArrivalDebrief } from '../../lib/useArrivalDebrief';
+import { useAlarmEngine } from '../../lib/useAlarmEngine';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
 type PTTState = 'idle' | 'recording' | 'transcribing' | 'processing' | 'speaking' | 'responded' | 'awaiting_answer';
+
+// ── Pending confirmation gate ────────────────────────────────────────────────
+interface PendingAction {
+  type: 'reminder' | 'task' | 'meeting' | 'sms';
+  label: string;          // what Roger will speak
+  execute: () => void;    // the actual DB write
+}
 
 interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; }
 
@@ -64,6 +72,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [pendingContactSave, setPendingContactSave] = useState<{ callsign: string; contactName: string } | null>(null);
   const [contactSaveInput, setContactSaveInput] = useState('');
   const [myCallsign, setMyCallsign] = useState<string | null>(null);
+  // ── Confirmation gate ─────────────────────────────────────────────────────
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  // ── Name confirm ──────────────────────────────────────────────────────────
+  const [pendingNameConfirm, setPendingNameConfirm] = useState<{ name: string; factId?: string } | null>(null);
 
   // Use prop location if provided (lifted from UserApp), fall back to own hook for standalone use
   const { location: hookLocation, locationLabel: hookLabel } = useLocation(userId);
@@ -99,6 +111,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       } catch { /* silent */ }
     })();
   }, [userId]);
+
+  // ── Alarm engine (polls due reminders every 60s, fires voice alerts) ──────
+  useAlarmEngine(userId);
 
   // Auto-scroll
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
@@ -238,12 +253,25 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   }, [location, userId]);
 
   // Proactive surface: in ACTIVE mode, pick item after 45s idle
-  const triggerSurface = useCallback(() => {
+  const triggerSurface = useCallback(async () => {
     if (rogerMode !== 'active' || surfaceItems.length === 0 || pttState !== 'idle') return;
     const item = surfaceItems[0];
+    // Remove item from queue immediately so next idle trigger picks the next one
+    setSurfaceItems(prev => prev.filter(i => i.id !== item.id));
     setActiveSurface(item);
     hapticSurface();
-    const script = `${item.content} Over.`;
+    // Use AI-generated natural script instead of raw content
+    let script: string;
+    try {
+      script = await generateSurfaceScript({
+        type: item.type,
+        content: item.content,
+        createdAt: new Date(item.surface_at ?? Date.now()),
+        context: item.context ?? undefined,
+      });
+    } catch {
+      script = `${item.content} Over.`;
+    }
     setPttState('speaking');
     setIsSpeaking(true);
     speakResponse(script)
@@ -258,6 +286,59 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   }, [triggerSurface]);
 
   useEffect(() => { resetIdleTimer(); return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); }; }, [resetIdleTimer]);
+
+  // ── 30-minute proactive check-in loop ────────────────────────────────────
+  const proactiveCheckInRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    proactiveCheckInRef.current = setInterval(async () => {
+      if (pttState !== 'idle') return;
+      try {
+        const [reminders, tasks] = await Promise.all([
+          fetchReminders(userId, 'pending').catch(() => []),
+          fetchTasks(userId, 'open').catch(() => []),
+        ]);
+        if (reminders.length === 0 && tasks.length === 0) return;
+        const total = reminders.length + tasks.length;
+        const lines: string[] = [];
+        if (tasks.length > 0) lines.push(`${tasks.length} open task${tasks.length > 1 ? 's' : ''}`);
+        if (reminders.length > 0) lines.push(`${reminders.length} pending reminder${reminders.length > 1 ? 's' : ''}`);
+        const script = `Check-in — you have ${lines.join(' and ')}. Want me to run through them? Over.`;
+        hapticSurface();
+        setPttState('speaking');
+        setIsSpeaking(true);
+        await speakResponse(script).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(script)); });
+        setIsSpeaking(false);
+        setPttState('awaiting_answer');
+        void total; // consumed in message
+      } catch { /* silent */ }
+    }, 30 * 60 * 1000); // every 30 minutes
+    return () => { if (proactiveCheckInRef.current) clearInterval(proactiveCheckInRef.current); };
+  }, [userId, pttState]);
+
+  // ── Confirmation gate handlers ───────────────────────────────────────────────
+  const confirmPendingAction = useCallback(() => {
+    if (!pendingAction) return;
+    pendingAction.execute();
+    const ack = pendingAction.type === 'reminder' ? 'Reminder set. Over.'
+      : pendingAction.type === 'meeting' ? 'Meeting booked. Over.'
+      : 'Task saved. Over.';
+    speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+    setPendingAction(null);
+    window.dispatchEvent(new CustomEvent('roger:refresh'));
+  }, [pendingAction]);
+
+  const cancelPendingAction = useCallback(() => {
+    if (!pendingAction) return;
+    const ack = 'Cancelled. Standing by. Over.';
+    speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+    setPendingAction(null);
+  }, [pendingAction]);
+
+  // Speak confirmation gate prompt whenever pendingAction is set
+  useEffect(() => {
+    if (!pendingAction) return;
+    speakResponse(pendingAction.label).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(pendingAction.label)); });
+  }, [pendingAction]);
 
   // Preload SFX buffers once on mount
   useEffect(() => { preloadAll(); }, []);
@@ -371,30 +452,38 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       const isTest = false;
       insertConversationTurn({ user_id: userId, session_id: sessionId, role: 'user', content: transcript, intent: null, is_admin_test: isTest }).catch(() => {});
 
+      // ── Memory quality gate — skip noisy/incomplete transmissions ──────────
+      const meaningfulWords = transcript.replace(/[^a-zA-Z\u0600-\u06FF\s]/g, '').trim().split(/\s+/).filter(w => w.length > 1);
+      const isQualityTx = meaningfulWords.length >= 4;
+
       // Save to DB based on intent
       if (result.intent === 'CREATE_REMINDER') {
-        // Detect geo-triggered reminder (LOCATION entity present)
+        // ── Confirmation gate for reminders ────────────────────────────────
         const locEntity = result.entities?.find(e => e.type === 'LOCATION' || e.type === 'PLACE');
-        insertReminder({
-          user_id: userId, text: transcript, entities: result.entities ?? null,
-          due_at: null, status: 'pending', source_tx_id: null, is_admin_test: isTest,
-          due_location:     locEntity?.text ?? null,
-          due_location_lat: null,
-          due_location_lng: null,
-          due_radius_m:     300,
-          geo_triggered:    false,
-        }).catch(() => {});
-        // Fire-and-forget geocoding for the location entity
-        if (locEntity) {
-          geocodePlace(locEntity.text, location?.latitude, location?.longitude).then(coords => {
-            if (coords) {
-              supabase.from('reminders')
-                .update({ due_location: locEntity.text, due_location_lat: coords.lat, due_location_lng: coords.lng })
-                .eq('user_id', userId).eq('status', 'pending').order('created_at', { ascending: false }).limit(1);
-                  // fire-and-forget
+        const timeEntity = result.entities?.find(e => e.type === 'TIME' || e.type === 'DATE' || e.type === 'MEETING_TIME');
+        const confirmLabel = `Set reminder: "${transcript.slice(0, 60)}"${timeEntity ? ` at ${timeEntity.text}` : ''}${locEntity ? ` near ${locEntity.text}` : ''}. Confirm? Over.`;
+        setPendingAction({
+          type: 'reminder',
+          label: confirmLabel,
+          execute: () => {
+            insertReminder({
+              user_id: userId, text: transcript, entities: result.entities ?? null,
+              due_at: null, status: 'pending', source_tx_id: null, is_admin_test: isTest,
+              due_location:     locEntity?.text ?? null,
+              due_location_lat: null,
+              due_location_lng: null,
+              due_radius_m:     300,
+              geo_triggered:    false,
+            }).then(() => window.dispatchEvent(new CustomEvent('roger:refresh'))).catch(() => {});
+            if (locEntity) {
+              geocodePlace(locEntity.text, location?.latitude, location?.longitude).then(coords => {
+                if (coords) supabase.from('reminders').update({ due_location: locEntity.text, due_location_lat: coords.lat, due_location_lng: coords.lng }).eq('user_id', userId).eq('status', 'pending').order('created_at', { ascending: false }).limit(1);
+              }).catch(() => {});
             }
-          }).catch(() => {});
-        }
+          },
+        });
+      } else if (result.intent === 'BOOK_MEETING') {
+        // BOOK_MEETING confirmation is handled inside the BOOK_MEETING block below — skip here
       } else if (!result.intent.startsWith('QUERY_') &&
                  !result.intent.startsWith('STATUS_') &&
                  !result.intent.startsWith('EXPLAIN_') &&
@@ -405,11 +494,19 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                  !result.intent.startsWith('IDENTIFY_') &&
                  !result.intent.endsWith('_QUERY') &&
                  result.intent !== 'CONVERSE' &&
-                 result.intent !== 'COMMUTE_QUERY') {
-        // Save any action intent (CREATE_*, SEND_*, BOOK_*, CALL_*, SCHEDULE_*, etc.) as a task
-        insertTask({ user_id: userId, text: transcript, priority: 5, status: 'open', due_at: null, source_tx_id: null, is_admin_test: isTest }).catch(() => {});
-      } else if (result.intent === 'MEMORY_CAPTURE' || result.intent === 'BOOK_UPDATE') {
-        // Tag memory with current location
+                 result.intent !== 'COMMUTE_QUERY' &&
+                 isQualityTx) {
+        // Save action intents as tasks (with quality gate)
+        const taskLabel = `Task: "${transcript.slice(0, 60)}". Confirm? Over.`;
+        setPendingAction({
+          type: 'task',
+          label: taskLabel,
+          execute: () => {
+            insertTask({ user_id: userId, text: transcript, priority: 5, status: 'open', due_at: null, source_tx_id: null, is_admin_test: isTest })
+              .then(() => window.dispatchEvent(new CustomEvent('roger:refresh'))).catch(() => {});
+          },
+        });
+      } else if ((result.intent === 'MEMORY_CAPTURE' || result.intent === 'BOOK_UPDATE') && isQualityTx) {
         insertMemory({
           user_id: userId,
           type: result.intent === 'BOOK_UPDATE' ? 'book' : 'capture',
@@ -438,19 +535,21 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         });
       }
 
-      // ── Save every exchange as a memory capture (enriches Memory panel) ─────
-      insertMemory({
-        user_id: userId,
-        type: 'capture',
-        text: `Q: ${transcript}\nA: ${result.roger_response.split('\n\n📋')[0]}`, // strip proposals from stored text
-        entities: result.entities ?? null,
-        tags: [result.intent, ...(result.proposed_tasks?.length ? ['HAS_PROPOSALS'] : [])],
-        source_tx_id: sessionId,
-        is_admin_test: isTest,
-        location_label: location?.city ?? null,
-        location_lat:   location?.latitude  ?? null,
-        location_lng:   location?.longitude ?? null,
-      }).catch(() => {});
+      // ── Save every exchange as a memory capture (quality gate applied) ──────
+      if (isQualityTx && result.intent !== 'CONVERSE') {
+        insertMemory({
+          user_id: userId,
+          type: 'capture',
+          text: `Q: ${transcript}\nA: ${result.roger_response.split('\n\n📋')[0]}`,
+          entities: result.entities ?? null,
+          tags: [result.intent, ...(result.proposed_tasks?.length ? ['HAS_PROPOSALS'] : [])],
+          source_tx_id: sessionId,
+          is_admin_test: isTest,
+          location_label: location?.city ?? null,
+          location_lat:   location?.latitude  ?? null,
+          location_lng:   location?.longitude ?? null,
+        }).catch(() => {});
+      }
 
       // ── Signal all panels to refresh ─────────────────────────────────────────
       window.dispatchEvent(new CustomEvent('roger:refresh'));
@@ -901,11 +1000,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           const titleEnt = result.entities?.find(e => e.type === 'MEETING_TITLE');
           const timeEnt  = result.entities?.find(e => e.type === 'MEETING_TIME');
           const title = titleEnt?.text ?? 'Meeting';
-          // Simple time parsing — GPT-4o gives natural language hints like "3pm tomorrow"
-          // For now surface as a task if no parseable time; a full NLP date parser can be added
           if (timeEnt?.text) {
             const now = new Date();
-            // Attempt basic hour extraction for same-day events
             const hourMatch = timeEnt.text.match(/(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
             let startIso = now.toISOString();
             if (hourMatch) {
@@ -919,12 +1015,19 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               startIso = start.toISOString();
             }
             const endIso = new Date(new Date(startIso).getTime() + 60 * 60 * 1000).toISOString();
-            createCalendarEvent(userId, { title, startIso, endIso }).then(() => {
-              const msg = `${title} booked at ${timeEnt.text}. Confirmed. Over.`;
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
-            }).catch(() => {
-              const msg = 'Could not book meeting. Calendar not connected. Over.';
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            // ── Confirmation gate for meeting booking ────────────────────────
+            setPendingAction({
+              type: 'meeting',
+              label: `Book "${title}" at ${timeEnt.text}. Confirm? Over.`,
+              execute: () => {
+                createCalendarEvent(userId, { title, startIso, endIso }).then(() => {
+                  const msg = `${title} booked at ${timeEnt.text}. Done. Over.`;
+                  speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                }).catch(() => {
+                  const msg = 'Could not book meeting. Calendar not connected. Over.';
+                  speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                });
+              },
             });
           }
         }
@@ -1026,6 +1129,19 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       }
 
       extractMemoryFacts(transcript, result.roger_response, userId).catch(() => {});
+
+      // ── Fix 1: Name Spelling Confirmation ──────────────────────────────────
+      // For any new PERSON entity, Roger spells it back for confirmation
+      const personEntities = (result.entities ?? []).filter(e => e.type === 'PERSON' && e.confidence > 60);
+      if (personEntities.length > 0 && !pendingNameConfirm) {
+        const firstPerson = personEntities[0];
+        const spelled = firstPerson.text.toUpperCase().split('').join(', ');
+        const namePrompt = `Confirming name: ${spelled}. Is that correct? Over.`;
+        setTimeout(() => {
+          speakResponse(namePrompt).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(namePrompt)); });
+          setPendingNameConfirm({ name: firstPerson.text });
+        }, 1500); // small delay so Roger's main response finishes first
+      }
 
 
 
@@ -1403,6 +1519,66 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               onClick={() => { setPendingContactSave(null); setContactSaveInput(''); }}
               style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', borderRadius: 3 }}>
               SKIP
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmation Gate Card ── */}
+      {pendingAction && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '16px 18px',
+          background: 'rgba(74,222,128,0.06)',
+          border: '1px solid rgba(74,222,128,0.4)',
+          borderRadius: 4,
+        }}>
+          <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--green)', marginBottom: 8, fontWeight: 700 }}>
+            ✅ ROGER AWAITING CONFIRMATION
+          </div>
+          <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.55 }}>
+            {pendingAction.label}
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={confirmPendingAction}
+              style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(74,222,128,0.12)', border: '1px solid var(--green)', color: 'var(--green)' }}>
+              ✓ CONFIRM
+            </button>
+            <button
+              onClick={cancelPendingAction}
+              style={{ padding: '8px 16px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+              ✕ CANCEL
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Name Spelling Confirm Card ── */}
+      {pendingNameConfirm && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '16px 18px',
+          background: 'rgba(167,139,250,0.06)',
+          border: '1px solid rgba(167,139,250,0.4)',
+          borderRadius: 4,
+        }}>
+          <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#a78bfa', marginBottom: 8, fontWeight: 700 }}>
+            🔤 NAME CONFIRMATION
+          </div>
+          <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.55 }}>
+            Roger heard: <strong style={{ letterSpacing: '0.1em' }}>{pendingNameConfirm.name.toUpperCase().split('').join(' · ')}</strong> — is that correct?
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { setPendingNameConfirm(null); const m = 'Name confirmed. Over.'; speakResponse(m).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); }); }}
+              style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(167,139,250,0.12)', border: '1px solid #a78bfa', color: '#a78bfa' }}>
+              ✓ CORRECT
+            </button>
+            <button
+              onClick={() => { setPendingNameConfirm(null); const m = 'Please say the name again. Over.'; speakResponse(m).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); }); }}
+              style={{ padding: '8px 16px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+              ✕ WRONG
             </button>
           </div>
         </div>

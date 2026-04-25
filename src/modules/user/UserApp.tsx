@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map } from 'lucide-react';
+import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map, Radio } from 'lucide-react';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../lib/useLocation';
@@ -13,6 +13,7 @@ import FeatureTour   from './FeatureTour';
 import UserAnalytics from './UserAnalytics';
 import LocationView  from './LocationView';
 import JournalView   from './JournalView';
+import RadarView     from './RadarView';
 import PermissionGate from '../../components/PermissionGate';
 import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasTourBeenSeen, markTourSeen, flushTourSeen } from '../../lib/api';
 import { TOUR_VERSION } from '../../lib/featureTour';
@@ -21,7 +22,7 @@ import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
 
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'radar' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
 
 interface UserAppProps {
@@ -37,6 +38,7 @@ const TABS: { key: UserTab; label: string; Icon: typeof Home }[] = [
   { key: 'journal',   label: 'JOURNAL',  Icon: BookMarked },
   { key: 'analytics', label: 'STATS',    Icon: BarChart3 },
   { key: 'location',  label: 'LOCATE',   Icon: MapPin },
+  { key: 'radar',     label: 'RADAR',    Icon: Radio },
   { key: 'settings',  label: 'SETTINGS', Icon: Settings },
 ];
 
@@ -259,6 +261,9 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         </div>
         <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'location'  ? 'block' : 'none' }}>
           <LocationView userId={userId} location={location} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', display: tab === 'radar' ? 'flex' : 'none', flexDirection: 'column' }}>
+          <RadarView userId={userId} location={location} />
         </div>
         <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings'  ? 'block' : 'none' }}>
           <RogerSettings userId={userId} onReplayTour={() => setTourSeen(false)} />

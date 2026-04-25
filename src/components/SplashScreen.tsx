@@ -220,6 +220,28 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           from { background-position: 0 0; }
           to   { background-position: 0 8px; }
         }
+        @keyframes mascot-vibrate {
+          0%,100% { transform: translate(-50%,-50%) rotate(0deg);    }
+          5%       { transform: translate(-48%,-51%) rotate(-1.5deg); }
+          10%      { transform: translate(-52%,-49%) rotate( 1.5deg); }
+          15%      { transform: translate(-49%,-51%) rotate(-1deg);   }
+          20%      { transform: translate(-51%,-49%) rotate( 1deg);   }
+          25%,75%  { transform: translate(-50%,-50%) rotate(0deg);    }
+          80%      { transform: translate(-48%,-51%) rotate(-1.5deg); }
+          85%      { transform: translate(-52%,-49%) rotate( 1.5deg); }
+          90%      { transform: translate(-49%,-51%) rotate(-1deg);   }
+          95%      { transform: translate(-51%,-49%) rotate( 1deg);   }
+        }
+        @keyframes mascot-glow-pulse {
+          0%,100% { filter: drop-shadow(0 0 18px rgba(56,189,248,0.55)) drop-shadow(0 0 40px rgba(168,85,247,0.35)); }
+          50%      { filter: drop-shadow(0 0 32px rgba(56,189,248,0.85)) drop-shadow(0 0 70px rgba(168,85,247,0.65)); }
+        }
+        @keyframes zzz-float {
+          0%   { opacity:0; transform: translateY(0)   scale(0.7); }
+          20%  { opacity:1; transform: translateY(-18px) scale(1);   }
+          80%  { opacity:0.7; transform: translateY(-44px) scale(0.9); }
+          100% { opacity:0; transform: translateY(-60px) scale(0.7); }
+        }
       `}</style>
 
       {/* ── Root container ── */}
@@ -231,19 +253,18 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
         background: '#050505',
       }}>
 
-        {/* ══ LAYER 0 — Video background ══ */}
-        <video
-          autoPlay muted loop playsInline
+        {/* ══ LAYER 0 — Static background image ══ */}
+        <div
+          aria-hidden
           style={{
             position: 'absolute', inset: 0,
-            width: '100%', height: '100%',
-            objectFit: 'cover',
             zIndex: 0,
+            backgroundImage: 'url(/splash.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
           }}
-        >
-          <source src="/splash_web.webm" type="video/webm" />
-          <source src="/splash_web.mp4"  type="video/mp4" />
-        </video>
+        />
 
         {/* ══ LAYER 1 — Dark overlay so text stays readable ══ */}
         <div style={{
@@ -257,6 +278,7 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           background: 'radial-gradient(ellipse 68% 68% at 50% 50%, transparent 38%, #050505 100%)',
           animation: 'vignette-breathe 5s ease-in-out infinite',
         }} />
+
 
         {/* ══ LAYER 3 — SVG rotating rings ══ */}
         <RotatingRings primary={primaryHex} secondary={secondaryHex} />
@@ -445,6 +467,53 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
         <FilmGrain primary={primaryRGB} />
         {/* Chromatic aberration glitch */}
         <GlitchFlicker isAdmin={isAdmin} />
+
+        {/* ══ LAYER 50 — Mascot foreground (frontmost) with haptic vibration ══ */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: '42%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 50,
+            pointerEvents: 'none',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center',
+          }}
+        >
+          {/* Floating zzz labels */}
+          {[{ delay: '0s', size: 11, x: 28 }, { delay: '0.9s', size: 14, x: 44 }, { delay: '1.8s', size: 17, x: 58 }].map((z, i) => (
+            <span
+              key={i}
+              style={{
+                position: 'absolute',
+                top: '-10px',
+                left: `calc(50% + ${z.x}px)`,
+                fontSize: z.size,
+                fontFamily: "'JetBrains Mono', monospace",
+                fontWeight: 700,
+                color: i === 0 ? '#38bdf8' : i === 1 ? '#a855f7' : '#ec4899',
+                textShadow: `0 0 12px currentColor`,
+                animation: `zzz-float 2.7s ease-in-out ${z.delay} infinite`,
+                pointerEvents: 'none',
+                userSelect: 'none',
+              }}
+            >
+              {'z'.repeat(i + 1)}
+            </span>
+          ))}
+
+          {/* Mascot image */}
+          <img
+            src="/mascot.png"
+            alt="Roger AI Mascot"
+            style={{
+              width: 220, height: 'auto',
+              objectFit: 'contain',
+              animation: 'mascot-vibrate 3.6s ease-in-out infinite, mascot-glow-pulse 2.4s ease-in-out infinite',
+            }}
+          />
+        </div>
       </div>
     </>
   );
