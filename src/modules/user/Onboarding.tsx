@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Radio } from 'lucide-react';
 import {
   generateNodeScript, applyOnboardingAnswer, parseReviewIntent,
@@ -14,6 +14,25 @@ import {
 } from '../../lib/api';
 import { hapticPTTDown, hapticPTTUp, hapticTick, hapticSuccess, hapticError } from '../../lib/haptics';
 import { preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError } from '../../lib/sfx';
+
+// ── Shared pill styles for the review card ────────────────────────────────────
+const chipStyle: React.CSSProperties = {
+  fontFamily: 'monospace', fontSize: 9,
+  padding: '3px 8px', borderRadius: 2,
+  border: '1px solid rgba(212,160,68,0.25)',
+  color: 'rgba(212,160,68,0.8)',
+  background: 'rgba(212,160,68,0.05)',
+  whiteSpace: 'nowrap',
+  letterSpacing: '0.04em',
+};
+const tagStyle: React.CSSProperties = {
+  fontFamily: 'monospace', fontSize: 9,
+  padding: '2px 7px', borderRadius: 2,
+  border: '1px solid rgba(167,139,250,0.25)',
+  color: '#c4b5fd',
+  background: 'rgba(167,139,250,0.05)',
+  letterSpacing: '0.04em',
+};
 
 interface Props {
   userId: string;
@@ -236,37 +255,110 @@ export default function Onboarding({ userId, onComplete }: Props) {
         </div>
       )}
 
-      {/* Review summary card */}
+      {/* ── Review card — premium persona layout ── */}
       {isReview && (
         <div style={{
-          width: '100%', maxWidth: 360, marginBottom: 20, zIndex: 1,
-          border: '1px solid rgba(212,160,68,0.3)', background: 'rgba(212,160,68,0.04)',
-          padding: '14px 18px',
+          width: '100%', maxWidth: 360, marginBottom: 16, zIndex: 1,
+          border: '1px solid rgba(212,160,68,0.25)',
+          background: 'rgba(10,10,8,0.9)',
+          overflow: 'hidden',
         }}>
-          <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.2em', margin: '0 0 10px' }}>
-            ◈ Profile Summary — Review
-          </p>
-          {[
-            { label: 'NAME',       value: answers.name },
-            { label: 'ROLE',       value: answers.role },
-            { label: 'PRIORITIES', value: answers.key_priorities?.join(', ') },
-            { label: 'FOCUS',      value: answers.current_focus },
-            { label: 'SCHEDULE',   value: answers.work_schedule },
-            { label: 'LOCATION',   value: answers.location_base },
-            { label: 'STYLE',      value: answers.comm_style },
-            { label: 'TOOLS',      value: answers.tools_used?.join(', ') },
-            { label: 'INTERESTS',  value: answers.interests?.join(', ') },
-            { label: 'FEATURES',   value: answers.feature_prefs?.join(', ') },
-          ].filter(r => r.value).map(row => (
-            <div key={row.label} style={{ display: 'flex', gap: 10, marginBottom: 5, alignItems: 'flex-start' }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.12em', minWidth: 72, opacity: 0.6, paddingTop: 1 }}>
-                {row.label}
-              </span>
-              <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                {row.value}
-              </span>
+          {/* Header strip */}
+          <div style={{
+            padding: '10px 16px',
+            background: 'rgba(212,160,68,0.06)',
+            borderBottom: '1px solid rgba(212,160,68,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.2em' }}>
+              ◈ Roger's Read — Confirm Profile
+            </span>
+            <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'rgba(212,160,68,0.4)', letterSpacing: '0.1em' }}>
+              REVIEW
+            </span>
+          </div>
+
+          {/* Identity block */}
+          <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {/* Avatar circle */}
+              <div style={{
+                width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                background: 'rgba(212,160,68,0.1)',
+                border: '1px solid rgba(212,160,68,0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'monospace', fontSize: 14, color: 'var(--amber)', fontWeight: 700,
+              }}>
+                {(answers.name ?? '?')[0].toUpperCase()}
+              </div>
+              <div>
+                <p style={{ margin: 0, fontFamily: 'monospace', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
+                  {answers.name ?? '—'}
+                </p>
+                {answers.role && (
+                  <p style={{ margin: '2px 0 0', fontFamily: 'monospace', fontSize: 10, color: 'rgba(212,160,68,0.7)', textTransform: 'capitalize' }}>
+                    {answers.role}
+                  </p>
+                )}
+              </div>
             </div>
-          ))}
+          </div>
+
+          {/* Context chips row */}
+          <div style={{ padding: '10px 16px', display: 'flex', flexWrap: 'wrap', gap: 6, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            {answers.location_base && (
+              <span style={chipStyle}>📍 {answers.location_base}</span>
+            )}
+            {answers.work_schedule && (
+              <span style={chipStyle}>🕘 {answers.work_schedule}</span>
+            )}
+            {answers.comm_style && (
+              <span style={chipStyle}>💬 {answers.comm_style}</span>
+            )}
+            {answers.tools_used?.map(t => (
+              <span key={t} style={chipStyle}>⚙️ {t}</span>
+            ))}
+            {answers.key_priorities?.map(p => (
+              <span key={p} style={{ ...chipStyle, borderColor: 'rgba(96,165,250,0.3)', color: '#93c5fd' }}>▸ {p}</span>
+            ))}
+          </div>
+
+          {/* Interests + features */}
+          {(answers.interests?.length || answers.feature_prefs?.length) && (
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              {answers.interests?.length ? (
+                <div style={{ marginBottom: answers.feature_prefs?.length ? 8 : 0 }}>
+                  <p style={{ margin: '0 0 5px', fontFamily: 'monospace', fontSize: 8, color: 'rgba(107,106,94,0.7)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+                    Interests
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {answers.interests.map(i => (
+                      <span key={i} style={{ ...tagStyle, borderColor: 'rgba(167,139,250,0.3)', color: '#c4b5fd' }}>{i}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {answers.feature_prefs?.length ? (
+                <div>
+                  <p style={{ margin: '0 0 5px', fontFamily: 'monospace', fontSize: 8, color: 'rgba(107,106,94,0.7)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+                    Active Modules
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {answers.feature_prefs.map(f => (
+                      <span key={f} style={{ ...tagStyle, borderColor: 'rgba(52,211,153,0.3)', color: '#6ee7b7' }}>{f}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* Edit hint */}
+          <div style={{ padding: '8px 16px' }}>
+            <p style={{ margin: 0, fontFamily: 'monospace', fontSize: 8, color: 'rgba(107,106,94,0.5)', letterSpacing: '0.1em' }}>
+              SAY "CHANGE MY NAME" · "CHANGE MY ROLE" · ETC. OR SAY "CONFIRM"
+            </p>
+          </div>
         </div>
       )}
 

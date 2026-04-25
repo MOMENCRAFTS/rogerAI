@@ -10,11 +10,11 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronRight, ChevronLeft, Volume2, VolumeX, Mic, MicOff } from 'lucide-react';
+import { ChevronLeft, Volume2, VolumeX, Mic, MicOff } from 'lucide-react';
 import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION } from '../../lib/orientationScript';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { createAudioRecorder } from '../../lib/audioRecorder';
-import { transcribeAudio } from '../../lib/openai';
+import { transcribeAudio } from '../../lib/whisper';
 
 // Keywords that mean "I understand, move on"
 const CONFIRM_KEYWORDS = [
@@ -41,7 +41,7 @@ export default function Orientation({ displayName, onComplete }: Props) {
 
   const spokenRef  = useRef<Set<number>>(new Set());
   const recorderRef = useRef<ReturnType<typeof createAudioRecorder> | null>(null);
-  const openaiKey  = (import.meta.env.VITE_OPENAI_API_KEY as string) ?? '';
+  // openaiKey is read from env inside whisper.ts — no need to pass it here
 
   const total   = ORIENTATION_CHAPTERS.length;
   const current = ORIENTATION_CHAPTERS[chapter];
@@ -137,7 +137,7 @@ export default function Orientation({ displayName, onComplete }: Props) {
       recorderRef.current = null;
       if (blob.size < 500) { setPttTranscribing(false); return; }
 
-      const transcript = await transcribeAudio(blob, openaiKey, 'en');
+      const { transcript } = await transcribeAudio(blob, 'en');
       const lower = transcript.toLowerCase().trim();
       const confirmed = CONFIRM_KEYWORDS.some(kw => lower.includes(kw));
 
@@ -154,16 +154,15 @@ export default function Orientation({ displayName, onComplete }: Props) {
     }
   };
 
-  // ── Keyboard support ──────────────────────────────────────────────────────
+  // ── Keyboard support (Prev only — advancement is PTT voice only) ──────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') goNext();
       if (e.key === 'ArrowLeft') goPrev();
       if (e.key === 'Escape') handleSkip();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goNext, goPrev]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [goPrev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <motion.div
@@ -364,7 +363,7 @@ export default function Orientation({ displayName, onComplete }: Props) {
               )}
             </AnimatePresence>
 
-            {/* ── Nav row ── */}
+            {/* ── Nav row — Prev + progress dots only; Continue removed (PTT voice only) ── */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
                 onClick={goPrev}
@@ -392,10 +391,10 @@ export default function Orientation({ displayName, onComplete }: Props) {
                       width: i === chapter ? 18 : 5,
                       height: 5, borderRadius: 3,
                       background: i < chapter
-                        ? 'rgba(74,222,128,0.5)'  // completed = green
+                        ? 'rgba(74,222,128,0.5)'
                         : i === chapter
-                        ? current.iconColor        // active = chapter colour
-                        : 'rgba(107,106,94,0.3)',  // future = muted
+                        ? current.iconColor
+                        : 'rgba(107,106,94,0.3)',
                       transition: 'all 300ms ease',
                       boxShadow: i === chapter ? `0 0 6px ${current.iconColor}50` : 'none',
                     }}
@@ -403,25 +402,18 @@ export default function Orientation({ displayName, onComplete }: Props) {
                 ))}
               </div>
 
-              {/* Continue / Engage */}
-              <button
-                onClick={goNext}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '11px 18px', fontFamily: 'monospace', fontSize: 10,
-                  textTransform: 'uppercase', letterSpacing: '0.1em',
-                  background: isLast ? `${current.iconColor}1a` : 'rgba(212,160,68,0.08)',
-                  border: `1px solid ${isLast ? current.iconColor : 'rgba(212,160,68,0.35)'}`,
-                  color: isLast ? current.iconColor : 'var(--amber)',
-                  cursor: 'pointer', flexShrink: 0, fontWeight: isLast ? 700 : 400,
-                  boxShadow: isLast ? `0 0 16px ${current.iconColor}28` : 'none',
-                  transition: 'all 150ms',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = isLast ? `${current.iconColor}2a` : 'rgba(212,160,68,0.16)')}
-                onMouseLeave={e => (e.currentTarget.style.background = isLast ? `${current.iconColor}1a` : 'rgba(212,160,68,0.08)')}
-              >
-                {isLast ? 'Engage' : 'Continue'} <ChevronRight size={12} />
-              </button>
+              {/* PTT voice hint badge */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '8px 12px',
+                border: `1px solid ${current.iconColor}30`,
+                background: `${current.iconColor}08`,
+                flexShrink: 0,
+              }}>
+                <span style={{ fontSize: 9, color: `${current.iconColor}90`, fontFamily: 'monospace', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  {isLast ? '● Engage via PTT' : '● PTT to advance'}
+                </span>
+              </div>
             </div>
           </motion.div>
         </AnimatePresence>

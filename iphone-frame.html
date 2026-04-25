@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RogerAI · iPhone Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep:    #080c14;
+      --bg-card:    #0e1421;
+      --accent:     #3b82f6;
+      --accent2:    #8b5cf6;
+      --text:       #e2e8f0;
+      --text-muted: #64748b;
+      --phone-w:    393px;
+      --phone-h:    852px;
+      --radius:     56px;
+    }
+
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: var(--bg-deep);
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+    }
+
+    /* ── Animated gradient background ─────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 20% 30%, rgba(59,130,246,.18) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 60% at 80% 70%, rgba(139,92,246,.15) 0%, transparent 70%);
+      animation: bgPulse 8s ease-in-out infinite alternate;
+    }
+    @keyframes bgPulse {
+      from { opacity: .7; }
+      to   { opacity: 1; }
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .stage {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 100vh; gap: 20px;
+      padding: 20px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    .header {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .logo-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { transform: scale(1); opacity:1; }
+      50%      { transform: scale(1.4); opacity:.6; }
+    }
+    .header h1 {
+      font-size: 18px; font-weight: 600; letter-spacing: .04em;
+      background: linear-gradient(135deg, #93c5fd, #c4b5fd);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .badge {
+      font-size: 11px; font-weight: 500; letter-spacing: .06em;
+      padding: 3px 9px; border-radius: 99px;
+      border: 1px solid rgba(59,130,246,.4);
+      color: #93c5fd; background: rgba(59,130,246,.08);
+    }
+
+    /* ── Phone shell ─────────────────────────────────────────────── */
+    .phone-wrap {
+      position: relative;
+      width: var(--phone-w);
+      height: var(--phone-h);
+      filter: drop-shadow(0 40px 80px rgba(0,0,0,.8));
+      animation: floatIn .8s cubic-bezier(.16,1,.3,1) both;
+    }
+    @keyframes floatIn {
+      from { transform: translateY(32px); opacity:0; }
+      to   { transform: translateY(0);    opacity:1; }
+    }
+
+    /* Outer titanium frame */
+    .phone-outer {
+      position: absolute; inset: 0;
+      border-radius: var(--radius);
+      background: linear-gradient(160deg,
+        #4a4a52 0%, #2c2c35 20%,
+        #1c1c24 50%, #2c2c35 80%, #4a4a52 100%);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,.12),
+        inset 0 2px 4px rgba(255,255,255,.08),
+        0 0 0 1px #111,
+        8px 16px 40px rgba(0,0,0,.6);
+    }
+
+    /* Screen bezel */
+    .phone-inner {
+      position: absolute;
+      inset: 6px;
+      border-radius: calc(var(--radius) - 6px);
+      background: #000;
+      overflow: hidden;
+    }
+
+    /* Actual iframe */
+    .phone-iframe {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      border: none;
+      border-radius: calc(var(--radius) - 6px);
+      background: #000;
+    }
+
+    /* Dynamic Island */
+    .dynamic-island {
+      position: absolute;
+      top: 14px; left: 50%; transform: translateX(-50%);
+      width: 126px; height: 37px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 10;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.05);
+    }
+    /* Side cam LED dot */
+    .dynamic-island::after {
+      content: '';
+      position: absolute;
+      right: 16px; top: 50%; transform: translateY(-50%);
+      width: 10px; height: 10px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #2d4a7a, #0a0a0a);
+      box-shadow: 0 0 0 2px rgba(255,255,255,.04);
+    }
+
+    /* Status bar overlay (top) */
+    .status-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 54px;
+      z-index: 9;
+      pointer-events: none;
+    }
+
+    /* Home indicator */
+    .home-bar {
+      position: absolute;
+      bottom: 10px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px;
+      background: rgba(255,255,255,.35);
+      border-radius: 3px;
+      z-index: 10;
+    }
+
+    /* Side buttons */
+    .btn-side {
+      position: absolute;
+      width: 4px;
+      background: linear-gradient(to right, #3a3a44, #5a5a64, #3a3a44);
+      border-radius: 2px;
+      left: -5px;
+    }
+    .btn-silent { top: 120px; height: 36px; }
+    .btn-vol-up { top: 172px; height: 68px; }
+    .btn-vol-dn { top: 252px; height: 68px; }
+
+    .btn-power {
+      position: absolute;
+      width: 4px; height: 100px;
+      top: 176px; right: -5px;
+      background: linear-gradient(to left, #3a3a44, #5a5a64, #3a3a44);
+      border-radius: 2px;
+    }
+
+    /* ── URL controls ─────────────────────────────────────────── */
+    .controls {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .url-bar {
+      display: flex; align-items: center;
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 12px;
+      padding: 8px 14px;
+      gap: 8px;
+      font-size: 13px; color: var(--text-muted);
+      backdrop-filter: blur(8px);
+    }
+    .url-bar span { color: var(--text); }
+
+    .btn-reload {
+      padding: 8px 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none; border-radius: 10px;
+      color: #fff; font-family: 'Inter', sans-serif;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer;
+      transition: opacity .2s, transform .15s;
+    }
+    .btn-reload:hover  { opacity: .88; transform: scale(1.03); }
+    .btn-reload:active { transform: scale(.97); }
+  </style>
+</head>
+<body>
+  <div class="stage">
+
+    <!-- Header -->
+    <div class="header">
+      <div class="logo-dot"></div>
+      <h1>RogerAI</h1>
+      <span class="badge">LIVE PREVIEW</span>
+    </div>
+
+    <!-- iPhone frame -->
+    <div class="phone-wrap">
+
+      <!-- Outer frame -->
+      <div class="phone-outer"></div>
+
+      <!-- Side buttons -->
+      <div class="btn-side btn-silent"></div>
+      <div class="btn-side btn-vol-up"></div>
+      <div class="btn-side btn-vol-dn"></div>
+      <div class="btn-power"></div>
+
+      <!-- Screen area -->
+      <div class="phone-inner">
+        <!-- App iframe -->
+        <iframe
+          id="app-frame"
+          class="phone-iframe"
+          src="http://localhost:5173/?preview=user"
+          allow="microphone; camera; geolocation; accelerometer; gyroscope"
+          loading="lazy"
+        ></iframe>
+
+        <!-- Dynamic Island overlay -->
+        <div class="dynamic-island"></div>
+
+        <!-- Home indicator -->
+        <div class="home-bar"></div>
+      </div>
+
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="url-bar">
+        🔒 <span>localhost:5173</span>
+      </div>
+      <button class="btn-reload" onclick="document.getElementById('app-frame').src = 'http://localhost:5173/?preview=user&t=' + Date.now()">
+        ↺ Reload
+      </button>
+    </div>
+
+  </div>
+</body>
+</html>

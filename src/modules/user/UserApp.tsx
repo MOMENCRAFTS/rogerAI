@@ -201,7 +201,11 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
 
   // ── Main app ─────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative' }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column', height: '100%',
+      overflow: 'hidden', position: 'relative',
+      paddingTop: 'env(safe-area-inset-top, 56px)',
+    }}>
 
       {/* ── Confirm dialog ── */}
       {confirm && (
@@ -308,7 +312,15 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       </div>
 
       {/* ── Bottom Nav ── */}
-      <nav style={{ borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', display: 'flex', flexShrink: 0 }}>
+      <nav style={{
+        borderTop: '1px solid var(--border-subtle)',
+        background: 'var(--bg-elevated)',
+        display: 'flex', flexShrink: 0,
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'none',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}>
         {TABS.map(({ key, label, Icon }) => {
           const active = tab === key;
           const badge = key === 'reminders' ? reminderCount : key === 'tasks' ? taskCount : 0;
@@ -317,21 +329,21 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
               key={key}
               onClick={() => setTab(key)}
               style={{
-                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-                justifyContent: 'center', gap: 3, padding: '8px 2px', position: 'relative',
+                flex: '0 0 auto', minWidth: 60, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', gap: 4, padding: '12px 8px', position: 'relative',
                 background: 'transparent', border: 'none', cursor: 'pointer',
                 borderTop: `2px solid ${active ? 'var(--amber)' : 'transparent'}`,
                 transition: 'border-color 150ms',
               }}
             >
               <div style={{ position: 'relative' }}>
-                <Icon size={16} style={{ color: active ? 'var(--amber)' : 'var(--text-muted)', transition: 'color 150ms' }} />
+                <Icon size={22} style={{ color: active ? 'var(--amber)' : 'var(--text-muted)', transition: 'color 150ms' }} />
                 {badge > 0 && (
                   <span style={{
-                    position: 'absolute', top: -5, right: -6,
-                    minWidth: 14, height: 14, borderRadius: 7,
+                    position: 'absolute', top: -6, right: -8,
+                    minWidth: 16, height: 16, borderRadius: 8,
                     background: '#ef4444', color: '#fff',
-                    fontFamily: 'monospace', fontSize: 8, fontWeight: 700,
+                    fontFamily: 'monospace', fontSize: 9, fontWeight: 700,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     padding: '0 3px',
                   }}>
@@ -340,8 +352,8 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
                 )}
               </div>
               <span style={{
-                fontFamily: 'monospace', fontSize: 8,
-                letterSpacing: '0.08em', textTransform: 'uppercase',
+                fontFamily: 'monospace', fontSize: 9,
+                letterSpacing: '0.06em', textTransform: 'uppercase',
                 color: active ? 'var(--amber)' : 'var(--text-muted)',
                 transition: 'color 150ms',
               }}>

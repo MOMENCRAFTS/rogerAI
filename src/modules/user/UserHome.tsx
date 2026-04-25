@@ -2067,60 +2067,64 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       </div>
 
       {/* ── PTT Button ── */}
-      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, borderTop: '1px solid var(--border-subtle)', background: 'rgba(0,0,0,0.2)' }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 9, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 300ms', minHeight: 14 }}>
+      <div style={{
+        padding: '20px 16px 24px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+        borderTop: '1px solid var(--border-subtle)',
+        background: 'rgba(0,0,0,0.35)',
+        flexShrink: 0,
+      }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 300ms', minHeight: 14 }}>
           {stateLabel}
         </span>
 
         {/* Sonar rings + button */}
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 110, height: 110 }}>
-          {/* Sonar ring 1 */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 165, height: 165 }}>
+          {/* Sonar rings */}
           {pttState === 'recording' && (
             <>
-              <div style={{ position: 'absolute', width: 110, height: 110, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out infinite' }} />
-              <div style={{ position: 'absolute', width: 110, height: 110, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 0.5s infinite' }} />
-              <div style={{ position: 'absolute', width: 110, height: 110, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 1.0s infinite' }} />
+              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out infinite' }} />
+              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 0.5s infinite' }} />
+              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 1.0s infinite' }} />
             </>
           )}
           {/* Speaking pulse */}
           {(pttState === 'speaking') && (
-            <div style={{ position: 'absolute', width: 100, height: 100, borderRadius: '50%', background: `${btnColor}18`, animation: 'pulse 1.2s ease-in-out infinite' }} />
+            <div style={{ position: 'absolute', width: 148, height: 148, borderRadius: '50%', background: `${btnColor}18`, animation: 'pulse 1.2s ease-in-out infinite' }} />
           )}
           <button
             onPointerDown={handlePTTDown}
             onPointerUp={handlePTTUp}
             onPointerLeave={handlePTTUp}
             onPointerCancel={handlePTTUp}
-            // Prevent Android long-press context menu from stealing the touch event.
-            // Without this, holding the PTT for >500ms triggers the system menu,
-            // which fires pointerleave → handlePTTUp → premature transcription.
             onContextMenu={e => e.preventDefault()}
             aria-label={isSpeaking ? 'Interrupt Roger' : 'Push to talk'}
             style={{
-              width: 80, height: 80, borderRadius: '50%',
-              border: `2px solid ${btnColor}`,
+              width: 120, height: 120, borderRadius: '50%',
+              border: `2.5px solid ${btnColor}`,
               background: pttState === 'recording'
-                ? `radial-gradient(circle, ${btnColor}22 0%, ${btnColor}08 100%)`
-                : pttState === 'speaking' ? `${btnColor}12`
-                : 'rgba(255,255,255,0.03)',
+                ? `radial-gradient(circle, ${btnColor}30 0%, ${btnColor}10 100%)`
+                : pttState === 'speaking' ? `${btnColor}14`
+                : 'rgba(255,255,255,0.04)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', transition: 'border-color 250ms, background 250ms',
-              boxShadow: pttState === 'recording' ? `0 0 32px ${btnColor}55, inset 0 0 16px ${btnColor}18`
-                : pttState === 'speaking' ? `0 0 20px ${btnColor}33` : 'none',
+              boxShadow: pttState === 'recording'
+                ? `0 0 48px ${btnColor}66, 0 0 16px ${btnColor}33, inset 0 0 20px ${btnColor}1a`
+                : pttState === 'speaking' ? `0 0 28px ${btnColor}44`
+                : `0 0 20px ${btnColor}18`,
               userSelect: 'none', WebkitUserSelect: 'none',
-              // Prevent Android scroll-cancel from ending the pointer event during long holds
               touchAction: 'none',
             }}
           >
-            <Radio size={28} style={{ color: btnColor, transition: 'color 250ms' }} />
+            <Radio size={38} style={{ color: btnColor, transition: 'color 250ms' }} />
           </button>
         </div>
 
         {/* Speaking waveform bars */}
         {pttState === 'speaking' && (
-          <div style={{ display: 'flex', gap: 3, alignItems: 'center', height: 16 }}>
+          <div style={{ display: 'flex', gap: 3, alignItems: 'center', height: 20 }}>
             {[0.4,0.7,1,0.8,0.5,0.9,0.6,1,0.7,0.4].map((h,i) => (
-              <div key={i} style={{ width: 3, borderRadius: 2, background: btnColor, opacity: 0.7, height: `${h*14}px`, animation: `pulse ${0.8+i*0.07}s ease-in-out infinite` }} />
+              <div key={i} style={{ width: 3, borderRadius: 2, background: btnColor, opacity: 0.7, height: `${h*18}px`, animation: `pulse ${0.8+i*0.07}s ease-in-out infinite` }} />
             ))}
           </div>
         )}

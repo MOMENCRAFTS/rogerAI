@@ -88,19 +88,70 @@ export const WELCOME_SCRIPT =
   "Roger AI online. I'll ask nine quick questions to set up your profile. Hold the button and speak naturally. Ready when you are.";
 
 // ─── Build review script from answers ─────────────────────────────────────────
-export function buildReviewScript(answers: OnboardingAnswers): string {
-  const lines: string[] = [];
-  if (answers.name)                   lines.push(`Name: ${answers.name}`);
-  if (answers.role)                   lines.push(`Role: ${answers.role}`);
-  if (answers.key_priorities?.length) lines.push(`Priorities: ${answers.key_priorities.join(', ')}`);
-  if (answers.current_focus)          lines.push(`Focus: ${answers.current_focus}`);
-  if (answers.work_schedule)          lines.push(`Schedule: ${answers.work_schedule}`);
-  if (answers.location_base)          lines.push(`Location: ${answers.location_base}`);
-  if (answers.comm_style)             lines.push(`Style: ${answers.comm_style}`);
-  if (answers.tools_used?.length)     lines.push(`Tools: ${answers.tools_used.join(', ')}`);
-  if (answers.interests?.length)      lines.push(`Interests: ${answers.interests.join(', ')}`);
-  if (answers.feature_prefs?.length)  lines.push(`Roger will help with: ${answers.feature_prefs.join(', ')}`);
-  return `Here's what I have. ${lines.join('. ')}. Say confirm to lock it in, or tell me what to change.`;
+
+/** Synchronous fallback used when AI is unavailable */
+export function buildReviewScriptFallback(answers: OnboardingAnswers): string {
+  const name = answers.name ?? 'you';
+  const role = answers.role ? `, a ${answers.role},` : '';
+  const loc  = answers.location_base ? ` based in ${answers.location_base}` : '';
+  const focus = answers.current_focus ? ` Currently focused on ${answers.current_focus}.` : '';
+  const sched = answers.work_schedule ? ` Operating from ${answers.work_schedule}.` : '';
+  const tools = answers.tools_used?.length ? ` Relies on ${answers.tools_used.join(', ')}.` : '';
+  const interests = answers.interests?.length ? ` Passionate about ${answers.interests.join(', ')}.` : '';
+  const features = answers.feature_prefs?.length
+    ? ` Roger will be activated for: ${answers.feature_prefs.join(', ')}.`
+    : '';
+  return `Roger understands that ${name}${role}${loc} is setting up Command.${focus}${sched}${tools}${interests}${features} Say confirm to lock this in, or name the field to change.`;
+}
+
+/** AI-generated 3rd-person interpretation of the user profile */
+export async function buildReviewScript(answers: OnboardingAnswers): Promise<string> {
+  if (!OPENAI_API_KEY) return buildReviewScriptFallback(answers);
+
+  const summary = [
+    answers.name        && `Name: ${answers.name}`,
+    answers.role        && `Role: ${answers.role}`,
+    answers.location_base && `Location: ${answers.location_base}`,
+    answers.work_schedule && `Schedule: ${answers.work_schedule}`,
+    answers.current_focus && `Focus: ${answers.current_focus}`,
+    answers.key_priorities?.length && `Priorities: ${answers.key_priorities.join(', ')}`,
+    answers.comm_style  && `Style: ${answers.comm_style}`,
+    answers.tools_used?.length && `Tools: ${answers.tools_used.join(', ')}`,
+    answers.interests?.length && `Interests: ${answers.interests.join(', ')}`,
+    answers.feature_prefs?.length && `Features wanted: ${answers.feature_prefs.join(', ')}`,
+  ].filter(Boolean).join('\n');
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.4,
+        max_tokens: 120,
+        messages: [
+          {
+            role: 'system',
+            content: `You are Roger AI, a voice-first military-aide chief of staff. Given a user profile, write a SHORT 2-3 sentence 3rd-person narrative summarising what Roger understood about this person. 
+Rules:
+- Speak AS Roger confirming what he learned (e.g. "Roger reads you as...")
+- 3rd person perspective, concise, intelligent, not robotic
+- Reference their actual name, profession, location, passions, schedule naturally
+- Do NOT just list fields — synthesize them into a human description
+- Under 60 words
+- End with: "Say confirm to lock this in, or name the field to change."
+- No emojis. Military-aide tone.`,
+          },
+          { role: 'user', content: summary },
+        ],
+      }),
+    });
+    const data = await res.json() as { choices: { message: { content: string } }[] };
+    const text = data.choices?.[0]?.message?.content?.trim();
+    return text || buildReviewScriptFallback(answers);
+  } catch {
+    return buildReviewScriptFallback(answers);
+  }
 }
 
 // ─── AI prompt ────────────────────────────────────────────────────────────────
@@ -147,7 +198,8 @@ export async function generateNodeScript(
     return { script: WELCOME_SCRIPT, extracted_value: null, needs_clarification: false, clarification_prompt: null };
   }
   if (node === 'review_confirm') {
-    return { script: buildReviewScript(answers), extracted_value: null, needs_clarification: false, clarification_prompt: null };
+    const reviewScript = await buildReviewScript(answers);
+    return { script: reviewScript, extracted_value: null, needs_clarification: false, clarification_prompt: null };
   }
   if (node === 'complete') {
     const name = answers.name ?? 'Commander';
@@ -169,7 +221,7 @@ export async function generateNodeScript(
     tools_used:     'What 2 or 3 digital tools do you rely on most?',
     interests:      'What are your main interests or passions outside of work?',
     feature_prefs:  'I can help with calendar, tasks, briefings, hazard alerts, weather, news, finance, and commute. Which matter most to you?',
-    review_confirm: buildReviewScript(answers),
+    review_confirm: buildReviewScriptFallback(answers),
     complete:       `Profile locked, ${answers.name ?? 'Commander'}. Roger standing by.`,
   };
 
