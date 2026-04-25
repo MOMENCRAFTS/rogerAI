@@ -91,7 +91,7 @@ export const NEXT_NODE: Record<OnboardingNode, OnboardingNode> = {
 };
 
 export const WELCOME_SCRIPT =
-  "Roger AI online. I'll ask nine quick questions to set up your profile. Hold the button and speak naturally. Ready when you are.";
+  "Roger AI online. I'll ask twelve quick questions to set up your profile. Hold the button and speak naturally. Ready when you are.";
 
 // ─── Build review script from answers ─────────────────────────────────────────
 
