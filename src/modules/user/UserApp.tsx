@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map, Car, Mic, Crown, Moon } from 'lucide-react';
+import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Car, Mic, Crown, Moon } from 'lucide-react';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../lib/useLocation';

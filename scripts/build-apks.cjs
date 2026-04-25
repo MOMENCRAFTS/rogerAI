@@ -19,8 +19,9 @@ const ROOT   = path.resolve(__dirname, '..');
 const APK_SRC = path.join(ROOT, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 const OUT_DIR = path.join(ROOT, 'dist-apk');
 
-// Today's date stamp YYYY-MM-DD
-const today = new Date().toISOString().slice(0, 10);
+// Date+time stamp: YYYY-MM-DD_HHmm
+const now = new Date();
+const stamp = now.toISOString().slice(0, 10) + '_' + String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0');
 
 function run(cmd, cwd = ROOT) {
   console.log(`\n▶ ${cmd}`);
@@ -47,7 +48,7 @@ function ensureDir(dir) {
 
 function copyApk(name) {
   ensureDir(OUT_DIR);
-  const dest = path.join(OUT_DIR, `RogerAI-${name}-${today}.apk`);
+  const dest = path.join(OUT_DIR, `RogerAI-${name}-${stamp}.apk`);
   fs.copyFileSync(APK_SRC, dest);
   console.log(`\n✅ Saved: ${dest}`);
   return dest;
@@ -138,3 +139,6 @@ console.log('══════════════════════�
 console.log(`  ADMIN → ${adminApk}`);
 console.log(`  USER  → ${userApk}`);
 console.log('══════════════════════════════════════════\n');
+
+// Open the output folder in Explorer
+try { execSync(`explorer.exe "${OUT_DIR}"`); } catch {}
