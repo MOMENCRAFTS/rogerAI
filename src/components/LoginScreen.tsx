@@ -52,7 +52,7 @@ export default function LoginScreen() {
         opacity: 0.6,
       }} />
 
-      {/* ── Card ── */}
+      {/* ── Content (no card box) ── */}
       <div style={{
         position: 'relative',
         zIndex: 1,
@@ -60,90 +60,61 @@ export default function LoginScreen() {
         flexDirection: 'column',
         alignItems: 'center',
         gap: 0,
-        maxWidth: 380,
+        maxWidth: 320,
         width: '100%',
-        border: '1px solid rgba(212,160,68,0.2)',
-        background: 'rgba(212,160,68,0.03)',
-        backdropFilter: 'blur(12px)',
-        padding: '48px 40px 40px',
       }}>
 
-        {/* Corner accents */}
-        <div style={{ position: 'absolute', top: -1, left: -1, width: 20, height: 20, borderTop: '2px solid rgba(212,160,68,0.7)', borderLeft: '2px solid rgba(212,160,68,0.7)' }} />
-        <div style={{ position: 'absolute', top: -1, right: -1, width: 20, height: 20, borderTop: '2px solid rgba(212,160,68,0.7)', borderRight: '2px solid rgba(212,160,68,0.7)' }} />
-        <div style={{ position: 'absolute', bottom: -1, left: -1, width: 20, height: 20, borderBottom: '2px solid rgba(212,160,68,0.7)', borderLeft: '2px solid rgba(212,160,68,0.7)' }} />
-        <div style={{ position: 'absolute', bottom: -1, right: -1, width: 20, height: 20, borderBottom: '2px solid rgba(212,160,68,0.7)', borderRight: '2px solid rgba(212,160,68,0.7)' }} />
-
         {/* Logo */}
-        <div style={{ position: 'relative', marginBottom: 24 }}>
+        <div style={{ position: 'relative', marginBottom: 28 }}>
           <img
             src="/mascot.png"
             alt="Roger AI"
             style={{
-              width: 80,
-              height: 80,
+              width: 100,
+              height: 100,
               objectFit: 'contain',
-              filter: 'drop-shadow(0 0 24px rgba(212,160,68,0.5))',
+              mixBlendMode: 'screen',
+              filter: 'drop-shadow(0 0 32px rgba(212,160,68,0.6))',
               animation: 'loginGlow 4s ease-in-out infinite',
             }}
           />
           {/* Pulsing ring */}
           <div style={{
             position: 'absolute',
-            inset: -10,
+            inset: -12,
             borderRadius: '50%',
-            border: '1px solid rgba(212,160,68,0.3)',
+            border: '1px solid rgba(212,160,68,0.25)',
             animation: 'loginRing 3s ease-in-out infinite',
           }} />
         </div>
 
         {/* Title */}
         <p style={{
-          fontFamily: 'monospace',
-          fontSize: 22,
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 26,
           fontWeight: 700,
-          color: 'var(--amber)',
+          color: 'rgba(255,255,255,0.92)',
           textTransform: 'uppercase',
-          letterSpacing: '0.3em',
-          margin: '0 0 4px',
-          textShadow: '0 0 20px rgba(212,160,68,0.4)',
+          letterSpacing: '0.28em',
+          margin: '0 0 6px',
+          textShadow: '0 0 28px rgba(212,160,68,0.5)',
         }}>
-          ROGER AI
+          ROGER<span style={{ color: '#d4a044' }}>·</span>AI
         </p>
         <p style={{
-          fontFamily: 'monospace',
-          fontSize: 10,
-          color: 'rgba(255,255,255,0.3)',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 9,
+          color: 'rgba(255,255,255,0.28)',
           textTransform: 'uppercase',
-          letterSpacing: '0.25em',
-          margin: '0 0 40px',
+          letterSpacing: '0.28em',
+          margin: '0 0 44px',
         }}>
           Chief of Staff · Command Interface
         </p>
 
-        {/* Divider */}
-        <div style={{
-          width: '100%',
-          height: 1,
-          background: 'linear-gradient(to right, transparent, rgba(212,160,68,0.2), transparent)',
-          marginBottom: 32,
-        }} />
-
-        {/* Auth label */}
-        <p style={{
-          fontFamily: 'monospace',
-          fontSize: 9,
-          color: 'rgba(255,255,255,0.25)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.2em',
-          margin: '0 0 16px',
-        }}>
-          Secure Authentication
-        </p>
-
         {/* Auth error */}
         {authError && (
-          <div style={{ width: '100%', padding: '10px 14px', marginBottom: 16, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ width: '100%', padding: '10px 14px', marginBottom: 16, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
             <span style={{ fontSize: 13, marginTop: 1 }}>⚠</span>
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#f87171', margin: 0, lineHeight: 1.6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               {authError}
@@ -161,26 +132,26 @@ export default function LoginScreen() {
             alignItems: 'center',
             justifyContent: 'center',
             gap: 12,
-            padding: '13px 20px',
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
+            padding: '14px 24px',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: 50,
             cursor: 'pointer',
-            fontFamily: 'monospace',
-            fontSize: 12,
-            color: 'rgba(255,255,255,0.85)',
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 11,
+            color: 'rgba(255,255,255,0.82)',
             textTransform: 'uppercase',
-            letterSpacing: '0.12em',
-            transition: 'all 200ms',
-            position: 'relative',
-            overflow: 'hidden',
+            letterSpacing: '0.14em',
+            transition: 'all 250ms ease',
+            backdropFilter: 'blur(8px)',
           }}
           onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.1)';
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.25)';
+            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(212,160,68,0.12)';
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(212,160,68,0.4)';
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.05)';
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.12)';
+            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)';
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.14)';
           }}
         >
           {/* Google G SVG */}
@@ -195,14 +166,14 @@ export default function LoginScreen() {
 
         {/* Footer note */}
         <p style={{
-          fontFamily: 'monospace',
-          fontSize: 9,
-          color: 'rgba(255,255,255,0.18)',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 8,
+          color: 'rgba(255,255,255,0.15)',
           textTransform: 'uppercase',
           letterSpacing: '0.12em',
-          margin: '24px 0 0',
+          margin: '28px 0 0',
           textAlign: 'center',
-          lineHeight: 1.8,
+          lineHeight: 1.9,
         }}>
           Your data is end-to-end encrypted<br />and stored in your personal vault.
         </p>

@@ -24,6 +24,8 @@ import { fetchTodayEvents, createCalendarEvent, deleteCalendarEvent, eventToSpee
 import { playSearch, pausePlayback, nextTrack, isSpotifyConnected } from '../../lib/spotify';
 import { pushTaskToNotion } from '../../lib/notion';
 import { createAudioRecorder } from '../../lib/audioRecorder';
+import { createAmbientSession, type AmbientSessionResult, type AmbientChunkResult } from '../../lib/ambientListener';
+import { createMeetingRecorder, type MeetingResult, type MeetingChunk } from '../../lib/meetingRecorder';
 import { logClarification } from '../../lib/clarificationLogger';
 import {
   insertReminder, insertTask, insertMemory,
@@ -36,6 +38,10 @@ import {
 } from '../../lib/api';
 import { useArrivalDebrief } from '../../lib/useArrivalDebrief';
 import { useAlarmEngine } from '../../lib/useAlarmEngine';
+import {
+  initProactive, handleProactivePTT, setProactiveMode, triggerIdleCheckin,
+  clearPending, type PendingMessage,
+} from '../../lib/proactiveEngine';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
@@ -76,6 +82,17 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   // ── Name confirm ──────────────────────────────────────────────────────────
   const [pendingNameConfirm, setPendingNameConfirm] = useState<{ name: string; factId?: string } | null>(null);
+
+  // ── Ambient Listening state ───────────────────────────────────────────────
+  const [ambientActive, setAmbientActive]           = useState(false);
+  const [ambientLastChunk, setAmbientLastChunk]     = useState<AmbientChunkResult | null>(null);
+  const ambientSessionRef = useRef<ReturnType<typeof createAmbientSession> | null>(null);
+  // ── Meeting Recorder state ────────────────────────────────────────────────
+  const [meetingActive, setMeetingActive]           = useState(false);
+  const [meetingElapsed, setMeetingElapsed]         = useState(0);
+  const [meetingWords, setMeetingWords]             = useState(0);
+  const [meetingTitle, setMeetingTitle]             = useState('');
+  const meetingRecorderRef = useRef<ReturnType<typeof createMeetingRecorder> | null>(null);
 
   // Use prop location if provided (lifted from UserApp), fall back to own hook for standalone use
   const { location: hookLocation, locationLabel: hookLabel } = useLocation(userId);
@@ -297,21 +314,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           fetchReminders(userId, 'pending').catch(() => []),
           fetchTasks(userId, 'open').catch(() => []),
         ]);
-        if (reminders.length === 0 && tasks.length === 0) return;
         const total = reminders.length + tasks.length;
-        const lines: string[] = [];
-        if (tasks.length > 0) lines.push(`${tasks.length} open task${tasks.length > 1 ? 's' : ''}`);
-        if (reminders.length > 0) lines.push(`${reminders.length} pending reminder${reminders.length > 1 ? 's' : ''}`);
-        const script = `Check-in — you have ${lines.join(' and ')}. Want me to run through them? Over.`;
-        hapticSurface();
-        setPttState('speaking');
-        setIsSpeaking(true);
-        await speakResponse(script).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(script)); });
-        setIsSpeaking(false);
-        setPttState('awaiting_answer');
-        void total; // consumed in message
+        if (total === 0) return;
+        triggerIdleCheckin(total);
       } catch { /* silent */ }
-    }, 30 * 60 * 1000); // every 30 minutes
+    }, 30 * 60 * 1000);
     return () => { if (proactiveCheckInRef.current) clearInterval(proactiveCheckInRef.current); };
   }, [userId, pttState]);
 
@@ -343,9 +350,27 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   // Preload SFX buffers once on mount
   useEffect(() => { preloadAll(); }, []);
 
+  // ── Proactive Engine init ─────────────────────────────────────────────────
+  const [proactivePending, setProactivePending] = useState<PendingMessage | null>(null);
+  useEffect(() => {
+    initProactive({
+      onSpeak: (msg) => setProactivePending(msg),
+      onClear: ()    => setProactivePending(null),
+    });
+  }, []);
+
+  // Sync proactive mode with drive speed
+  useEffect(() => {
+    const speed = (locationProp ?? hookLocation)?.speed ?? 0;
+    setProactiveMode(speed >= 5.56 ? 'drive' : 'normal');
+  }, [(locationProp ?? hookLocation)?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── PTT Down ──────────────────────────────────────────────────────────────
   const handlePTTDown = useCallback(async () => {
     resetIdleTimer();
+    // ── Proactive intercept: if Roger has a pending message, consume PTT ────
+    if (handleProactivePTT()) return;
+
     if (pttState === 'speaking') { stopSpeaking(); setIsSpeaking(false); }
     else if (pttState !== 'idle' && pttState !== 'responded' && pttState !== 'awaiting_answer') return;
     if (awaitRef.current) clearTimeout(awaitRef.current);
@@ -1128,6 +1153,147 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }]);
       }
 
+      // ── AMBIENT_LISTEN — start continuous ambient listening ───────────────────
+      if (result.intent === 'AMBIENT_LISTEN' && !ambientActive) {
+        const openaiKey = (import.meta.env.VITE_OPENAI_API_KEY as string) ?? '';
+        const sess = createAmbientSession(
+          {
+            onChunk: (chunk) => {
+              setAmbientLastChunk(chunk);
+              if (chunk.isMusicDominant) {
+                const musicLabel = chunk.musicIdentified
+                  ? `🎵 ${chunk.musicIdentified.title} — ${chunk.musicIdentified.artist}`
+                  : chunk.musicHint ?? '🎵 Music detected';
+                setMessages(prev => [...prev, {
+                  id: `ambient-music-${Date.now()}`, role: 'roger' as const,
+                  text: musicLabel, ts: Date.now(), intent: 'AMBIENT_LISTEN', outcome: 'success',
+                }]);
+              } else if (chunk.language && chunk.language !== 'en') {
+                const langMsg = `🌐 ${chunk.languageName ?? chunk.language} detected: "${chunk.transcriptClean.slice(0, 120)}${chunk.transcriptClean.length > 120 ? '…' : ''}"`;
+                setMessages(prev => [...prev, {
+                  id: `ambient-lang-${Date.now()}`, role: 'roger' as const,
+                  text: langMsg, ts: Date.now(), intent: 'AMBIENT_LISTEN', outcome: 'success',
+                }]);
+              }
+            },
+            onMusicDetected: (info) => {
+              const msg = `That's "${info.title}" by ${info.artist}${info.album ? ` from ${info.album}` : ''}. Over.`;
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            },
+            onError: (err) => console.warn('[Ambient]', err),
+          },
+          openaiKey,
+        );
+        const started = await sess.start();
+        if (started) {
+          ambientSessionRef.current = sess;
+          setAmbientActive(true);
+        } else {
+          const errMsg = 'Microphone access required for listening mode. Over.';
+          speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+        }
+      }
+
+      // ── AMBIENT_QUERY — read back last ambient chunk analysis ─────────────────
+      if (result.intent === 'AMBIENT_QUERY') {
+        const chunk = ambientLastChunk;
+        if (!chunk) {
+          const msg = "I haven't captured anything yet. Say 'listen to this' to start. Over.";
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        } else {
+          let msg = chunk.summary;
+          if (chunk.language && chunk.language !== 'en') msg += ` Spoken in ${chunk.languageName ?? chunk.language}.`;
+          if (chunk.musicHint) msg += ` Music note: ${chunk.musicHint}.`;
+          msg += ' Over.';
+          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        }
+      }
+
+      // ── AMBIENT_STOP — stop ambient session + summarise ───────────────────────
+      if (result.intent === 'AMBIENT_STOP' && ambientActive && ambientSessionRef.current) {
+        const finalResult: AmbientSessionResult = await ambientSessionRef.current.stop();
+        ambientSessionRef.current = null;
+        setAmbientActive(false);
+        setAmbientLastChunk(null);
+
+        // Save to DB (fire-and-forget)
+        import('../../lib/supabase').then(async ({ supabase: sb }) => {
+          await sb.from('ambient_sessions').insert({
+            user_id:       userId,
+            content_type:  finalResult.contentType,
+            language:      finalResult.language,
+            language_name: finalResult.languageName,
+            transcript:    finalResult.transcript,
+            summary:       finalResult.summary,
+            music_title:   finalResult.musicTitle,
+            music_artist:  finalResult.musicArtist,
+            music_album:   finalResult.musicAlbum,
+            duration_s:    finalResult.durationS,
+            raw_chunks:    finalResult.chunks,
+            ended_at:      new Date().toISOString(),
+          });
+        }).catch(() => {});
+
+        const summary = finalResult.summary || 'No clear audio captured.';
+        const finalMsg = `Listening stopped. ${summary} Over.`;
+        speakResponse(finalMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(finalMsg)); });
+        setMessages(prev => [...prev, {
+          id: `ambient-end-${Date.now()}`, role: 'roger' as const,
+          text: `🎙️ Ambient session ended · ${finalResult.durationS}s · ${finalResult.contentType}${finalResult.musicTitle ? ` · 🎵 ${finalResult.musicTitle}` : ''}${finalResult.language && finalResult.language !== 'en' ? ` · 🌐 ${finalResult.languageName}` : ''}`,
+          ts: Date.now(), intent: 'AMBIENT_STOP', outcome: 'success',
+        }]);
+      }
+
+      // ── RECORD_MEETING — start meeting recorder ───────────────────────────────
+      if (result.intent === 'RECORD_MEETING' && !meetingActive) {
+        const openaiKey = (import.meta.env.VITE_OPENAI_API_KEY as string) ?? '';
+        const titleEnt  = result.entities?.find(e => e.type === 'MEETING_TITLE');
+        const mTitle = titleEnt?.text ?? 'Meeting';
+        setMeetingTitle(mTitle);
+
+        const rec = createMeetingRecorder(
+          userId,
+          {
+            onChunkTranscribed: (chunk: MeetingChunk) => {
+              setMeetingWords(prev => prev + chunk.wordCount);
+            },
+            onProgress: (elapsed, words) => {
+              setMeetingElapsed(elapsed);
+              setMeetingWords(words);
+            },
+            onComplete: (res: MeetingResult) => {
+              setMeetingActive(false);
+              setMeetingElapsed(0);
+              setMeetingWords(0);
+              const msg = res.notes.spoken_summary || `Meeting notes ready. ${res.notes.action_items.length} action item${res.notes.action_items.length !== 1 ? 's' : ''}. Over.`;
+              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              setMessages(prev => [...prev, {
+                id: `meeting-done-${Date.now()}`, role: 'roger' as const,
+                text: `📋 Meeting notes ready: "${res.title}" · ${res.notes.action_items.length} actions · ${res.notes.decisions.length} decisions`,
+                ts: Date.now(), intent: 'END_MEETING', outcome: 'success',
+              }]);
+            },
+            onError: (err) => console.warn('[Meeting]', err),
+          },
+          openaiKey,
+        );
+
+        const started = await rec.start(mTitle);
+        if (started) {
+          meetingRecorderRef.current = rec;
+          setMeetingActive(true);
+        } else {
+          const errMsg = 'Microphone access required for meeting recording. Over.';
+          speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+        }
+      }
+
+      // ── END_MEETING — stop recorder and generate notes ────────────────────────
+      if (result.intent === 'END_MEETING' && meetingActive && meetingRecorderRef.current) {
+        await meetingRecorderRef.current.stop(); // onComplete fires automatically
+        meetingRecorderRef.current = null;
+      }
+
       extractMemoryFacts(transcript, result.roger_response, userId).catch(() => {});
 
       // ── Fix 1: Name Spelling Confirmation ──────────────────────────────────
@@ -1302,8 +1468,39 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         )}
       </div>
 
+      {/* ── Proactive Roger Ping Banner ── */}
+      {proactivePending && (
+        <div style={{
+          margin: '8px 16px 0',
+          background: 'rgba(212,160,68,0.08)',
+          border: '1px solid rgba(212,160,68,0.35)',
+          padding: '10px 14px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          animation: 'rogerPingPulse 2s ease-in-out infinite',
+        }}>
+          <span style={{ fontSize: 16 }}>📡</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 2 }}>
+              ROGER HAS A MESSAGE · {proactivePending.trigger.toUpperCase()}
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {proactivePending.text}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              PTT → speak · 2×PTT → snooze
+            </span>
+            <button onClick={() => { clearPending(); }} style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-subtle)', padding: '2px 8px', cursor: 'pointer', textTransform: 'uppercase' }}>
+              DISMISS
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Incoming Relay Transmission Card ── */}
       {incomingRelay && (
+
         <div style={{
           margin: '12px 16px 0',
           padding: '16px 18px',
@@ -1477,6 +1674,89 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             END SESSION
           </button>
 
+        </div>
+      )}
+
+      {/* ── Ambient Listening Active Banner ── */}
+      {ambientActive && (
+        <div style={{
+          margin: '8px 16px 0',
+          padding: '10px 16px',
+          background: 'rgba(168,85,247,0.06)',
+          border: '1px solid rgba(168,85,247,0.35)',
+          borderRadius: 4,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#a855f7', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#a855f7', animation: 'pulse 1.2s infinite' }} />
+              🎙️ AMBIENT LISTENING ACTIVE
+            </div>
+            {ambientLastChunk && (
+              <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                {ambientLastChunk.contentType === 'music' || ambientLastChunk.isMusicDominant
+                  ? `🎵 Music detected${ambientLastChunk.musicIdentified ? ` — ${ambientLastChunk.musicIdentified.title}` : ''}`
+                  : ambientLastChunk.language && ambientLastChunk.language !== 'en'
+                    ? `🌐 ${ambientLastChunk.languageName ?? ambientLastChunk.language} · ${ambientLastChunk.summary}`
+                    : ambientLastChunk.summary}
+              </div>
+            )}
+            {!ambientLastChunk && (
+              <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>
+                Analysing every 30s · Say "stop listening" to end
+              </div>
+            )}
+          </div>
+          <button
+            onClick={async () => {
+              if (ambientSessionRef.current) {
+                const res = await ambientSessionRef.current.stop();
+                ambientSessionRef.current = null;
+                setAmbientActive(false);
+                setAmbientLastChunk(null);
+                const msg = `Listening stopped. ${res.summary || 'Session ended'}. Over.`;
+                speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              }
+            }}
+            style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.35)', color: '#a855f7', borderRadius: 3, flexShrink: 0 }}
+          >
+            STOP
+          </button>
+        </div>
+      )}
+
+      {/* ── Meeting Recording Active Banner ── */}
+      {meetingActive && (
+        <div style={{
+          margin: '8px 16px 0',
+          padding: '10px 16px',
+          background: 'rgba(239,68,68,0.05)',
+          border: '1px solid rgba(239,68,68,0.35)',
+          borderRadius: 4,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#ef4444', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#ef4444', animation: 'pulse 0.9s infinite' }} />
+              📋 RECORDING: {meetingTitle || 'MEETING'}
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', display: 'flex', gap: 14 }}>
+              <span>⏱ {Math.floor(meetingElapsed / 60)}:{String(meetingElapsed % 60).padStart(2, '0')}</span>
+              <span>~{meetingWords} words</span>
+              <span>Say "end meeting" to stop</span>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              if (meetingRecorderRef.current) {
+                meetingRecorderRef.current.stop().catch(() => {});
+                meetingRecorderRef.current = null;
+              }
+            }}
+            style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', borderRadius: 3, flexShrink: 0 }}
+          >
+            END
+          </button>
         </div>
       )}
 

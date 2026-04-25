@@ -95,3 +95,45 @@ export function sfxPTTUp():    void { play('ptt-up').catch(() => {}); }
 export function sfxRogerIn():  void { play('roger-in').catch(() => {}); }
 export function sfxRogerOut(): void { play('roger-out').catch(() => {}); }
 export function sfxError():    void { play('error').catch(() => {}); }
+
+/**
+ * sfxRogerPing — synthesized short radio-static attention ping.
+ * No audio file required. Uses Web Audio noise + bandpass + envelope.
+ * driveMode = true → louder burst for in-car.
+ */
+export async function sfxRogerPing(driveMode = false): Promise<void> {
+  if (!sfxEnabled) return;
+  const c = await ensureRunning();
+  if (!c) return;
+  try {
+    const dur    = 0.45;
+    const volume = driveMode ? Math.min(1, masterGain * 2.5) : masterGain * 0.9;
+
+    // White noise buffer (0.5s)
+    const frames = Math.ceil(c.sampleRate * dur);
+    const buf    = c.createBuffer(1, frames, c.sampleRate);
+    const data   = buf.getChannelData(0);
+    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+
+    // Bandpass → gives "radio" character
+    const bp        = c.createBiquadFilter();
+    bp.type         = 'bandpass';
+    bp.frequency.value = 1800;
+    bp.Q.value      = 0.8;
+
+    // Gain envelope: fast attack, fast decay
+    const gain = c.createGain();
+    gain.gain.setValueAtTime(0, c.currentTime);
+    gain.gain.linearRampToValueAtTime(volume, c.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
+
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.connect(bp);
+    bp.connect(gain);
+    gain.connect(c.destination);
+    src.start();
+    src.stop(c.currentTime + dur);
+  } catch { /* silent */ }
+}
+

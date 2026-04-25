@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Users, Smartphone, Radio, Workflow,
   Boxes, HelpCircle, Brain, Zap, Newspaper, Eye, BookOpen,
   Mic, Bell, BarChart3, CreditCard, Headphones, Shield,
-  Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive, AlertTriangle,
+  Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive, AlertTriangle, Gauge,
 } from 'lucide-react';
 import Tooltip from '../shared/Tooltip';
 import type { NavGroup } from '../../types';
@@ -30,6 +30,8 @@ const navGroups: NavGroup2[] = [
       { key: 'tunein',          label: 'TUNE IN',        Icon: Headphones,     group: 'PTT NETWORK', tooltip: 'Live peer-to-peer session via callsign' },
       { key: 'commute',         label: 'COMMUTE CMD',    Icon: Car,            group: 'PTT NETWORK', tooltip: 'Route intelligence & departure brief' },
       { key: 'hazard_monitor',  label: 'HAZARD LAYER',  Icon: AlertTriangle,  group: 'PTT NETWORK', tooltip: 'Unified road hazard monitor & control' },
+      { key: 'proactive',       label: 'PROACTIVE ENG',  Icon: Bell,           group: 'PTT NETWORK', tooltip: 'Roger proactive attention system monitor' },
+      { key: 'drive_sim',       label: 'DRIVE SIM',      Icon: Gauge,          group: 'PTT NETWORK', tooltip: 'Preview user CommuteRadar in admin' },
       { key: 'session_archive', label: 'SESSION LOG',    Icon: Archive,        group: 'PTT NETWORK', tooltip: 'Past sessions, transcripts & debriefs' },
     ],
   },

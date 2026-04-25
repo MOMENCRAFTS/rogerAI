@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut } from 'lucide-react';
-import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, type DbUserPreferences } from '../../lib/api';
+import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, type DbUserPreferences } from '../../lib/api';
 import { useLocation } from '../../lib/useLocation';
 import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
@@ -24,7 +24,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
 }
 
-export default function RogerSettings({ userId, onReplayTour }: { userId: string; onReplayTour?: () => void }) {
+export default function RogerSettings({ userId, onReplayTour, onReplayOrientation }: { userId: string; onReplayTour?: () => void; onReplayOrientation?: () => void }) {
   const { user, signOut }         = useAuth();
   const [prefs, setPrefs]         = useState<Partial<DbUserPreferences>>({ roger_mode: 'active', language: 'en', briefing_time: '08:00', briefing_time2: '18:00', haptic_enabled: true, sfx_enabled: true });
   const [saving, setSaving]       = useState(false);
@@ -121,6 +121,25 @@ export default function RogerSettings({ userId, onReplayTour }: { userId: string
 
   return (
     <div style={{ padding: '16px' }}>
+
+      {/* ── Replay Orientation ── */}
+      {onReplayOrientation && (
+        <div style={{ marginBottom: 10, padding: '14px 16px', background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.2)', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Zap size={18} style={{ color: '#a855f7', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Orientation</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Walk through all 10 capability chapters again.</p>
+          </div>
+          <button
+            onClick={() => { resetOrientationSeen(userId).catch(() => {}); onReplayOrientation(); }}
+            style={{ flexShrink: 0, padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#a855f7', cursor: 'pointer', transition: 'background 150ms' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(168,85,247,0.2)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(168,85,247,0.1)')}
+          >
+            Replay
+          </button>
+        </div>
+      )}
 
       {/* ── Replay Mission Brief ── */}
       {onReplayTour && (

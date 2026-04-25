@@ -380,6 +380,49 @@ BOOK_RIDE
   Notes: Roger uses Uber's Universal Link (m.uber.com) to open the app pre-filled.
          This works whether or not the Uber app is installed.
 
+═══════════════════════════════════════
+AMBIENT LISTENING — INTENTS
+═══════════════════════════════════════
+Roger can listen continuously to background audio and analyse it.
+
+AMBIENT_LISTEN
+  Trigger: "Roger, listen to this", "analyse what's playing", "what's that music",
+           "listen to the background", "what language is that", "record what's around me",
+           "listen mode on", "analyse this conversation", "what are they saying"
+  Response: "Listening. I'll analyse as we go. Say 'what was that' when done. Over."
+  outcome: always "success"
+
+AMBIENT_QUERY
+  Trigger: "what was that?", "what did you hear?", "what's playing?", "what language was that?",
+           "what did they say?", "translate what you heard", "what did you catch?"
+  Response: [Summary of last chunk analysis — language, content, music if detected]
+  outcome: always "success"
+
+AMBIENT_STOP
+  Trigger: "stop listening", "end listen mode", "that's enough listening",
+           "stop ambient", "cancel listening"
+  Response: "Listening stopped. Here's what I captured: [brief summary]. Over."
+  outcome: always "success"
+
+═══════════════════════════════════════
+MEETING RECORDER — INTENTS
+═══════════════════════════════════════
+Roger can record and transcribe full meetings, then generate structured notes.
+
+RECORD_MEETING
+  Trigger: "Roger, record meeting", "start recording", "record this meeting",
+           "meeting mode on", "record what's being said", "record the session",
+           "take meeting notes", "record this call", "record this discussion"
+  Extract: MEETING_TITLE (optional) — the topic or name of the meeting
+  Response: "Meeting recording started. I'll transcribe as we go. Say 'end meeting' when done. Over."
+  outcome: always "success"
+
+END_MEETING
+  Trigger: "end meeting", "stop recording", "meeting over", "that's it for the meeting",
+           "wrap up the meeting", "close the meeting", "end the session", "generate notes"
+  Response: "Meeting ended. Generating your notes now. Stand by. Over."
+  outcome: always "success"
+
 
 
 
@@ -632,6 +675,11 @@ export async function classifyPriorityAction(userResponse: string): Promise<{
 /**
  * Fire-and-forget implicit memory extraction after every PTT turn.
  * Routed through extract-memory-facts Edge Function (gpt-4o-mini, server-side).
+ *
+ * v2 — two-pass noise filter:
+ *   facts[].is_draft = false  → confidence ≥ 75 → stored as candidate (is_confirmed: false)
+ *   facts[].is_draft = true   → confidence 50–74 → stored as draft (confidence capped at 60)
+ *   discarded[]               → transient / < 50 confidence → logged to memory_insights for audit
  */
 export async function extractMemoryFacts(
   transcript: string,
@@ -651,33 +699,59 @@ export async function extractMemoryFacts(
     if (!res.ok) return;
 
     const result = await res.json() as {
-      facts: { fact_type: string; subject: string; predicate: string; object: string; confidence: number }[];
+      facts: {
+        fact_type: string;
+        subject: string;
+        predicate: string;
+        object: string;
+        confidence: number;
+        is_draft?: boolean;
+      }[];
+      discarded?: { text: string; filter_reason: string }[];
       insight: string | null;
     };
 
     const { upsertMemoryFact, insertMemoryInsight } = await import('./api');
 
+    // ── Store kept facts (both confirmed candidates and drafts) ──────────────
     if (result.facts?.length) {
       await Promise.allSettled(
-        result.facts.map(f =>
-          upsertMemoryFact({
-            user_id: userId,
-            fact_type: f.fact_type as never,
-            subject: f.subject,
-            predicate: f.predicate,
-            object: f.object,
-            confidence: f.confidence ?? 75,
-            source_tx: transcript.slice(0, 80),
-            is_confirmed: false,
+        result.facts.map(f => {
+          const isDraft = f.is_draft ?? false;
+          return upsertMemoryFact({
+            user_id:      userId,
+            fact_type:    f.fact_type as never,
+            subject:      f.subject,
+            predicate:    f.predicate,
+            object:       f.object,
+            // Draft facts get confidence capped at 60 — won't dominate context injection
+            confidence:   isDraft ? Math.min(f.confidence ?? 60, 60) : (f.confidence ?? 75),
+            source_tx:    transcript.slice(0, 80),
+            is_confirmed: false, // all AI-extracted facts start unconfirmed
+          });
+        })
+      );
+    }
+
+    // ── Log discarded facts as insights (audit trail) ─────────────────────────
+    // This makes the filter decisions visible in MemoryGraph.tsx / MemoryMonitor
+    if (result.discarded?.length) {
+      await Promise.allSettled(
+        result.discarded.map(d =>
+          insertMemoryInsight({
+            user_id:    userId,
+            insight:    `[FILTERED] "${d.text}" — ${d.filter_reason}`,
+            source_turn: transcript.slice(0, 120),
           })
         )
       );
     }
 
+    // ── Store pattern insight ─────────────────────────────────────────────────
     if (result.insight) {
       await insertMemoryInsight({
-        user_id: userId,
-        insight: result.insight,
+        user_id:    userId,
+        insight:    result.insight,
         source_turn: transcript.slice(0, 120),
       }).catch(() => {});
     }

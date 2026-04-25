@@ -176,3 +176,8 @@
 
 .led-pulse   { animation: led-pulse 2s ease-in-out infinite; }
 .amber-flicker { animation: amber-flicker 8s ease-in-out infinite; }
+
+@keyframes rogerPingPulse {
+  0%, 100% { border-color: rgba(212,160,68,0.35); box-shadow: none; }
+  50%       { border-color: rgba(212,160,68,0.75); box-shadow: 0 0 10px rgba(212,160,68,0.2); }
+}

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RogerAI — iPhone Preview</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 40%, #1a1a2e 0%, #0d0d0d 100%);
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+    }
+
+    /* Centering wrapper fills the whole viewport */
+    .stage {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .label {
+      color: rgba(56,189,248,0.55);
+      font-size: 10px;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* The phone + label stack is scaled as one unit */
+    .phone-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      /* JS will set --scale via inline style */
+      transform: scale(var(--phone-scale, 1));
+      transform-origin: center center;
+    }
+
+    /* ── iPhone 15 Pro frame ── */
+    .iphone {
+      position: relative;
+      width: 393px;
+      height: 852px;
+      background: #1c1c1e;
+      border-radius: 54px;
+      box-shadow:
+        0 0 0 2px #3a3a3c,
+        0 0 0 4px #1c1c1e,
+        0 0 0 6px #3a3a3c,
+        0 40px 80px rgba(0,0,0,0.7),
+        0 0 80px rgba(56,189,248,0.07);
+      flex-shrink: 0;
+    }
+
+    /* Side buttons */
+    .btn { position: absolute; background: #2c2c2e; border-radius: 3px; }
+    .btn-power  { right: -4px; top: 200px; width: 4px; height: 80px; }
+    .btn-vol-up { left:  -4px; top: 160px; width: 4px; height: 50px; }
+    .btn-vol-dn { left:  -4px; top: 220px; width: 4px; height: 50px; }
+    .btn-silent { left:  -4px; top: 120px; width: 4px; height: 32px; }
+
+    /* Screen */
+    .screen {
+      position: absolute;
+      inset: 0;
+      border-radius: 54px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    /* Dynamic Island */
+    .dynamic-island {
+      position: absolute;
+      top: 14px; left: 50%;
+      transform: translateX(-50%);
+      width: 120px; height: 36px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 9999;
+    }
+
+    /* Status bar */
+    .status-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 59px;
+      z-index: 9998;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      padding: 0 28px 8px;
+      pointer-events: none;
+    }
+    .status-time {
+      font-size: 15px; font-weight: 600;
+      color: #fff;
+      font-family: -apple-system, sans-serif;
+      letter-spacing: 0;
+    }
+    .status-icons { display: flex; align-items: center; gap: 6px; }
+    .status-icons svg { fill: #fff; }
+
+    /* App iframe */
+    iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      border: none;
+      border-radius: 54px;
+    }
+
+    /* Home indicator */
+    .home-bar {
+      position: absolute;
+      bottom: 10px; left: 50%;
+      transform: translateX(-50%);
+      width: 134px; height: 5px;
+      background: rgba(255,255,255,0.32);
+      border-radius: 3px;
+      z-index: 9999;
+    }
+
+    .sub-label { opacity: 0.3; font-size: 8px; }
+
+    /* Reset button */
+    .reset-btn {
+      position: absolute;
+      top: 14px; right: 18px;
+      z-index: 10000;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(56,189,248,0.3);
+      border-radius: 50%;
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: rgba(56,189,248,0.7);
+      font-size: 14px;
+      transition: all 0.2s;
+      backdrop-filter: blur(6px);
+    }
+    .reset-btn:hover { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.7); }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <p class="label">⬡ RogerAI · iPhone 15 Pro Preview</p>
+
+    <div class="phone-wrap" id="phoneWrap">
+      <div class="iphone">
+        <div class="btn btn-power"></div>
+        <div class="btn btn-vol-up"></div>
+        <div class="btn btn-vol-dn"></div>
+        <div class="btn btn-silent"></div>
+
+        <div class="screen">
+          <div class="dynamic-island"></div>
+
+          <div class="status-bar">
+            <span class="status-time" id="clock">9:41</span>
+            <div class="status-icons">
+              <!-- Signal bars -->
+              <svg width="17" height="12" viewBox="0 0 17 12">
+                <rect x="0"  y="8" width="3" height="4" rx="1" opacity="0.4"/>
+                <rect x="4"  y="5" width="3" height="7" rx="1" opacity="0.6"/>
+                <rect x="8"  y="2" width="3" height="10" rx="1" opacity="0.8"/>
+                <rect x="12" y="0" width="3" height="12" rx="1"/>
+              </svg>
+              <!-- WiFi -->
+              <svg width="16" height="12" viewBox="0 0 16 12">
+                <circle cx="8" cy="11" r="1.4"/>
+                <path d="M4.5 7.5C5.8 6.1 6.8 5.5 8 5.5s2.2.6 3.5 2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                <path d="M1.5 4.5C3.5 2.3 5.6 1 8 1s4.5 1.3 6.5 3.5" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.55"/>
+              </svg>
+              <!-- Battery -->
+              <svg width="26" height="13" viewBox="0 0 26 13">
+                <rect x="0.5" y="1" width="21" height="11" rx="2.5" stroke="#fff" stroke-width="1" fill="none"/>
+                <rect x="2" y="2.5" width="16" height="8" rx="1.5" fill="#fff"/>
+                <path d="M23 4.5v4a2 2 0 000-4z" fill="#fff" opacity="0.4"/>
+              </svg>
+            </div>
+          </div>
+
+          <iframe id="appFrame" src="http://localhost:5173/" title="RogerAI" allow="microphone; camera; geolocation"></iframe>
+
+          <div class="home-bar"></div>
+          <!-- Reset button -->
+          <button class="reset-btn" id="resetBtn" title="Reset app">↺</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="label sub-label">localhost:5173</p>
+  </div>
+
+  <script>
+    // Live clock
+    function tick() {
+      const n = new Date();
+      document.getElementById('clock').textContent =
+        n.getHours() + ':' + String(n.getMinutes()).padStart(2,'0');
+    }
+    tick();
+    setInterval(tick, 10000);
+
+    // Auto-scale the phone to always fit the viewport with padding
+    function scalePhone() {
+      const PHONE_H = 852 + 14 + 20; // phone + label gaps approx
+      const PHONE_W = 393 + 20;      // phone + button protrusion
+      const vw = window.innerWidth;
+      const vh = window.innerHeight - 80; // reserve space for top/bottom labels
+      const scaleH = vh / PHONE_H;
+      const scaleW = vw / PHONE_W;
+      const scale = Math.min(scaleH, scaleW, 1); // never upscale beyond 1
+      document.getElementById('phoneWrap').style.setProperty('--phone-scale', scale);
+    }
+    scalePhone();
+    window.addEventListener('resize', scalePhone);
+
+    // Reset iframe if it navigates away from localhost
+    const frame = document.getElementById('appFrame');
+    const ORIGIN = 'http://localhost:5173/';
+    function resetFrame() {
+      frame.src = ORIGIN;
+    }
+    document.getElementById('resetBtn').addEventListener('click', resetFrame);
+    frame.addEventListener('load', () => {
+      try {
+        // If we can't access href (cross-origin) it navigated away
+        const loc = frame.contentWindow.location.href;
+        if (!loc.startsWith('http://localhost:5173')) resetFrame();
+      } catch (e) {
+        // Cross-origin = definitely navigated away (e.g. Google)
+        resetFrame();
+      }
+    });
+  </script>
+</body>
+</html>

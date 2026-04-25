@@ -23,6 +23,8 @@ export interface UserLocation {
   latitude:  number;
   longitude: number;
   accuracy:  number;
+  speed?:    number;   // m/s (from Geolocation API)
+  heading?:  number;  // degrees 0-360, NaN if no heading
   city?:     string;
   country?:  string;
 }
@@ -113,6 +115,8 @@ export function useLocation(userId: string): {
       // Retain previous city/country if geocode was throttled
       const loc: UserLocation = {
         latitude, longitude, accuracy,
+        speed:   pos.coords.speed   ?? undefined,
+        heading: pos.coords.heading ?? undefined,
         city:    geo?.city    ?? locationRef.current?.city,
         country: geo?.country ?? locationRef.current?.country,
       };

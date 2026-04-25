@@ -337,7 +337,9 @@ export type DbMemoryFact = {
   fact_type: 'person' | 'company' | 'project' | 'preference' | 'relationship' | 'goal' | 'habit' | 'location';
   subject: string; predicate: string; object: string;
   confidence: number; source_tx: string | null;
-  is_confirmed: boolean; created_at: string; updated_at: string;
+  is_confirmed: boolean;
+  is_draft: boolean;       // true = borderline (confidence 50–74), needs second signal
+  created_at: string; updated_at: string;
 };
 
 export type DbMemoryInsight = {
@@ -460,15 +462,22 @@ export async function upsertMemoryFact(
   // Check if a fact with same user+subject+predicate exists
   const { data: existing } = await supabase
     .from('memory_graph')
-    .select('id')
+    .select('id, is_draft')
     .eq('user_id', fact.user_id)
     .eq('subject', fact.subject)
     .eq('predicate', fact.predicate)
     .maybeSingle();
 
   if (existing) {
+    // Second mention of a draft fact promotes it to full fact (is_draft → false)
+    const promoted = existing.is_draft && !fact.is_draft;
     await supabase.from('memory_graph')
-      .update({ object: fact.object, confidence: fact.confidence, updated_at: new Date().toISOString() })
+      .update({
+        object:     fact.object,
+        confidence: fact.confidence,
+        is_draft:   promoted ? false : fact.is_draft,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', existing.id);
   } else {
     await supabase.from('memory_graph').insert(fact);
@@ -558,6 +567,35 @@ export async function flushTourSeen(userId: string): Promise<void> {
     { onConflict: 'user_id' }
   );
 }
+
+// ─── Orientation helpers ──────────────────────────────────────────────────────
+
+/** Check whether the user has completed the interactive orientation. */
+export async function hasOrientationBeenSeen(userId: string, version = 1): Promise<boolean> {
+  const { data } = await supabase
+    .from('user_preferences')
+    .select('orientation_seen, orientation_version')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return (data?.orientation_seen === true) && ((data?.orientation_version ?? 0) >= version);
+}
+
+/** Mark orientation as completed for this user. */
+export async function markOrientationSeen(userId: string, version = 1): Promise<void> {
+  await supabase.from('user_preferences').upsert(
+    { user_id: userId, orientation_seen: true, orientation_version: version, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  );
+}
+
+/** Reset orientation so it will show again — for Settings replay and testing. */
+export async function resetOrientationSeen(userId: string): Promise<void> {
+  await supabase.from('user_preferences').upsert(
+    { user_id: userId, orientation_seen: false, orientation_version: 0, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  );
+}
+
 
 // ─── Admin Flush Utilities ────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.7.0'
+        classpath 'com.android.tools.build:gradle:8.13.0'
         classpath 'com.google.gms:google-services:4.4.4'
 
         // NOTE: Do not place your application dependencies here; they belong
@@ -21,22 +21,6 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-    }
-}
-
-// Capacitor library subprojects only expose a 'release' variant (singleVariant).
-// Force debug build-type consumers to fall back to 'release' for all library subprojects.
-subprojects {
-    afterEvaluate { project ->
-        if (project.plugins.hasPlugin('com.android.library')) {
-            project.android.buildTypes {
-                debug {
-                    if (!delegate.hasProperty('matchingFallbacks') || !delegate.matchingFallbacks.contains('release')) {
-                        matchingFallbacks = ['release']
-                    }
-                }
-            }
-        }
     }
 }
 

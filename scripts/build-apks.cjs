@@ -78,9 +78,15 @@ run('npx cap sync android');
 run('node scripts/fix-gradle.js');
 
 // 4. Force-delete stale build artifacts (OneDrive locks workaround)
+// App module build dirs
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'intermediates'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'generated'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'outputs'));
+// Capacitor plugin build dirs (also locked by OneDrive)
+const capPlugins = ['capacitor-android', 'capacitor-app', 'capacitor-haptics', 'capacitor-splash-screen'];
+for (const plugin of capPlugins) {
+  forceDeleteDir(path.join(ROOT, 'node_modules', '@capacitor', plugin.replace('capacitor-', ''), 'android', 'build'));
+}
 
 // 5. Gradle build
 run('.\\gradlew.bat assembleDebug --no-daemon', path.join(ROOT, 'android'));
@@ -105,6 +111,11 @@ run('npx cap sync android');
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'intermediates'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'generated'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'outputs'));
+// Capacitor plugin build dirs
+const capPlugins2 = ['capacitor-android', 'capacitor-app', 'capacitor-haptics', 'capacitor-splash-screen'];
+for (const plugin of capPlugins2) {
+  forceDeleteDir(path.join(ROOT, 'node_modules', '@capacitor', plugin.replace('capacitor-', ''), 'android', 'build'));
+}
 
 // 4. Gradle build
 run('.\\gradlew.bat assembleDebug --no-daemon', path.join(ROOT, 'android'));

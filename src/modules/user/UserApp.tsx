@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map, Radio } from 'lucide-react';
+import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map, Car, Mic, Crown } from 'lucide-react';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../lib/useLocation';
@@ -9,20 +9,25 @@ import TasksView     from './TasksView';
 import MemoryView    from './MemoryView';
 import RogerSettings from './RogerSettings';
 import Onboarding    from './Onboarding';
+import Orientation   from './Orientation';
 import FeatureTour   from './FeatureTour';
 import UserAnalytics from './UserAnalytics';
 import LocationView  from './LocationView';
 import JournalView   from './JournalView';
 import RadarView     from './RadarView';
+import CommuteRadar  from './CommuteRadar';
+import MeetingRecorderView from './MeetingRecorderView';
+import SubscriptionView  from './SubscriptionView';
 import PermissionGate from '../../components/PermissionGate';
-import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasTourBeenSeen, markTourSeen, flushTourSeen } from '../../lib/api';
+import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasTourBeenSeen, markTourSeen, flushTourSeen, hasOrientationBeenSeen, markOrientationSeen, resetOrientationSeen } from '../../lib/api';
 import { TOUR_VERSION } from '../../lib/featureTour';
+import { ORIENTATION_VERSION } from '../../lib/orientationScript';
 import type { OnboardingAnswers } from '../../lib/onboarding';
 import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
 
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'radar' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
 
 interface UserAppProps {
@@ -35,20 +40,23 @@ const TABS: { key: UserTab; label: string; Icon: typeof Home }[] = [
   { key: 'reminders', label: 'REMIND',   Icon: Bell },
   { key: 'tasks',     label: 'TASKS',    Icon: CheckSquare },
   { key: 'memory',    label: 'MEMORY',   Icon: BookOpen },
+  { key: 'meetings',  label: 'MEETINGS', Icon: Mic },
   { key: 'journal',   label: 'JOURNAL',  Icon: BookMarked },
   { key: 'analytics', label: 'STATS',    Icon: BarChart3 },
   { key: 'location',  label: 'LOCATE',   Icon: MapPin },
-  { key: 'radar',     label: 'RADAR',    Icon: Radio },
+  { key: 'commute',   label: 'DRIVE',    Icon: Car },
+  { key: 'upgrade',   label: 'UPGRADE',  Icon: Crown },
   { key: 'settings',  label: 'SETTINGS', Icon: Settings },
 ];
 
 export default function UserApp({ userId, userEmail }: UserAppProps) {
   const { setViewMode } = useViewMode();
   const { isAdmin } = useAuth();
-  const [tab, setTab]               = useState<UserTab>('home');
-  const [onboarded, setOnboarded]   = useState<boolean | null>(null);
-  const [tourSeen, setTourSeen]     = useState<boolean | null>(null);
-  const [displayName, setDisplayName] = useState<string | undefined>();
+  const [tab, setTab]                   = useState<UserTab>('home');
+  const [onboarded, setOnboarded]       = useState<boolean | null>(null);
+  const [tourSeen, setTourSeen]         = useState<boolean | null>(null);
+  const [orientationSeen, setOrientationSeen] = useState<boolean | null>(null);
+  const [displayName, setDisplayName]   = useState<string | undefined>();
   const [flushing, setFlushing]     = useState<FlushOp>(null);
   const [confirm, setConfirm]       = useState<FlushOp>(null);
   const [reminderCount, setReminderCount] = useState(0);
@@ -78,14 +86,18 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       .then(state => {
         setOnboarded(state.complete);
         setDisplayName(state.displayName);
-        // Only check tour once we know user is onboarded
         if (state.complete) {
+          // Check orientation first (replaces old FeatureTour auto-show)
+          hasOrientationBeenSeen(userId, ORIENTATION_VERSION)
+            .then(seen => setOrientationSeen(seen))
+            .catch(() => setOrientationSeen(true));
+          // Still load tour state for the admin replay button
           hasTourBeenSeen(userId, TOUR_VERSION)
             .then(seen => setTourSeen(seen))
-            .catch(() => setTourSeen(true)); // fail-safe: don't block app
+            .catch(() => setTourSeen(true));
         }
       })
-      .catch(() => { setOnboarded(true); setTourSeen(true); });
+      .catch(() => { setOnboarded(true); setOrientationSeen(true); setTourSeen(true); });
   };
 
   useEffect(() => { loadOnboardingState(); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -104,7 +116,8 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
 
   const handleOnboardingComplete = (answers: OnboardingAnswers) => {
     setOnboarded(true);
-    setTourSeen(false); // Always show tour after fresh profiling
+    setOrientationSeen(false); // Always show orientation after fresh onboarding
+    setTourSeen(true);         // Skip old FeatureTour — orientation replaces it
     if (answers.name) setDisplayName(answers.name);
     applyUXPrefs();
   };
@@ -119,6 +132,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       else if (op === 'all')       await flushEverything(userId);
       if (op !== 'memory') {
         setOnboarded(false);
+        setOrientationSeen(null);
         setTourSeen(null);
         setDisplayName(undefined);
         sessionId.current = crypto.randomUUID();
@@ -159,8 +173,21 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
     return <Onboarding userId={userId} onComplete={handleOnboardingComplete} />;
   }
 
-  // ── Mission Brief Tour ────────────────────────────────────────────────────
-  if (tourSeen === false) {
+  // ── Orientation (replaces old auto-FeatureTour gate) ────────────────────────
+  if (onboarded && orientationSeen === false) {
+    return (
+      <Orientation
+        displayName={displayName}
+        onComplete={() => {
+          markOrientationSeen(userId, ORIENTATION_VERSION).catch(() => {});
+          setOrientationSeen(true);
+        }}
+      />
+    );
+  }
+
+  // ── FeatureTour (legacy — only shown if admin replays it via Settings) ───────
+  if (onboarded && orientationSeen === true && tourSeen === false) {
     return (
       <FeatureTour
         displayName={displayName}
@@ -262,11 +289,21 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'location'  ? 'block' : 'none' }}>
           <LocationView userId={userId} location={location} />
         </div>
-        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', display: tab === 'radar' ? 'flex' : 'none', flexDirection: 'column' }}>
-          <RadarView userId={userId} location={location} />
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', display: tab === 'commute' ? 'flex' : 'none', flexDirection: 'column' }}>
+          <CommuteRadar userId={userId} location={location} />
         </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings'  ? 'block' : 'none' }}>
-          <RogerSettings userId={userId} onReplayTour={() => setTourSeen(false)} />
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'upgrade'   ? 'block' : 'none' }}>
+          <SubscriptionView userId={userId} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'meetings'  ? 'block' : 'none' }}>
+          <MeetingRecorderView userId={userId} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings' ? 'block' : 'none' }}>
+          <RogerSettings
+            userId={userId}
+            onReplayTour={() => setTourSeen(false)}
+            onReplayOrientation={() => setOrientationSeen(false)}
+          />
         </div>
       </div>
 

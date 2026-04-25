@@ -20,11 +20,15 @@ import Commute from './modules/Commute';
 import TuneIn from './modules/TuneIn';
 import SessionArchive from './modules/SessionArchive';
 import HazardMonitor from './modules/HazardMonitor';
+import ProactiveMonitor from './modules/ProactiveMonitor';
+import CommuteRadar from './modules/user/CommuteRadar';
+import SubscriptionMonitor from './modules/SubscriptionMonitor';
 import UserApp from './modules/user/UserApp';
 import ApiSettings from './modules/ApiSettings';
 import RichPlaceholder from './components/shared/RichPlaceholder';
 import SplashScreen from './components/SplashScreen';
 import LoginScreen from './components/LoginScreen';
+import LegalDisclaimer, { hasAcceptedLegal } from './components/LegalDisclaimer';
 import OfflineBanner from './components/OfflineBanner';
 import { moduleInfoMap } from './data/mockData';
 
@@ -46,7 +50,10 @@ function ModuleRenderer({ activeModule }: { activeModule: string }) {
     case 'tunein':          return <TuneIn />;
     case 'session_archive': return <SessionArchive />;
     case 'hazard_monitor':  return <HazardMonitor />;
+    case 'proactive':       return <ProactiveMonitor />;
+    case 'drive_sim':       return <CommuteRadar userId="admin-preview" />;
     case 'settings':        return <ApiSettings />;
+    case 'billing':         return <SubscriptionMonitor />;
     default: {
       const info = moduleInfoMap[activeModule];
       if (!info) return (
@@ -145,7 +152,8 @@ const DEV_PREVIEW = typeof window !== 'undefined' &&
 
 function AppInner() {
   const { user, loading } = useAuth();
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash]   = useState(true);
+  const [legalDone, setLegalDone]     = useState(() => hasAcceptedLegal());
 
   // ── DEV shortcut: ?preview=user bypasses auth entirely ──
   if (DEV_PREVIEW) {
@@ -157,13 +165,17 @@ function AppInner() {
     );
   }
 
-  // Always show splash first — covers the auth loading state too.
-  // Once splash is done, we show login or app based on auth state.
+  // 1 — Splash first
   if (showSplash) {
     return <SplashScreen onDone={() => setShowSplash(false)} />;
   }
 
-  // Splash done — wait for Supabase session check
+  // 2 — Legal gate (first launch or after a legal version bump)
+  if (!legalDone) {
+    return <LegalDisclaimer onAccept={() => setLegalDone(true)} />;
+  }
+
+  // 3 — Wait for Supabase session check
   if (loading) {
     return (
       <div style={{
@@ -180,7 +192,7 @@ function AppInner() {
     );
   }
 
-  // Not logged in → show login
+  // 4 — Not logged in → show login
   if (!user) return <LoginScreen />;
 
   return (

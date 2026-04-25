@@ -167,6 +167,14 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
     return () => clearInterval(iv);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Skip on any key press
+  useEffect(() => {
+    const onKey = () => handleDone();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 25-second countdown
   useEffect(() => {
     const start = performance.now();
@@ -221,37 +229,32 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           to   { background-position: 0 8px; }
         }
         @keyframes mascot-vibrate {
-          0%,100% { transform: translate(-50%,-50%) rotate(0deg);    }
-          5%       { transform: translate(-48%,-51%) rotate(-1.5deg); }
-          10%      { transform: translate(-52%,-49%) rotate( 1.5deg); }
-          15%      { transform: translate(-49%,-51%) rotate(-1deg);   }
-          20%      { transform: translate(-51%,-49%) rotate( 1deg);   }
-          25%,75%  { transform: translate(-50%,-50%) rotate(0deg);    }
-          80%      { transform: translate(-48%,-51%) rotate(-1.5deg); }
-          85%      { transform: translate(-52%,-49%) rotate( 1.5deg); }
-          90%      { transform: translate(-49%,-51%) rotate(-1deg);   }
-          95%      { transform: translate(-51%,-49%) rotate( 1deg);   }
+          0%,7%,100% { transform: translate(-50%,-50%) rotate(0deg); }
+          1%  { transform: translate(-47%,-51.5%) rotate(-2deg); }
+          2%  { transform: translate(-53%,-48.5%) rotate( 2deg); }
+          3%  { transform: translate(-47%,-51%)   rotate(-1.5deg); }
+          4%  { transform: translate(-53%,-49%)   rotate( 1.5deg); }
+          5%  { transform: translate(-48%,-51%)   rotate(-1deg); }
+          6%  { transform: translate(-52%,-49%)   rotate( 1deg); }
         }
         @keyframes mascot-glow-pulse {
           0%,100% { filter: drop-shadow(0 0 18px rgba(56,189,248,0.55)) drop-shadow(0 0 40px rgba(168,85,247,0.35)); }
           50%      { filter: drop-shadow(0 0 32px rgba(56,189,248,0.85)) drop-shadow(0 0 70px rgba(168,85,247,0.65)); }
         }
-        @keyframes zzz-float {
-          0%   { opacity:0; transform: translateY(0)   scale(0.7); }
-          20%  { opacity:1; transform: translateY(-18px) scale(1);   }
-          80%  { opacity:0.7; transform: translateY(-44px) scale(0.9); }
-          100% { opacity:0; transform: translateY(-60px) scale(0.7); }
-        }
       `}</style>
 
-      {/* ── Root container ── */}
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 9999,
-        overflow: 'hidden',
-        opacity: exiting ? 0 : 1,
-        transition: 'opacity 650ms ease',
-        background: '#050505',
-      }}>
+      {/* ── Root container — click/tap anywhere to skip ── */}
+      <div
+        onClick={handleDone}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          overflow: 'hidden',
+          opacity: exiting ? 0 : 1,
+          transition: 'opacity 650ms ease',
+          background: '#050505',
+          cursor: 'pointer',
+        }}
+      >
 
         {/* ══ LAYER 0 — Background image (user's dark metallic texture) ══ */}
         <div
@@ -314,135 +317,19 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           background: `linear-gradient(90deg, transparent 10%, ${primaryHex}55 50%, transparent 90%)`,
         }} />
 
-        {/* ══ LAYER 6 — Bottom branding block (sits UNDER post-processing filters) ══ */}
+
+
+
+
+
+
+        {/* ══ LAYER 7 — Momen Pharaon branding (bottom centre) ══ */}
         <div style={{
-          position: 'absolute',
-          bottom: 120,
-          left: '50%',
+          position: 'absolute', bottom: 28, left: '50%',
           transform: 'translateX(-50%)',
-          zIndex: 5,
-          display: 'flex', flexDirection: 'column',
-          alignItems: 'center', gap: 6,
+          zIndex: 7,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
           pointerEvents: 'none',
-        }}>
-          {/* Role badge */}
-          <div style={{
-            padding: '3px 16px',
-            border: `1px solid ${primaryHex}44`,
-            borderRadius: 100,
-            background: `${primaryHex}0d`,
-            animation: 'badge-in 0.9s cubic-bezier(0.34,1.56,0.64,1) both',
-          }}>
-            <span style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 9, letterSpacing: '0.38em',
-              color: `${primaryHex}cc`, textTransform: 'uppercase',
-            }}>
-              ● {roleLabel}
-            </span>
-          </div>
-
-          {/* ROGER·AI wordmark */}
-          <div style={{ textAlign: 'center' }}>
-            <p style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 26, fontWeight: 700, letterSpacing: '0.24em',
-              color: 'rgba(255,255,255,0.88)', margin: 0,
-              textShadow: `0 0 28px ${primaryHex}99`,
-            }}>
-              ROGER<span style={{ color: primaryHex }}>·</span>AI
-            </p>
-            <p style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 9, letterSpacing: '0.32em',
-              color: `${secondaryHex}88`, textTransform: 'uppercase', margin: '4px 0 0',
-            }}>
-              YOUR AI CHIEF OF STAFF
-            </p>
-          </div>
-
-          {/* Rotating status text */}
-          <div style={{ height: 16 }}>
-            <span
-              key={textIndex}
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 9, letterSpacing: '0.28em',
-                color: `${primaryHex}77`, textTransform: 'uppercase',
-                display: 'inline-block',
-                animation: 'txt-in 0.5s ease both',
-              }}
-            >
-              {statusTexts[textIndex]}
-              <span style={{ animation: 'blink 1s step-end infinite', marginLeft: 3 }}>_</span>
-            </span>
-          </div>
-        </div>
-
-        {/* ══ LAYER 7 — Progress bar (bottom centre) ══ */}
-        <div style={{
-          position: 'absolute', bottom: 36,
-          left: '50%', transform: 'translateX(-50%)',
-          width: 220, zIndex: 7,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-        }}>
-          <div style={{
-            width: '100%', height: 2,
-            background: `${primaryHex}22`, borderRadius: 2, overflow: 'hidden',
-          }}>
-            <div style={{
-              height: '100%',
-              width: `${progress * 100}%`,
-              background: `linear-gradient(90deg, ${primaryHex}, ${secondaryHex})`,
-              boxShadow: `0 0 10px ${primaryHex}99`,
-              transition: 'width 120ms linear',
-              borderRadius: 2,
-            }} />
-          </div>
-          <span style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 8, letterSpacing: '0.2em',
-            color: `${primaryHex}66`, textTransform: 'uppercase',
-          }}>
-            {secondsLeft}s REMAINING
-          </span>
-        </div>
-
-        {/* ══ LAYER 7 — Skip button (bottom right) ══ */}
-        <button
-          onClick={handleDone}
-          style={{
-            position: 'absolute', bottom: 28, right: 28, zIndex: 7,
-            background: 'rgba(0,0,0,0.35)',
-            border: `1px solid ${primaryHex}44`,
-            borderRadius: 100, padding: '7px 20px',
-            cursor: 'pointer', backdropFilter: 'blur(10px)',
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={e => {
-            const b = e.currentTarget;
-            b.style.background = `${primaryHex}22`;
-            b.style.borderColor = `${primaryHex}aa`;
-          }}
-          onMouseLeave={e => {
-            const b = e.currentTarget;
-            b.style.background = 'rgba(0,0,0,0.35)';
-            b.style.borderColor = `${primaryHex}44`;
-          }}
-        >
-          <span style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 9, letterSpacing: '0.25em',
-            color: `${primaryHex}cc`, textTransform: 'uppercase',
-          }}>
-            SKIP ▶
-          </span>
-        </button>
-
-        {/* ══ LAYER 7 — Momen Pharaon branding (bottom left) ══ */}
-        <div style={{
-          position: 'absolute', bottom: 28, left: 28, zIndex: 7,
-          display: 'flex', flexDirection: 'column', gap: 3,
         }}>
           <p style={{
             fontFamily: "'JetBrains Mono', monospace",
@@ -468,52 +355,66 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
         {/* Chromatic aberration glitch */}
         <GlitchFlicker isAdmin={isAdmin} />
 
-        {/* ══ LAYER 50 — Mascot foreground (frontmost) with haptic vibration ══ */}
-        <div
-          aria-hidden
+
+
+        {/* ══ LAYER 50B — Mascot pinned to exact screen centre ══ */}
+        <img
+          src="/mascot.png"
+          alt="Roger AI Mascot"
           style={{
             position: 'absolute',
             top: '50%', left: '50%',
-            transform: 'translate(-50%, -50%)',
             zIndex: 50,
             pointerEvents: 'none',
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center',
+            width: 'min(280px, 56vw)', height: 'auto',
+            objectFit: 'contain',
+            mixBlendMode: 'screen',
+            animation: 'mascot-vibrate 8s ease-in-out infinite, mascot-glow-pulse 2.4s ease-in-out infinite',
           }}
-        >
-          {/* Floating zzz labels */}
-          {[{ delay: '0s', size: 13, x: 40 }, { delay: '0.9s', size: 17, x: 62 }, { delay: '1.8s', size: 21, x: 82 }].map((z, i) => (
+        />
+
+        {/* ══ LAYER 50C — Branding text (below mascot centre) ══ */}
+        <div style={{
+          position: 'absolute',
+          top: '74%', left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 50,
+          pointerEvents: 'none',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', gap: 8,
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+        }}>
+          <p style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 28, fontWeight: 700, letterSpacing: '0.24em',
+            color: 'rgba(255,255,255,0.92)', margin: 0,
+            textShadow: `0 0 32px ${primaryHex}aa`,
+          }}>
+            ROGER<span style={{ color: primaryHex }}>·</span>AI
+          </p>
+          <p style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 9, letterSpacing: '0.34em',
+            color: `${secondaryHex}88`, textTransform: 'uppercase', margin: 0,
+          }}>
+            YOUR AI CHIEF OF STAFF
+          </p>
+          <div style={{ height: 16 }}>
             <span
-              key={i}
+              key={textIndex}
               style={{
-                position: 'absolute',
-                top: '-20px',
-                left: `calc(50% + ${z.x}px)`,
-                fontSize: z.size,
                 fontFamily: "'JetBrains Mono', monospace",
-                fontWeight: 700,
-                color: i === 0 ? '#38bdf8' : i === 1 ? '#a855f7' : '#ec4899',
-                textShadow: `0 0 14px currentColor`,
-                animation: `zzz-float 2.7s ease-in-out ${z.delay} infinite`,
-                pointerEvents: 'none',
-                userSelect: 'none',
+                fontSize: 9, letterSpacing: '0.28em',
+                color: `${primaryHex}66`, textTransform: 'uppercase',
+                display: 'inline-block',
+                animation: 'txt-in 0.5s ease both',
               }}
             >
-              {'z'.repeat(i + 1)}
+              {statusTexts[textIndex]}
+              <span style={{ animation: 'blink 1s step-end infinite', marginLeft: 3 }}>_</span>
             </span>
-          ))}
-
-          {/* Mascot image — screen blend removes black background (sticker effect) */}
-          <img
-            src="/mascot.png"
-            alt="Roger AI Mascot"
-            style={{
-              width: 'min(320px, 60vw)', height: 'auto',
-              objectFit: 'contain',
-              mixBlendMode: 'screen',
-              animation: 'mascot-vibrate 3.6s ease-in-out infinite, mascot-glow-pulse 2.4s ease-in-out infinite',
-            }}
-          />
+          </div>
         </div>
       </div>
     </>
