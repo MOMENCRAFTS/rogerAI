@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, MapPin } from 'lucide-react';
 import MorningBriefing from './MorningBriefing';
 import SpotifyMiniPlayer from './SpotifyMiniPlayer';
@@ -42,6 +42,7 @@ import {
   initProactive, handleProactivePTT, setProactiveMode, triggerIdleCheckin,
   clearPending, type PendingMessage,
 } from '../../lib/proactiveEngine';
+import { useSubscription } from '../../lib/useSubscription';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
@@ -59,6 +60,7 @@ interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number
 type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'settings';
 
 export default function UserHome({ userId, sessionId, onTabChange, location: locationProp }: { userId: string; sessionId: string; onTabChange: (t: UserTab) => void; location?: UserLocation | null }) {
+  const { checkGate } = useSubscription(userId);
   const [pttState, setPttState]   = useState<PTTState>('idle');
   const [messages, setMessages]   = useState<Message[]>([]);
   const [history, setHistory]     = useState<ConversationTurn[]>([]);
@@ -106,6 +108,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const awaitRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stores a chip prompt waiting to be processed through the PTT pipeline
+  const chipPromptRef = useRef<string | null>(null);
 
   // Arrival debrief — geo-triggered spoken brief on arriving at work/home
   useArrivalDebrief(userId, location ?? null, (text) => {
@@ -453,6 +457,41 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     }
   }, [pttState, resetIdleTimer]);
 
+  // ── Chip prompt processor — fires when a quick-action chip sets pttState='processing' ──
+  // This is the fix for the silent chip bug: chips previously set state but never
+  // called processTransmission, so nothing happened after the chip was tapped.
+  useEffect(() => {
+    if (pttState !== 'processing' || !chipPromptRef.current) return;
+    const prompt = chipPromptRef.current;
+    chipPromptRef.current = null;
+
+    (async () => {
+      try {
+        setPttState('processing');
+        const result = await processTransmission(prompt, history, userId, undefined);
+        setHistory(prev => [...prev, { role: 'assistant', content: result.roger_response }]);
+        setMessages(prev => [...prev, {
+          id: `r-chip-${Date.now()}`, role: 'roger',
+          text: result.roger_response,
+          ts: Date.now(), intent: result.intent, outcome: result.outcome,
+        }]);
+        hapticRogerSpeaking();
+        sfxRogerIn();
+        setPttState('speaking'); setIsSpeaking(true);
+        try { await speakResponse(result.roger_response); }
+        catch { try { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(result.roger_response); window.speechSynthesis.speak(u); await new Promise<void>(res => { u.onend = () => res(); }); } catch { /* silent */ } }
+        setIsSpeaking(false);
+        sfxRogerOut();
+        setPttState('responded');
+        supabase.rpc('increment_ptt_usage', { p_user_id: userId }).catch(() => {});
+        extractMemoryFacts(prompt, result.roger_response, userId).catch(() => {});
+        window.dispatchEvent(new CustomEvent('roger:refresh'));
+      } catch {
+        setPttState('idle');
+      }
+    })();
+  }, [pttState]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── PTT Up ────────────────────────────────────────────────────────────────
   const handlePTTUp = useCallback(async () => {
     if (pttState !== 'recording') return;
@@ -613,6 +652,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
       // Persist Roger's turn
       insertConversationTurn({ user_id: userId, session_id: sessionId, role: 'assistant', content: result.roger_response, intent: result.intent, is_admin_test: isTest }).catch(() => {});
+
+      // Increment daily PTT usage counter (enforces Free-tier 50/day limit)
+      supabase.rpc('increment_ptt_usage', { p_user_id: userId }).catch(() => {});
 
       // ── Auto-create proposed tasks (from every turn, not just action intents) ──
       if (result.proposed_tasks?.length) {
@@ -1220,42 +1262,47 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
       // ── AMBIENT_LISTEN — start continuous ambient listening ───────────────────
       if (result.intent === 'AMBIENT_LISTEN' && !ambientActive) {
-        const openaiKey = (import.meta.env.VITE_OPENAI_API_KEY as string) ?? '';
-        const sess = createAmbientSession(
-          {
-            onChunk: (chunk) => {
-              setAmbientLastChunk(chunk);
-              if (chunk.isMusicDominant) {
-                const musicLabel = chunk.musicIdentified
-                  ? `🎵 ${chunk.musicIdentified.title} — ${chunk.musicIdentified.artist}`
-                  : chunk.musicHint ?? '🎵 Music detected';
-                setMessages(prev => [...prev, {
-                  id: `ambient-music-${Date.now()}`, role: 'roger' as const,
-                  text: musicLabel, ts: Date.now(), intent: 'AMBIENT_LISTEN', outcome: 'success',
-                }]);
-              } else if (chunk.language && chunk.language !== 'en') {
-                const langMsg = `🌐 ${chunk.languageName ?? chunk.language} detected: "${chunk.transcriptClean.slice(0, 120)}${chunk.transcriptClean.length > 120 ? '…' : ''}"`;
-                setMessages(prev => [...prev, {
-                  id: `ambient-lang-${Date.now()}`, role: 'roger' as const,
-                  text: langMsg, ts: Date.now(), intent: 'AMBIENT_LISTEN', outcome: 'success',
-                }]);
-              }
-            },
-            onMusicDetected: (info) => {
-              const msg = `That's "${info.title}" by ${info.artist}${info.album ? ` from ${info.album}` : ''}. Over.`;
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
-            },
-            onError: (err) => console.warn('[Ambient]', err),
-          },
-          openaiKey,
-        );
-        const started = await sess.start();
-        if (started) {
-          ambientSessionRef.current = sess;
-          setAmbientActive(true);
+        // Gate: Pro-only feature
+        const gate = checkGate('ambient_listener');
+        if (!gate.allowed) {
+          const gateMsg = `${gate.reason} Say "upgrade" to unlock it. Over.`;
+          speakResponse(gateMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(gateMsg)); });
         } else {
-          const errMsg = 'Microphone access required for listening mode. Over.';
-          speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+          const sess = createAmbientSession(
+            {
+              onChunk: (chunk) => {
+                setAmbientLastChunk(chunk);
+                if (chunk.isMusicDominant) {
+                  const musicLabel = chunk.musicIdentified
+                    ? `🎵 ${chunk.musicIdentified.title} — ${chunk.musicIdentified.artist}`
+                    : chunk.musicHint ?? '🎵 Music detected';
+                  setMessages(prev => [...prev, {
+                    id: `ambient-music-${Date.now()}`, role: 'roger' as const,
+                    text: musicLabel, ts: Date.now(), intent: 'AMBIENT_LISTEN', outcome: 'success',
+                  }]);
+                } else if (chunk.language && chunk.language !== 'en') {
+                  const langMsg = `🌐 ${chunk.languageName ?? chunk.language} detected: "${chunk.transcriptClean.slice(0, 120)}${chunk.transcriptClean.length > 120 ? '…' : ''}"`;
+                  setMessages(prev => [...prev, {
+                    id: `ambient-lang-${Date.now()}`, role: 'roger' as const,
+                    text: langMsg, ts: Date.now(), intent: 'AMBIENT_LISTEN', outcome: 'success',
+                  }]);
+                }
+              },
+              onMusicDetected: (info) => {
+                const msg = `That's "${info.title}" by ${info.artist}${info.album ? ` from ${info.album}` : ''}. Over.`;
+                speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              },
+              onError: (err) => console.warn('[Ambient]', err),
+            },
+          );
+          const started = await sess.start();
+          if (started) {
+            ambientSessionRef.current = sess;
+            setAmbientActive(true);
+          } else {
+            const errMsg = 'Microphone access required for listening mode. Over.';
+            speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+          }
         }
       }
 
@@ -1311,45 +1358,50 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
       // ── RECORD_MEETING — start meeting recorder ───────────────────────────────
       if (result.intent === 'RECORD_MEETING' && !meetingActive) {
-        const openaiKey = (import.meta.env.VITE_OPENAI_API_KEY as string) ?? '';
-        const titleEnt  = result.entities?.find(e => e.type === 'MEETING_TITLE');
-        const mTitle = titleEnt?.text ?? 'Meeting';
-        setMeetingTitle(mTitle);
-
-        const rec = createMeetingRecorder(
-          userId,
-          {
-            onChunkTranscribed: (chunk: MeetingChunk) => {
-              setMeetingWords(prev => prev + chunk.wordCount);
-            },
-            onProgress: (elapsed, words) => {
-              setMeetingElapsed(elapsed);
-              setMeetingWords(words);
-            },
-            onComplete: (res: MeetingResult) => {
-              setMeetingActive(false);
-              setMeetingElapsed(0);
-              setMeetingWords(0);
-              const msg = res.notes.spoken_summary || `Meeting notes ready. ${res.notes.action_items.length} action item${res.notes.action_items.length !== 1 ? 's' : ''}. Over.`;
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
-              setMessages(prev => [...prev, {
-                id: `meeting-done-${Date.now()}`, role: 'roger' as const,
-                text: `📋 Meeting notes ready: "${res.title}" · ${res.notes.action_items.length} actions · ${res.notes.decisions.length} decisions`,
-                ts: Date.now(), intent: 'END_MEETING', outcome: 'success',
-              }]);
-            },
-            onError: (err) => console.warn('[Meeting]', err),
-          },
-          openaiKey,
-        );
-
-        const started = await rec.start(mTitle);
-        if (started) {
-          meetingRecorderRef.current = rec;
-          setMeetingActive(true);
+        // Gate: Pro-only feature
+        const gate = checkGate('meeting_recorder');
+        if (!gate.allowed) {
+          const gateMsg = `${gate.reason} Say "upgrade" to unlock it. Over.`;
+          speakResponse(gateMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(gateMsg)); });
         } else {
-          const errMsg = 'Microphone access required for meeting recording. Over.';
-          speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+          const titleEnt  = result.entities?.find(e => e.type === 'MEETING_TITLE');
+          const mTitle = titleEnt?.text ?? 'Meeting';
+          setMeetingTitle(mTitle);
+
+          const rec = createMeetingRecorder(
+            userId,
+            {
+              onChunkTranscribed: (chunk: MeetingChunk) => {
+                setMeetingWords(prev => prev + chunk.wordCount);
+              },
+              onProgress: (elapsed, words) => {
+                setMeetingElapsed(elapsed);
+                setMeetingWords(words);
+              },
+              onComplete: (res: MeetingResult) => {
+                setMeetingActive(false);
+                setMeetingElapsed(0);
+                setMeetingWords(0);
+                const msg = res.notes.spoken_summary || `Meeting notes ready. ${res.notes.action_items.length} action item${res.notes.action_items.length !== 1 ? 's' : ''}. Over.`;
+                speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                setMessages(prev => [...prev, {
+                  id: `meeting-done-${Date.now()}`, role: 'roger' as const,
+                  text: `📋 Meeting notes ready: "${res.title}" · ${res.notes.action_items.length} actions · ${res.notes.decisions.length} decisions`,
+                  ts: Date.now(), intent: 'END_MEETING', outcome: 'success',
+                }]);
+              },
+              onError: (err) => console.warn('[Meeting]', err),
+            },
+          );
+
+          const started = await rec.start(mTitle);
+          if (started) {
+            meetingRecorderRef.current = rec;
+            setMeetingActive(true);
+          } else {
+            const errMsg = 'Microphone access required for meeting recording. Over.';
+            speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+          }
         }
       }
 
@@ -2116,10 +2168,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             onClick={() => {
               if (chip.isNav && chip.tab) { onTabChange(chip.tab); return; }
               if (!chip.prompt || pttState !== 'idle') return;
-              // Synthesise a pre-filled command without PTT
+              // Inject prompt into history, then signal the chip-processing effect
               const syntheticMsg: Message = { id: `chip-${Date.now()}`, role: 'user', text: chip.prompt, ts: Date.now() };
               setMessages(prev => [...prev, syntheticMsg]);
               setHistory(prev => [...prev, { role: 'user', content: chip.prompt! }]);
+              chipPromptRef.current = chip.prompt;
               setPttState('processing');
             }}
             style={{ flexShrink: 0, padding: '5px 11px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', border: '1px solid var(--border-subtle)', background: 'transparent', color: 'var(--text-muted)', cursor: pttState === 'idle' ? 'pointer' : 'default', opacity: pttState !== 'idle' ? 0.4 : 1, transition: 'all 150ms', whiteSpace: 'nowrap' }}

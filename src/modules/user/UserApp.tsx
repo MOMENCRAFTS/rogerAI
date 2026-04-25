@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Map, Car, Mic, Crown, Moon } from 'lucide-react';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -54,6 +54,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const { setViewMode } = useViewMode();
   const { isAdmin } = useAuth();
   const [tab, setTab]                   = useState<UserTab>('home');
+  const [mountedTabs, setMountedTabs]   = useState<Set<UserTab>>(new Set(['home']));
   const [onboarded, setOnboarded]       = useState<boolean | null>(null);
   const [tourSeen, setTourSeen]         = useState<boolean | null>(null);
   const [orientationSeen, setOrientationSeen] = useState<boolean | null>(null);
@@ -65,6 +66,12 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const sessionId = useRef(crypto.randomUUID());
   const { location } = useLocation(userId);
   const [islamicMode, setIslamicMode] = useState(false);
+
+  // Mount a tab on first visit, keep it alive for instant re-visits
+  const handleTabChange = (newTab: UserTab) => {
+    setMountedTabs(prev => { const s = new Set(prev); s.add(newTab); return s; });
+    setTab(newTab);
+  };
 
   // ── Permission gate — shown once on first install ─────────────────────────
   // Must be checked at component mount time (not lazily) so the gate renders
@@ -277,47 +284,67 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       {/* ── Tab Content — all panels stay mounted, hidden via CSS to preserve state ── */}
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'home'      ? 'flex' : 'none', flexDirection: 'column' }}>
-          <UserHome userId={userId} sessionId={sessionId.current} onTabChange={setTab} location={location} />
+          <UserHome userId={userId} sessionId={sessionId.current} onTabChange={handleTabChange} location={location} />
         </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'reminders' ? 'block' : 'none' }}>
-          <RemindersView userId={userId} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'tasks'     ? 'block' : 'none' }}>
-          <TasksView userId={userId} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'memory'    ? 'block' : 'none' }}>
-          <MemoryView userId={userId} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'journal'   ? 'block' : 'none' }}>
-          <JournalView userId={userId} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'analytics' ? 'block' : 'none' }}>
-          <UserAnalytics userId={userId} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'location'  ? 'block' : 'none' }}>
-          <LocationView userId={userId} location={location} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', display: tab === 'commute' ? 'flex' : 'none', flexDirection: 'column' }}>
-          <CommuteRadar userId={userId} location={location} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'upgrade'   ? 'block' : 'none' }}>
-          <SubscriptionView userId={userId} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'meetings'  ? 'block' : 'none' }}>
-          <MeetingRecorderView userId={userId} />
-        </div>
-        {islamicMode && (
+        {mountedTabs.has('reminders') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'reminders' ? 'block' : 'none' }}>
+            <RemindersView userId={userId} />
+          </div>
+        )}
+        {mountedTabs.has('tasks') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'tasks'     ? 'block' : 'none' }}>
+            <TasksView userId={userId} />
+          </div>
+        )}
+        {mountedTabs.has('memory') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'memory'    ? 'block' : 'none' }}>
+            <MemoryView userId={userId} />
+          </div>
+        )}
+        {mountedTabs.has('journal') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'journal'   ? 'block' : 'none' }}>
+            <JournalView userId={userId} />
+          </div>
+        )}
+        {mountedTabs.has('analytics') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'analytics' ? 'block' : 'none' }}>
+            <UserAnalytics userId={userId} />
+          </div>
+        )}
+        {mountedTabs.has('location') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'location'  ? 'block' : 'none' }}>
+            <LocationView userId={userId} location={location} />
+          </div>
+        )}
+        {mountedTabs.has('commute') && (
+          <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', display: tab === 'commute' ? 'flex' : 'none', flexDirection: 'column' }}>
+            <CommuteRadar userId={userId} location={location} />
+          </div>
+        )}
+        {mountedTabs.has('upgrade') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'upgrade'   ? 'block' : 'none' }}>
+            <SubscriptionView userId={userId} />
+          </div>
+        )}
+        {mountedTabs.has('meetings') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'meetings'  ? 'block' : 'none' }}>
+            <MeetingRecorderView userId={userId} />
+          </div>
+        )}
+        {islamicMode && mountedTabs.has('salah') && (
           <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'salah' ? 'block' : 'none' }}>
             <SalahView userId={userId} location={location} />
           </div>
         )}
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings' ? 'block' : 'none' }}>
-          <RogerSettings
-            userId={userId}
-            onReplayTour={() => setTourSeen(false)}
-            onReplayOrientation={() => setOrientationSeen(false)}
-          />
-        </div>
+        {mountedTabs.has('settings') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings' ? 'block' : 'none' }}>
+            <RogerSettings
+              userId={userId}
+              onReplayTour={() => setTourSeen(false)}
+              onReplayOrientation={() => setOrientationSeen(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* ── Bottom Nav ── */}
@@ -338,7 +365,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
           return (
             <button
               key={key}
-              onClick={() => setTab(key)}
+              onClick={() => handleTabChange(key)}
               style={{
                 flex: '0 0 auto', minWidth: 60, display: 'flex', flexDirection: 'column', alignItems: 'center',
                 justifyContent: 'center', gap: 4, padding: '12px 8px', position: 'relative',

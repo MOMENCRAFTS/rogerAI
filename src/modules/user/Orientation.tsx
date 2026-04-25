@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Orientation.tsx
  *
  * Interactive 10-chapter Roger orientation. Roger speaks each chapter
@@ -45,8 +45,9 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     ? [...ORIENTATION_CHAPTERS, ISLAMIC_CHAPTER]
     : ORIENTATION_CHAPTERS;
 
-  const spokenRef  = useRef<Set<number>>(new Set());
-  const recorderRef = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
+  const spokenRef     = useRef<Set<number>>(new Set());
+  const recorderRef   = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
+  const slipTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null); // grace timer for finger-slip
   // openaiKey is read from env inside whisper.ts — no need to pass it here
 
   const total   = CHAPTERS.length;
@@ -56,13 +57,11 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
 
   // ── Speak chapter on entry ────────────────────────────────────────────────
   const speakChapter = useCallback((idx: number) => {
-    if (muted || spokenRef.current.has(idx)) {
-      setShowConfirmZone(true);
-      return;
-    }
+    // Always show the confirm zone immediately so the user can answer at any time
+    setShowConfirmZone(true);
+    if (muted || spokenRef.current.has(idx)) return;
     spokenRef.current.add(idx);
     setSpeaking(true);
-    setShowConfirmZone(false);
     const text = CHAPTERS[idx].rogerSpeech(displayName);
     speakResponse(text)
       .catch(() => {
@@ -70,7 +69,6 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
       })
       .finally(() => {
         setSpeaking(false);
-        setShowConfirmZone(true); // show confirm zone after speech finishes
       });
   }, [muted, displayName]);
 
@@ -121,27 +119,20 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   };
 
   // ── PTT confirm via voice ─────────────────────────────────────────────────
-  const handlePttDown = async () => {
-    if (pttHeld || pttTranscribing) return;
-    stopSpeaking();
-    setPttHeld(true);
-    try {
-      const rec = await createAudioRecorder();
-      recorderRef.current = rec;
-      await rec.start();
-    } catch {
-      setPttHeld(false);
-    }
-  };
-
-  const handlePttUp = async () => {
-    if (!pttHeld || !recorderRef.current) return;
+  /**
+   * Commit the recording: stop → transcribe → advance.
+   * Called by the window pointerup listener (not the button's own onPointerUp)
+   * so a finger that slips off the button still completes the action.
+   */
+  const commitPtt = useCallback(async () => {
+    if (!recorderRef.current) return;
+    if (slipTimerRef.current) { clearTimeout(slipTimerRef.current); slipTimerRef.current = null; }
     setPttHeld(false);
     setPttTranscribing(true);
     try {
       const blob = await recorderRef.current.stop();
       recorderRef.current = null;
-      if (blob.size < 500) { setPttTranscribing(false); return; }
+      if (blob.size < 100) { setPttTranscribing(false); return; } // ignore sub-100 B noise
 
       const { transcript } = await transcribeAudio(blob, 'en');
       const lower = transcript.toLowerCase().trim();
@@ -158,6 +149,44 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     } finally {
       setPttTranscribing(false);
     }
+  }, [goNext]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Window-level pointerup: catches release even when finger slips off the button
+  useEffect(() => {
+    const onWindowUp = () => { if (pttHeld) commitPtt(); };
+    window.addEventListener('pointerup', onWindowUp);
+    return () => window.removeEventListener('pointerup', onWindowUp);
+  }, [pttHeld, commitPtt]);
+
+  const handlePttDown = async (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (pttHeld || pttTranscribing) return;
+    // Keep pointer captured so slip events stay bound to this element
+    try { (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    stopSpeaking();
+    setPttHeld(true);
+    if (slipTimerRef.current) { clearTimeout(slipTimerRef.current); slipTimerRef.current = null; }
+    try {
+      const rec = await createAudioRecorder();
+      recorderRef.current = rec;
+      await rec.start();
+    } catch {
+      setPttHeld(false);
+    }
+  };
+
+  // Grace period: if finger briefly slips OFF the button, give 350 ms to return.
+  // If it doesn't come back (full lift), the window pointerup will fire commitPtt.
+  const handlePttLeave = () => {
+    if (!pttHeld) return;
+    slipTimerRef.current = setTimeout(() => {
+      // Still held after grace? user deliberately moved away — commit now
+      commitPtt();
+    }, 350);
+  };
+
+  const handlePttReturn = () => {
+    // Finger came back within grace period — cancel the pending commit
+    if (slipTimerRef.current) { clearTimeout(slipTimerRef.current); slipTimerRef.current = null; }
   };
 
   // ── Keyboard support (Prev only — advancement is PTT voice only) ──────────
@@ -322,7 +351,8 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                     <button
                       onPointerDown={handlePttDown}
-                      onPointerUp={handlePttUp}
+                      onPointerLeave={handlePttLeave}
+                      onPointerEnter={handlePttReturn}
                       style={{
                         flex: 1,
                         padding: '14px',

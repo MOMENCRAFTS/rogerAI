@@ -1,5 +1,8 @@
 // ─── Roger AI — Onboarding Flow ──────────────────────────────────────────────
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+import { getAuthToken } from './getAuthToken';
+import { supabase } from './supabase';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 export type OnboardingNode =
   | 'welcome'
@@ -126,17 +129,14 @@ export async function buildReviewScript(answers: OnboardingAnswers): Promise<str
   ].filter(Boolean).join('\n');
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const token = await getAuthToken().catch(() => null);
+    if (!token) return buildReviewScriptFallback(answers);
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.4,
-        max_tokens: 120,
-        messages: [
-          {
-            role: 'system',
-            content: `You are Roger AI, a voice-first military-aide chief of staff. Given a user profile, write a SHORT 2-3 sentence 3rd-person narrative summarising what Roger understood about this person. 
+        _direct_prompt: true,
+        system: `You are Roger AI, a voice-first military-aide chief of staff. Given a user profile, write a SHORT 2-3 sentence 3rd-person narrative summarising what Roger understood about this person.
 Rules:
 - Speak AS Roger confirming what he learned (e.g. "Roger reads you as...")
 - 3rd person perspective, concise, intelligent, not robotic
@@ -145,13 +145,11 @@ Rules:
 - Under 60 words
 - End with: "Say confirm to lock this in, or name the field to change."
 - No emojis. Military-aide tone.`,
-          },
-          { role: 'user', content: summary },
-        ],
+        user: summary,
       }),
     });
-    const data = await res.json() as { choices: { message: { content: string } }[] };
-    const text = data.choices?.[0]?.message?.content?.trim();
+    const data = await res.json() as { roger_response?: string; choices?: { message: { content: string } }[] };
+    const text = data.roger_response?.trim() ?? data.choices?.[0]?.message?.content?.trim();
     return text || buildReviewScriptFallback(answers);
   } catch {
     return buildReviewScriptFallback(answers);
@@ -176,6 +174,7 @@ Node questions:
 - tools_used: Ask what 2-3 digital tools or apps they rely on most. Very short.
 - interests: Ask what their main interests or passions are outside of work. Keep it light and curious.
 - feature_prefs: Tell them Roger can help with: calendar, tasks, briefings, hazard alerts, weather, news, finance, and commute. Ask which features matter most to them.
+- islamic_mode: Ask sensitively if they are Muslim and would like to enable Islamic Mode — which adds prayer times, Qibla direction, and salah reminders. Say: "One final question. Are you Muslim? If so, I can activate Islamic Mode — prayer times, Qibla, and salah reminders. Say yes to enable, or skip." Do NOT deviate from this phrasing.
 
 Rules:
 - Under 25 words
@@ -230,7 +229,8 @@ export async function generateNodeScript(
     complete:       `Profile locked, ${answers.name ?? 'Commander'}. Roger standing by.`,
   };
 
-  if (!OPENAI_API_KEY) {
+  const token = await getAuthToken().catch(() => null);
+  if (!token) {
     return { script: FALLBACK[node], extracted_value: previousTranscript ?? null, needs_clarification: false, clarification_prompt: null };
   }
 
@@ -239,21 +239,18 @@ export async function generateNodeScript(
       ? `User said: "${previousTranscript}"\nGenerate node question for: ${node}`
       : `Generate opening question for: ${node}`;
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        temperature: 0.5,
-        messages: [
-          { role: 'system', content: ONBOARDING_PROMPT(node, answers) },
-          { role: 'user',   content },
-        ],
+        _direct_prompt: true,
+        system: ONBOARDING_PROMPT(node, answers),
+        user: content,
       }),
     });
-    const data   = await res.json() as { choices: { message: { content: string } }[] };
-    const parsed = JSON.parse(data.choices[0].message.content) as NodeScriptResult;
+    const data   = await res.json() as { roger_response?: string; choices?: { message: { content: string } }[] };
+    const raw    = data.roger_response ?? data.choices?.[0]?.message?.content ?? '';
+    const parsed = JSON.parse(raw) as NodeScriptResult;
     return {
       script:               parsed.script               ?? FALLBACK[node],
       extracted_value:      parsed.extracted_value      ?? null,

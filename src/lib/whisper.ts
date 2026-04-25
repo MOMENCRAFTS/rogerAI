@@ -1,57 +1,57 @@
 /**
- * whisper.ts — OpenAI Whisper STT API client.
+ * whisper.ts — Speech-to-Text via server-side Edge Function.
  *
- * Sends a recorded audio blob to Whisper and returns the transcript.
- * Used by PTT Test Lab after the user releases the PTT button.
+ * SECURITY: The OpenAI key is held server-side in the `whisper-transcribe`
+ * Edge Function. The client posts the audio blob with the user's Supabase JWT.
+ * No OpenAI key is bundled into the app.
+ *
+ * Used by UserHome PTT pipeline after the user releases the PTT button.
  */
 
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+import { getAuthToken } from './getAuthToken';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 export interface WhisperResult {
   transcript: string;
-  durationMs: number; // how long the Whisper call took
+  durationMs: number;
 }
 
 /**
- * Transcribe an audio blob via OpenAI Whisper-1.
+ * Transcribe an audio blob via the whisper-transcribe Edge Function.
  * @param blob - WebM/Opus audio blob from MediaRecorder
- * @param language - BCP-47 language code hint (default 'en')
  */
-export async function transcribeAudio(
-  blob: Blob,
-  language = 'en'
-): Promise<WhisperResult> {
-  if (!OPENAI_API_KEY) throw new Error('OpenAI API key not configured');
-
+export async function transcribeAudio(blob: Blob): Promise<WhisperResult> {
   const t0 = Date.now();
 
-  // Whisper requires a file extension in the filename for format detection
-  const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
+  const token = await getAuthToken();
+
+  // Whisper requires a file extension for format detection
+  const ext  = blob.type.includes('ogg') ? 'ogg' : 'webm';
   const file = new File([blob], `recording.${ext}`, { type: blob.type });
 
   const form = new FormData();
-  form.append('file', file);
-  form.append('model', 'whisper-1');
-  form.append('language', language);
+  form.append('file',            file);
+  form.append('model',           'whisper-1');
   form.append('response_format', 'json');
 
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-    body: form,
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
+    method:  'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body:    form,
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(
-      (err as { error?: { message?: string } }).error?.message ??
-      `Whisper error ${res.status}`
+      (err as { error?: string }).error ??
+      `whisper-transcribe error ${res.status}`
     );
   }
 
-  const data = await res.json() as { text: string };
+  const data = await res.json() as { transcript: string; durationMs: number };
   return {
-    transcript: data.text.trim(),
+    transcript: data.transcript.trim(),
     durationMs: Date.now() - t0,
   };
 }

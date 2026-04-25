@@ -1,18 +1,17 @@
 // ─── Roger AI — Text-to-Speech ──────────────────────────────────────────────
-// Uses OpenAI TTS (tts-1 model, onyx voice) to speak Roger's responses.
+// Uses OpenAI TTS (tts-1 model, onyx voice) via the server-side tts-proxy
+// Edge Function. The OpenAI key is held server-side — never in the bundle.
 //
 // ANDROID / CAPACITOR NOTE:
-//   CapacitorHttp (now DISABLED in capacitor.config.ts) patches both
-//   window.fetch() and XMLHttpRequest, returning xhr.response = undefined
-//   for binary (audio/mpeg) responses through the JS bridge.
+//   CapacitorHttp (DISABLED in capacitor.config.ts) patches fetch and XHR.
+//   With it disabled, the WebView uses its native networking stack.
+//   Binary responses arrive as real ArrayBuffers — decodeAudioData works.
 //
-//   With CapacitorHttp disabled, the WebView uses its native networking stack.
-//   Supabase and OpenAI both have proper CORS headers, so all requests work.
-//   Binary responses now arrive as real ArrayBuffers — decodeAudioData works.
-//
-//   Pipeline: fetch → arrayBuffer() → decodeAudioData → BufferSource → speaker
+//   Pipeline: fetch tts-proxy → arrayBuffer() → decodeAudioData → speaker
 
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+import { getAuthToken } from './getAuthToken';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 // Shared AudioContext — lazy-created, recreated if it enters a closed state.
 let _ctx: AudioContext | null = null;
@@ -79,8 +78,6 @@ export function stopSpeaking(): void {
  * Now uses native fetch (CapacitorHttp disabled) so binary audio arrives intact.
  */
 export async function speakResponse(text: string): Promise<void> {
-  if (!OPENAI_API_KEY) throw new Error('OpenAI API key not configured');
-
   stopSpeaking();
 
   let ctx: AudioContext;
@@ -92,19 +89,15 @@ export async function speakResponse(text: string): Promise<void> {
   }
   console.log('[TTS] ctx state:', ctx.state);
 
-  // Fetch TTS audio — now uses native WebView networking (CapacitorHttp disabled)
-  const res = await fetch('https://api.openai.com/v1/audio/speech', {
+  // Fetch TTS audio via server-side proxy (OpenAI key stays server-side)
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/tts-proxy`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Content-Type':  'application/json',
     },
-    body: JSON.stringify({
-      model: 'tts-1',
-      input: text,
-      voice: 'onyx',
-      speed: 1.0,
-    }),
+    body: JSON.stringify({ text, voice: 'onyx', speed: 1.0, model: 'tts-1' }),
   });
 
   if (!res.ok) {

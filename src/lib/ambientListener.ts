@@ -23,6 +23,8 @@ const SUPABASE_ANON_KEY = (typeof import.meta !== 'undefined')
   ? (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ?? ''
   : '';
 
+import { getAuthToken } from './getAuthToken';
+
 export interface AmbientChunkResult {
   chunkIndex:    number;
   timestamp:     number;
@@ -80,20 +82,25 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-/** Send blob to Whisper and return transcript */
-async function transcribeBlob(blob: Blob, openaiKey: string): Promise<string> {
-  const form = new FormData();
-  form.append('file', blob, 'chunk.webm');
-  form.append('model', 'whisper-1');
-  // no language hint — let Whisper auto-detect language
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${openaiKey}` },
-    body: form,
-  });
-  if (!res.ok) return '';
-  const data = await res.json() as { text: string };
-  return data.text ?? '';
+/** Send blob to whisper-transcribe Edge Function and return transcript */
+async function transcribeBlob(blob: Blob): Promise<string> {
+  try {
+    const token = await getAuthToken();
+    const form  = new FormData();
+    form.append('file',  blob, 'chunk.webm');
+    form.append('model', 'whisper-1');
+    // No language hint — let Whisper auto-detect
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body:    form,
+    });
+    if (!res.ok) return '';
+    const data = await res.json() as { transcript: string };
+    return data.transcript ?? '';
+  } catch {
+    return '';
+  }
 }
 
 /** Forward to analyse-ambient edge fn */
@@ -153,7 +160,6 @@ function dominantType(chunks: AmbientChunkResult[]): string {
 
 export function createAmbientSession(
   opts: AmbientSessionOptions,
-  openaiKey: string,
 ): AmbientSession {
   let stream:   MediaStream | null = null;
   let recorder: MediaRecorder | null = null;
@@ -175,7 +181,7 @@ export function createAmbientSession(
     const ts = Date.now();
 
     try {
-      const transcript = await transcribeBlob(blob, openaiKey);
+      const transcript = await transcribeBlob(blob);
       if (!transcript.trim()) return; // silence chunk — skip
 
       const analysis = await analyseChunk(transcript);

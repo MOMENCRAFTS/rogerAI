@@ -24,6 +24,8 @@ const SUPABASE_ANON_KEY = (typeof import.meta !== 'undefined')
   ? (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ?? ''
   : '';
 
+import { getAuthToken } from './getAuthToken';
+
 export interface MeetingActionItem { text: string; owner: string | null; due_date: string | null }
 export interface MeetingDecision   { text: string }
 export interface MeetingParticipant { name: string; role: string }
@@ -72,18 +74,23 @@ export interface MeetingRecorder {
 const PREFERRED_MIME = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg'];
 function getMime() { return PREFERRED_MIME.find(m => MediaRecorder.isTypeSupported(m)) ?? ''; }
 
-async function transcribeBlob(blob: Blob, openaiKey: string): Promise<string> {
-  const form = new FormData();
-  form.append('file', blob, 'chunk.webm');
-  form.append('model', 'whisper-1');
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${openaiKey}` },
-    body: form,
-  });
-  if (!res.ok) return '';
-  const data = await res.json() as { text: string };
-  return data.text ?? '';
+async function transcribeBlob(blob: Blob): Promise<string> {
+  try {
+    const token = await getAuthToken();
+    const form  = new FormData();
+    form.append('file',  blob, 'chunk.webm');
+    form.append('model', 'whisper-1');
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body:    form,
+    });
+    if (!res.ok) return '';
+    const data = await res.json() as { transcript: string };
+    return data.transcript ?? '';
+  } catch {
+    return '';
+  }
 }
 
 async function generateNotes(transcript: string, title?: string): Promise<MeetingNotes> {
@@ -143,7 +150,6 @@ async function feedParticipantsToMemory(userId: string, participants: MeetingPar
 export function createMeetingRecorder(
   userId: string,
   opts: MeetingRecorderOptions,
-  openaiKey: string,
 ): MeetingRecorder {
   let stream:   MediaStream | null = null;
   let recorder: MediaRecorder | null = null;
@@ -167,7 +173,7 @@ export function createMeetingRecorder(
     const chunkStart = Date.now();
 
     try {
-      const transcript = await transcribeBlob(blob, openaiKey);
+      const transcript = await transcribeBlob(blob);
       if (!transcript.trim()) return;
 
       const words = transcript.trim().split(/\s+/).length;
