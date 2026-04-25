@@ -97,7 +97,7 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     iconColor: '#f97316',
     chapterLabel: 'Chapter 04',
     headline: 'I Own Your Drive.',
-    body: 'Drive Mode activates when your speed exceeds 15 km/h. I switch to a hands-free, audio-only interface and brief you on your schedule, weather, and hazards before you leave. The Radar tab shows community-reported speed cameras and road incidents in real time.',
+    body: 'Drive Mode activates when your speed exceeds 20 km/h. I switch to a hands-free, audio-only interface and brief you on your schedule, weather, and hazards before you leave. The Radar tab shows community-reported speed cameras and road incidents in real time.',
     rogerSpeech: () =>
       `When you\'re behind the wheel, I shift into Drive Mode automatically based on your GPS speed. Before you leave, say "Roger, brief me for my drive" and I\'ll give you weather, your first meeting, any pending errands, and road conditions — all spoken, no screen needed. The Radar tab is your community hazard map — speed cameras, accidents, road works reported by other Roger users. You can report hazards hands-free: "Roger, report radar ahead." And if you need a ride, "Roger, book me a car to KAFD" opens Uber pre-filled. Say "understood" to continue. Over.`,
     confirmPrompt: 'Say "understood" or tap Continue.',
@@ -217,7 +217,7 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     iconColor: '#d4a044',
     chapterLabel: 'Chapter 10',
     headline: 'You\'re Ready. Let\'s Go.',
-    body: 'That\'s the full briefing. You now know how to use Roger across all 9 capability domains. Start with the PTT button — just press, speak, and release. The more you use me, the better I understand you. You can replay this orientation any time from Settings.',
+    body: 'That\'s the full briefing. You now know how to use Roger across all 10 capability domains. Start with the PTT button — just press, speak, and release. The more you use me, the better I understand you. You can replay this orientation any time from Settings.',
     rogerSpeech: (name) =>
       `${name ? `${name}, ` : ''}that\'s your full briefing. You now have a Chief of Staff that handles your memory, tasks, calendar, commute, intelligence, communications, and meetings — all by voice. My top three tips: one, use me daily so my memory builds context. Two, speak naturally — don\'t use command syntax, just talk to me like a trusted aide. Three, the more specific you are, the more precisely I can act. If you ever need a refresher, say "Roger, replay orientation" or find it in Settings. I\'m standing by. Say "I\'m ready" or tap Engage to enter. Over.`,
     confirmPrompt: 'Say "I\'m ready" — or tap Engage to enter.',

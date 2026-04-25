@@ -7,7 +7,10 @@ import { fetchMarketContext } from '../../lib/finance';
 import { fetchTodayEvents, eventsToContext } from '../../lib/googleCalendar';
 import type { UserLocation } from '../../lib/useLocation';
 
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+import { getAuthToken } from '../../lib/getAuthToken';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 const BRIEFING_PROMPT = `You are Roger AI delivering a morning briefing to your principal.
 You have full access to their memory, open tasks, pending items, and current weather.
@@ -82,24 +85,22 @@ ${historyLines || 'none'}
 
 Generate the ${timeOfDay} briefing.`;
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const token = await getAuthToken().catch(() => SUPABASE_ANON_KEY);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
-          temperature: 0.5,
-          messages: [
-            { role: 'system', content: BRIEFING_PROMPT },
-            { role: 'user',   content: contextPrompt },
-          ],
+          _direct_prompt: true,
+          system: BRIEFING_PROMPT,
+          user: contextPrompt,
         }),
       });
 
-      const data = await res.json() as { choices: { message: { content: string } }[] };
-      const text = data.choices[0]?.message?.content ?? 'Briefing unavailable at this time. Over.';
+      const data = await res.json() as { roger_response?: string; choices?: { message: { content: string } }[] };
+      const text = data.roger_response ?? data.choices?.[0]?.message?.content ?? 'Briefing unavailable at this time. Over.';
       setBriefingText(text);
 
       setState('speaking');
