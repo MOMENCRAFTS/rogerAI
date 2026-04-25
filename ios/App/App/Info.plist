@@ -56,6 +56,10 @@
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Roger AI uses on-device speech recognition to transcribe your voice commands in real time.</string>
 
+	<!-- ─── Motion & Compass — required for Qibla compass (DeviceOrientationEvent) ─── -->
+	<key>NSMotionUsageDescription</key>
+	<string>Roger AI uses your device compass to show the Qibla direction in Islamic Mode. No motion data is stored or transmitted.</string>
+
 	<!-- ─── Allow OpenAI and Supabase network calls ───────────────────── -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

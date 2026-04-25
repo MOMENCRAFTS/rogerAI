@@ -79,11 +79,28 @@ export default function SalahView({ location }: Props) {
       if (h != null) setHeading(h);
     };
 
-    if ('DeviceOrientationEvent' in window) {
-      window.addEventListener('deviceorientation', handler as EventListener, true);
+    const attach = () => {
+      if ('DeviceOrientationEvent' in window) {
+        window.addEventListener('deviceorientation', handler as EventListener, true);
+      } else {
+        setCompassSupported(false);
+      }
+    };
+
+    // iOS 13+ requires explicit permission via a user gesture
+    type DOEWithPermission = typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    };
+    const DOE = DeviceOrientationEvent as DOEWithPermission;
+    if (typeof DOE.requestPermission === 'function') {
+      DOE.requestPermission()
+        .then(state => { if (state === 'granted') attach(); else setCompassSupported(false); })
+        .catch(() => setCompassSupported(false));
     } else {
-      setCompassSupported(false);
+      // Android / desktop — no permission needed
+      attach();
     }
+
     return () => window.removeEventListener('deviceorientation', handler as EventListener, true);
   }, []);
 

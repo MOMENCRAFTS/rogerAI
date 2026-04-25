@@ -60,4 +60,8 @@
 
     <!-- ─── Feature declarations (allows install on devices with mic) -->
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
+    <!-- Compass sensor — not required (we show static bearing as fallback) -->
+    <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
+    <!-- Android 12+: required for high-frequency sensor events (DeviceOrientationEvent) -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
 </manifest>
