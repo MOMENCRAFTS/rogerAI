@@ -483,7 +483,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         setIsSpeaking(false);
         sfxRogerOut();
         setPttState('responded');
-        supabase.rpc('increment_ptt_usage', { p_user_id: userId }).catch(() => {});
+        void supabase.rpc('increment_ptt_usage', { p_user_id: userId });
         extractMemoryFacts(prompt, result.roger_response, userId).catch(() => {});
         window.dispatchEvent(new CustomEvent('roger:refresh'));
       } catch {
@@ -654,7 +654,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       insertConversationTurn({ user_id: userId, session_id: sessionId, role: 'assistant', content: result.roger_response, intent: result.intent, is_admin_test: isTest }).catch(() => {});
 
       // Increment daily PTT usage counter (enforces Free-tier 50/day limit)
-      supabase.rpc('increment_ptt_usage', { p_user_id: userId }).catch(() => {});
+      void supabase.rpc('increment_ptt_usage', { p_user_id: userId });
 
       // ── Auto-create proposed tasks (from every turn, not just action intents) ──
       if (result.proposed_tasks?.length) {

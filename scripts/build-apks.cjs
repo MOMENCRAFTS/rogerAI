@@ -83,10 +83,13 @@ forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'intermediates'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'generated'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'outputs'));
 // Capacitor plugin build dirs (also locked by OneDrive)
-const capPlugins = ['capacitor-android', 'capacitor-app', 'capacitor-haptics', 'capacitor-splash-screen'];
-for (const plugin of capPlugins) {
-  forceDeleteDir(path.join(ROOT, 'node_modules', '@capacitor', plugin.replace('capacitor-', ''), 'android', 'build'));
-}
+const capPluginDirs = [
+  path.join(ROOT, 'node_modules', '@capacitor', 'android', 'capacitor', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor', 'app', 'android', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor', 'haptics', 'android', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor', 'splash-screen', 'android', 'build'),
+];
+for (const d of capPluginDirs) forceDeleteDir(d);
 
 // 5. Gradle build
 run('.\\gradlew.bat assembleDebug --no-daemon', path.join(ROOT, 'android'));
@@ -112,10 +115,13 @@ forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'intermediates'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'generated'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'outputs'));
 // Capacitor plugin build dirs
-const capPlugins2 = ['capacitor-android', 'capacitor-app', 'capacitor-haptics', 'capacitor-splash-screen'];
-for (const plugin of capPlugins2) {
-  forceDeleteDir(path.join(ROOT, 'node_modules', '@capacitor', plugin.replace('capacitor-', ''), 'android', 'build'));
-}
+const capPluginDirs2 = [
+  path.join(ROOT, 'node_modules', '@capacitor', 'android', 'capacitor', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor', 'app', 'android', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor', 'haptics', 'android', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor', 'splash-screen', 'android', 'build'),
+];
+for (const d of capPluginDirs2) forceDeleteDir(d);
 
 // 4. Gradle build
 run('.\\gradlew.bat assembleDebug --no-daemon', path.join(ROOT, 'android'));

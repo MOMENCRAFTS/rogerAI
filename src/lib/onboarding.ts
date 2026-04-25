@@ -1,6 +1,5 @@
 // ─── Roger AI — Onboarding Flow ──────────────────────────────────────────────
 import { getAuthToken } from './getAuthToken';
-import { supabase } from './supabase';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
@@ -113,7 +112,7 @@ export function buildReviewScriptFallback(answers: OnboardingAnswers): string {
 
 /** AI-generated 3rd-person interpretation of the user profile */
 export async function buildReviewScript(answers: OnboardingAnswers): Promise<string> {
-  if (!OPENAI_API_KEY) return buildReviewScriptFallback(answers);
+  // Uses getAuthToken() → process-transmission Edge Function; falls back to local if unauthenticated
 
   const summary = [
     answers.name        && `Name: ${answers.name}`,

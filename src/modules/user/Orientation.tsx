@@ -134,7 +134,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
       recorderRef.current = null;
       if (blob.size < 100) { setPttTranscribing(false); return; } // ignore sub-100 B noise
 
-      const { transcript } = await transcribeAudio(blob, 'en');
+      const { transcript } = await transcribeAudio(blob);
       const lower = transcript.toLowerCase().trim();
       const confirmed = CONFIRM_KEYWORDS.some(kw => lower.includes(kw));
 
