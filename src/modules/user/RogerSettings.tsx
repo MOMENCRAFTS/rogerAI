@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon } from 'lucide-react';
-import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, type DbUserPreferences } from '../../lib/api';
+import { useState, useEffect, useCallback } from 'react';
+import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw } from 'lucide-react';
+import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, fullUserReset, type DbUserPreferences } from '../../lib/api';
 import { useLocation } from '../../lib/useLocation';
 import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
@@ -34,6 +34,39 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
   const [callsign, setCallsign]   = useState<string | null>(null);
   const [copied, setCopied]       = useState(false);
   const { locationLabel, permissionState: locPerm } = useLocation(userId);
+
+  // ── Factory Reset state (3-step safe flow) ──
+  const [resetStep, setResetStep]       = useState<0 | 1 | 2 | 3>(0); // 0=hidden, 1=confirm prompt, 2=type phrase, 3=final
+  const [resetInput, setResetInput]     = useState('');
+  const [resetting, setResetting]       = useState(false);
+  const [resetCooldown, setResetCooldown] = useState(3);
+
+  // Cooldown timer for step 3
+  useEffect(() => {
+    if (resetStep !== 3) return;
+    setResetCooldown(3);
+    const interval = setInterval(() => {
+      setResetCooldown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resetStep]);
+
+  const handleFactoryReset = useCallback(async () => {
+    setResetting(true);
+    try {
+      await fullUserReset(userId);
+      // Sign out after reset so user re-enters fresh
+      await signOut();
+    } catch (err) {
+      console.error('[Reset] Factory reset failed:', err);
+      alert('Reset failed. Please try again.');
+      setResetting(false);
+      setResetStep(0);
+    }
+  }, [userId, signOut]);
 
   useEffect(() => {
     fetchUserPreferences(userId).then(p => { if (p) setPrefs(p); }).catch(() => {});
@@ -648,6 +681,133 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           Changes apply immediately. Voice commands also work:<br />
           <span style={{ color: 'var(--amber)' }}>"Go quiet"</span> · <span style={{ color: 'var(--amber)' }}>"Stay active"</span> · <span style={{ color: 'var(--amber)' }}>"Brief me at 8am"</span> · <span style={{ color: 'var(--amber)' }}>"How long to [place]?"</span>
         </p>
+      </div>
+
+      {/* ── Danger Zone — Factory Reset ── */}
+      <div style={{ marginTop: 40, padding: '16px', border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.03)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <AlertTriangle size={14} style={{ color: '#ef4444' }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>Danger Zone</span>
+        </div>
+
+        {resetStep === 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <RotateCcw size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Factory Reset</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>Erase all data and start over. This cannot be undone.</p>
+            </div>
+            <button
+              id="factory-reset-start"
+              onClick={() => setResetStep(1)}
+              style={{ flexShrink: 0, padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', cursor: 'pointer', transition: 'background 150ms' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.08)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              Reset
+            </button>
+          </div>
+        )}
+
+        {/* Step 1 — First confirmation */}
+        {resetStep === 1 && (
+          <div style={{ padding: '14px', border: '1px solid rgba(239,68,68,0.25)', background: 'rgba(239,68,68,0.05)' }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 12, color: '#f87171', margin: '0 0 8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>⚠️ Are you sure?</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: 1.6 }}>
+              This will <strong style={{ color: '#ef4444' }}>permanently delete</strong> all your data:
+            </p>
+            <ul style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 14px', paddingLeft: 18, lineHeight: 1.8 }}>
+              <li>All conversations &amp; memory graph</li>
+              <li>Tasks, reminders &amp; errands</li>
+              <li>Contacts &amp; channels</li>
+              <li>Commute profile &amp; parking history</li>
+              <li>Integrations &amp; preferences</li>
+              <li>Your Roger callsign</li>
+            </ul>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => { setResetStep(2); setResetInput(''); }}
+                style={{ flex: 1, padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', cursor: 'pointer' }}
+              >
+                Yes, continue
+              </button>
+              <button
+                onClick={() => setResetStep(0)}
+                style={{ flex: 1, padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2 — Type confirmation phrase */}
+        {resetStep === 2 && (
+          <div style={{ padding: '14px', border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.06)' }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#f87171', margin: '0 0 10px', fontWeight: 600 }}>Type <span style={{ background: 'rgba(239,68,68,0.15)', padding: '2px 6px', letterSpacing: '0.1em' }}>RESET MY ROGER</span> to confirm:</p>
+            <input
+              id="factory-reset-confirm-input"
+              type="text"
+              autoFocus
+              value={resetInput}
+              onChange={e => setResetInput(e.target.value.toUpperCase())}
+              placeholder="TYPE HERE..."
+              style={{ width: '100%', padding: '10px 12px', fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.15em', textTransform: 'uppercase', background: 'var(--bg-recessed)', border: `1px solid ${resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.6)' : 'var(--border-subtle)'}`, color: resetInput === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-primary)', outline: 'none', boxSizing: 'border-box', marginBottom: 10, textAlign: 'center', transition: 'border-color 200ms, color 200ms' }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                id="factory-reset-confirm-btn"
+                disabled={resetInput !== 'RESET MY ROGER'}
+                onClick={() => setResetStep(3)}
+                style={{ flex: 1, padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: resetInput === 'RESET MY ROGER' ? 'pointer' : 'not-allowed', background: resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.15)' : 'transparent', border: `1px solid ${resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.5)' : 'var(--border-subtle)'}`, color: resetInput === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-muted)', opacity: resetInput === 'RESET MY ROGER' ? 1 : 0.4, transition: 'all 200ms' }}
+              >
+                Confirm Reset
+              </button>
+              <button
+                onClick={() => { setResetStep(0); setResetInput(''); }}
+                style={{ flex: 1, padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3 — Final confirmation with cooldown */}
+        {resetStep === 3 && (
+          <div style={{ padding: '14px', border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.08)' }}>
+            <div style={{ textAlign: 'center', marginBottom: 14 }}>
+              <AlertTriangle size={28} style={{ color: '#ef4444', marginBottom: 8 }} />
+              <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#ef4444', margin: '0 0 4px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Final Confirmation</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                All your Roger data will be permanently erased.<br />You will be signed out and start fresh.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                id="factory-reset-execute"
+                disabled={resetCooldown > 0 || resetting}
+                onClick={handleFactoryReset}
+                style={{ flex: 1, padding: '12px', fontFamily: 'monospace', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, cursor: (resetCooldown > 0 || resetting) ? 'not-allowed' : 'pointer', background: (resetCooldown > 0 || resetting) ? 'transparent' : 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.6)', color: '#ef4444', opacity: (resetCooldown > 0 || resetting) ? 0.5 : 1, transition: 'all 200ms', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                {resetting ? (
+                  <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Resetting...</>
+                ) : resetCooldown > 0 ? (
+                  <>Erase Everything ({resetCooldown}s)</>
+                ) : (
+                  <>Erase Everything Now</>
+                )}
+              </button>
+              <button
+                onClick={() => { setResetStep(0); setResetInput(''); }}
+                disabled={resetting}
+                style={{ flex: 1, padding: '12px', fontFamily: 'monospace', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: resetting ? 'not-allowed' : 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
