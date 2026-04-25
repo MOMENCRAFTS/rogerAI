@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+﻿import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 interface SplashScreenProps {
@@ -146,7 +146,7 @@ const TOTAL_MS = 25_000;
 export default function SplashScreen({ onDone }: SplashScreenProps) {
   const { isAdmin } = useAuth();
 
-  const [progress,  setProgress]  = useState(0);
+  const [_progress, setProgress]  = useState(0);
   const [exiting,   setExiting]   = useState(false);
   const [textIndex, setTextIndex] = useState(0);
   const exitingRef = useRef(false);
@@ -155,7 +155,6 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
   const primaryHex   = isAdmin ? '#d4a044' : '#38bdf8';
   const secondaryHex = isAdmin ? '#f0c060' : '#22d3ee';
   const primaryRGB: [number, number, number] = isAdmin ? [212, 160, 68] : [56, 189, 248];
-  const roleLabel    = isAdmin ? 'ADMIN' : 'OPERATIVE';
 
   // Status messages that rotate every 5 s
   const statusTexts = isAdmin
@@ -197,7 +196,6 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
     setTimeout(onDone, 650);
   };
 
-  const secondsLeft = Math.max(0, Math.ceil(TOTAL_MS * (1 - progress) / 1000));
 
   return (
     <>

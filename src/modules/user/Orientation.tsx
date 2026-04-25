@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Orientation.tsx
  *
  * Interactive 10-chapter Roger orientation. Roger speaks each chapter
@@ -46,7 +46,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     : ORIENTATION_CHAPTERS;
 
   const spokenRef  = useRef<Set<number>>(new Set());
-  const recorderRef = useRef<ReturnType<typeof createAudioRecorder> | null>(null);
+  const recorderRef = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
   // openaiKey is read from env inside whisper.ts — no need to pass it here
 
   const total   = CHAPTERS.length;
@@ -126,7 +126,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     stopSpeaking();
     setPttHeld(true);
     try {
-      const rec = createAudioRecorder();
+      const rec = await createAudioRecorder();
       recorderRef.current = rec;
       await rec.start();
     } catch {
@@ -390,7 +390,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
 
               {/* Progress dots */}
               <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 5, flexWrap: 'wrap' }}>
-                {CHAPTERS.map((ch, i) => (
+                {CHAPTERS.map((_ch, i) => (
                   <div
                     key={i}
                     style={{

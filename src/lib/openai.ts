@@ -1,4 +1,4 @@
-// ─── Roger AI — OpenAI Integration ──────────────────────────────────────────
+﻿// ─── Roger AI — OpenAI Integration ──────────────────────────────────────────
 // Calls GPT-4o to process a PTT transcript and return structured AI output.
 // Now supports: open-ended intents, conversation history, AI-driven priority
 // classification, response guarantee, and language detection.
@@ -728,6 +728,7 @@ export async function extractMemoryFacts(
             confidence:   isDraft ? Math.min(f.confidence ?? 60, 60) : (f.confidence ?? 75),
             source_tx:    transcript.slice(0, 80),
             is_confirmed: false, // all AI-extracted facts start unconfirmed
+            is_draft:     isDraft,
           });
         })
       );

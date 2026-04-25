@@ -1,8 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+﻿import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Radio } from 'lucide-react';
 import {
-  generateNodeScript, applyOnboardingAnswer, parseReviewIntent,
-  buildReviewScript, NEXT_NODE, TOTAL_NODES, NODE_INDEX, NODE_LABELS,
+  generateNodeScript, applyOnboardingAnswer, parseReviewIntent, NEXT_NODE, TOTAL_NODES, NODE_INDEX, NODE_LABELS,
   type OnboardingNode, type OnboardingAnswers,
 } from '../../lib/onboarding';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
@@ -429,34 +428,34 @@ export default function Onboarding({ userId, onComplete }: Props) {
 async function persistOnboardingMemory(userId: string, answers: OnboardingAnswers) {
   const writes: Promise<unknown>[] = [];
 
-  if (answers.name) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'person', subject: 'user', predicate: 'name is', object: answers.name, confidence: 100, is_confirmed: true, source_tx: 'onboarding' }));
-  if (answers.role) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'role is', object: answers.role, confidence: 95, is_confirmed: true, source_tx: 'onboarding' }));
-  if (answers.current_focus) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'goal', subject: 'user', predicate: 'current focus is', object: answers.current_focus, confidence: 95, is_confirmed: true, source_tx: 'onboarding' }));
-  if (answers.location_base) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'location is', object: answers.location_base, confidence: 95, is_confirmed: true, source_tx: 'onboarding' }));
-  if (answers.comm_style) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'comm style is', object: answers.comm_style, confidence: 95, is_confirmed: true, source_tx: 'onboarding' }));
+  if (answers.name) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'person', subject: 'user', predicate: 'name is', object: answers.name, confidence: 100, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
+  if (answers.role) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'role is', object: answers.role, confidence: 95, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
+  if (answers.current_focus) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'goal', subject: 'user', predicate: 'current focus is', object: answers.current_focus, confidence: 95, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
+  if (answers.location_base) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'location is', object: answers.location_base, confidence: 95, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
+  if (answers.comm_style) writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'comm style is', object: answers.comm_style, confidence: 95, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
 
   if (answers.key_priorities?.length) {
     for (const p of answers.key_priorities) {
-      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'goal', subject: 'user', predicate: 'priority is', object: p, confidence: 90, is_confirmed: true, source_tx: 'onboarding' }));
+      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'goal', subject: 'user', predicate: 'priority is', object: p, confidence: 90, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
     }
   }
 
   if (answers.tools_used?.length) {
     for (const t of answers.tools_used) {
-      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'uses tool', object: t, confidence: 90, is_confirmed: true, source_tx: 'onboarding' }));
+      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'uses tool', object: t, confidence: 90, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
       writes.push(upsertEntityMention(userId, t, 'TOOL'));
     }
   }
 
   if (answers.interests?.length) {
     for (const i of answers.interests) {
-      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'interested in', object: i, confidence: 90, is_confirmed: true, source_tx: 'onboarding' }));
+      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'interested in', object: i, confidence: 90, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
     }
   }
 
   if (answers.feature_prefs?.length) {
     for (const f of answers.feature_prefs) {
-      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'wants feature', object: f, confidence: 95, is_confirmed: true, source_tx: 'onboarding' }));
+      writes.push(upsertMemoryFact({ user_id: userId, fact_type: 'preference', subject: 'user', predicate: 'wants feature', object: f, confidence: 95, is_confirmed: true, is_draft: false, source_tx: 'onboarding' }));
     }
   }
 

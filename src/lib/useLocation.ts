@@ -1,4 +1,4 @@
-/**
+﻿/**
  * useLocation.ts — Roger AI Location Awareness
  *
  * Watches the user's GPS position using the browser Geolocation API.
@@ -148,6 +148,7 @@ export function useLocation(userId: string): {
           confidence:   90,
           source_tx:    'geolocation',
           is_confirmed: true,
+          is_draft:     false,
         }).catch(() => {});
       }
     };

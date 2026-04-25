@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { Car, Navigation } from 'lucide-react';
 import RadarView from './RadarView';
 import { fetchCommuteProfile, fetchErrands, getCommute, type DbCommuteProfile, type DbErrandItem } from '../../lib/api';
@@ -121,7 +121,7 @@ export default function CommuteRadar({ userId, location = null }: Props) {
 
       {/* Tab Content */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {innerTab === 'radar' && <RadarView userId={userId} location={location} />}
+        {innerTab === 'radar' && <RadarView userId={userId} location={location ?? null} />}
         {innerTab === 'route' && <RouteTab profile={profile} eta={eta} errands={errands} />}
       </div>
     </div>
@@ -129,8 +129,8 @@ export default function CommuteRadar({ userId, location = null }: Props) {
 }
 
 // ── Radar with heading arrow injected ─────────────────────────────────────────
-function RadarViewWithHeading({ userId, location, heading }: Props & { heading: number }) {
-  return <RadarView userId={userId} location={location} />;
+function RadarViewWithHeading({ userId, location }: Props & { heading: number }) {
+  return <RadarView userId={userId} location={location ?? null} />;
 }
 
 // ── Route Tab ─────────────────────────────────────────────────────────────────

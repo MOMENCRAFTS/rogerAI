@@ -35,9 +35,8 @@ export default function SalahView({ location }: Props) {
   const [verse, setVerse]           = useState<VerseOfDay | null>(null);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
-  const [tick, setTick]             = useState(0);       // forces countdown re-render
-  const [qibla, setQibla]           = useState<number | null>(null); // bearing degrees
-  const [heading, setHeading]       = useState<number>(0); // device compass heading
+  const [qibla, setQibla]           = useState<number | null>(null);
+  const [heading, setHeading]       = useState<number>(0);
   const [compassSupported, setCompassSupported] = useState(true);
   const [prayed, setPrayed]         = useState<Record<string, boolean>>({});
   const timerRef                    = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -47,8 +46,8 @@ export default function SalahView({ location }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const lat = location?.lat ?? 24.7136; // Riyadh fallback
-      const lng = location?.lng ?? 46.6753;
+      const lat = location?.latitude  ?? 24.7136; // Riyadh fallback
+      const lng = location?.longitude ?? 46.6753;
       const [pTimes, pVerse] = await Promise.all([
         fetchPrayerTimes(lat, lng),
         fetchVerseOfDay(),
@@ -61,13 +60,13 @@ export default function SalahView({ location }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [location?.lat, location?.lng]);
+  }, [location?.latitude, location?.longitude]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   // ── Countdown ticker ──────────────────────────────────────────────────────
   useEffect(() => {
-    timerRef.current = setInterval(() => setTick(t => t + 1), 1000);
+    timerRef.current = setInterval(() => setQibla(q => q), 1000); // trigger re-render for countdown
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
@@ -144,7 +143,7 @@ export default function SalahView({ location }: Props) {
           </span>
           <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em' }}>
             {location
-              ? <><MapPin size={9} style={{ verticalAlign: 'middle' }} /> {location.lat.toFixed(2)}° {location.lng.toFixed(2)}°</>
+              ? <><MapPin size={9} style={{ verticalAlign: 'middle' }} /> {location.latitude.toFixed(2)}° {location.longitude.toFixed(2)}°</>
               : 'Location unavailable — using Riyadh'}
           </span>
           <button onClick={loadData} title="Refresh" style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-muted)', display: 'flex' }}>

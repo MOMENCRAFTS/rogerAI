@@ -1,4 +1,4 @@
-/**
+﻿/**
  * IslamicModeMonitor.tsx — Admin dashboard for Islamic Mode oversight
  *
  * Panels:
@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Moon, Users, Bell, Shield, RefreshCw, ToggleLeft, ToggleRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { Moon, Users, Bell, Shield, RefreshCw, ToggleLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const EMERALD     = '#10b981';

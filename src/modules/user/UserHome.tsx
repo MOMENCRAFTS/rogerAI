@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, MapPin } from 'lucide-react';
 import MorningBriefing from './MorningBriefing';
 import SpotifyMiniPlayer from './SpotifyMiniPlayer';
@@ -156,7 +156,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         // Fetch today's prayer times based on current GPS or Riyadh fallback
         const lat = location?.latitude  ?? 24.7136;
         const lng = location?.longitude ?? 46.6753;
-        const { fetchPrayerTimes: fpt, getNextPrayer: gnp, bearingToCardinal: btc, getQiblaDirection: gqd } =
+        const { fetchPrayerTimes: fpt, bearingToCardinal: btc, getQiblaDirection: gqd } =
           await import('../../lib/islamicApi');
         const times = await fpt(lat, lng).catch(() => null);
         if (!times || cancelled) return;
@@ -175,14 +175,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
           if (delayMs > 0) {
             const id = setTimeout(() => {
-              if (cancelled || rogerMode === 'quiet') return;
+              if (cancelled || (rogerMode as string) === 'quiet') return;
               const msg = `Roger. ${name} prayer begins in 10 minutes. Qibla is to your ${direction}. Over.`;
               speakResponse(msg).catch(() => {
                 window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
               });
               // Log to DB (fire-and-forget)
               import('../../lib/supabase').then(({ supabase: sb }) => {
-                sb.from('islamic_alerts_log').insert({ user_id: userId, prayer_name: name }).catch(() => {});
+                Promise.resolve(sb.from('islamic_alerts_log').insert({ user_id: userId, prayer_name: name })).catch(() => {});
               }).catch(() => {});
             }, delayMs);
             timerIds.push(id);
