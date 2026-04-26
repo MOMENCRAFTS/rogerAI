@@ -22,7 +22,7 @@ export interface IntentContext {
   isTest: boolean;
 
   // Helpers
-  entity: (type: string) => string | null;
+  entity: (type: string) => string | undefined;
   entities: (type: string) => Array<{ type: string; text: string; confidence: number }>;
   speak: (msg: string) => Promise<void>;
   addMessage: (msg: { id: string; role: 'roger'; text: string; ts: number; intent: string; outcome: string }) => void;

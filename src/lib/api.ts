@@ -546,7 +546,6 @@ const MILESTONES = [7, 14, 30, 60, 100, 365];
 export async function recordAcademySession(userId: string): Promise<{ milestone?: number; frozeUsed?: boolean }> {
   const existing = await fetchAcademyStreak(userId);
   const now = new Date();
-  const _today = now.toISOString().slice(0, 10);
   const lastDay = existing?.last_session?.slice(0, 10);
 
   let newStreak = 1;
