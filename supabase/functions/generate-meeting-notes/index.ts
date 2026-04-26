@@ -2,7 +2,6 @@
 // Generates structured meeting notes from a full transcript.
 // Extracts: executive summary, action items, decisions, participants.
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const OPENAI_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
@@ -38,7 +37,7 @@ Rules:
 - spoken_summary should be under 60 words and use natural spoken language
 - If the transcript is too short or unclear, return honest minimal output`;
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {

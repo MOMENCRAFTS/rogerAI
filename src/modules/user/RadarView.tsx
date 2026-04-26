@@ -5,6 +5,7 @@ import { polarToSVG } from '../../lib/hazardMath';
 import { HAZARD_META } from '../../types/hazard';
 import type { HazardEvent, HazardType } from '../../types/hazard';
 import type { UserLocation } from '../../lib/useLocation';
+import { useI18n } from '../../context/I18nContext';
 
 interface Props {
   userId:   string;
@@ -73,6 +74,7 @@ function HazardPin({ h, onClick }: { h: HazardEvent; onClick: () => void }) {
 }
 
 export default function RadarView({ userId, location }: Props) {
+  const { t } = useI18n();
   const userLat = location?.latitude  ?? null;
   const userLng = location?.longitude ?? null;
 

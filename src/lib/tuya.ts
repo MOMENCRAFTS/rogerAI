@@ -161,31 +161,38 @@ export function matchScene(spoken: string, scenes: TuyaScene[]): TuyaScene | nul
 /**
  * Infer Tuya command code from a spoken intent.
  * Returns a standard Tuya command object.
+ * @param aiAction - AI-extracted normalized action: 'on' | 'off' | 'set' | 'open' | 'close' | 'stop'
  */
 export function inferCommand(
   intent: string,
   deviceCategory: string,
-  value?: unknown
+  value?: unknown,
+  /** AI-extracted normalized device action (takes priority over intent string parsing) */
+  aiAction?: string | null,
 ): { code: string; value: unknown } | null {
   const cat = deviceCategory.toLowerCase();
 
+  // Normalize the action: AI-extracted action takes priority, then parse from intent string
+  const action = aiAction?.toLowerCase() ??
+    (intent.includes('ON') || intent.includes('OPEN') ? 'on' :
+     intent.includes('OFF') || intent.includes('CLOSE') ? 'off' :
+     intent.includes('DIM') || intent.includes('BRIGHTNESS') ? 'set' :
+     intent.includes('TEMP') || intent.includes('SET') ? 'set' :
+     intent.includes('STOP') ? 'stop' :
+     'on'); // default
+
   // Switch / plug / garage door — simple on/off
   if (['cz', 'pc', 'kg', 'tdq', 'ckmkzq', 'jtmspro'].includes(cat)) {
-    if (intent.includes('ON') || intent.includes('OPEN')) {
-      return { code: 'switch_1', value: true };
-    }
-    if (intent.includes('OFF') || intent.includes('CLOSE')) {
-      return { code: 'switch_1', value: false };
-    }
-    // Toggle
+    if (action === 'on' || action === 'open')  return { code: 'switch_1', value: true };
+    if (action === 'off' || action === 'close') return { code: 'switch_1', value: false };
     return { code: 'switch_1', value: value ?? true };
   }
 
   // Lights
   if (['dj', 'dd', 'xdd', 'fwd', 'dc'].includes(cat)) {
-    if (intent.includes('ON'))  return { code: 'switch_led', value: true };
-    if (intent.includes('OFF')) return { code: 'switch_led', value: false };
-    if (intent.includes('DIM') || intent.includes('BRIGHTNESS')) {
+    if (action === 'on')  return { code: 'switch_led', value: true };
+    if (action === 'off') return { code: 'switch_led', value: false };
+    if (action === 'set') {
       const brightness = typeof value === 'number' ? Math.round(value * 2.55) : 128;
       return { code: 'bright_value_v2', value: Math.max(10, Math.min(1000, brightness * 4)) };
     }
@@ -194,9 +201,9 @@ export function inferCommand(
 
   // AC
   if (['kt', 'wk'].includes(cat)) {
-    if (intent.includes('ON'))  return { code: 'switch', value: true };
-    if (intent.includes('OFF')) return { code: 'switch', value: false };
-    if (intent.includes('TEMP') || intent.includes('SET')) {
+    if (action === 'on')  return { code: 'switch', value: true };
+    if (action === 'off') return { code: 'switch', value: false };
+    if (action === 'set') {
       return { code: 'temp_set', value: typeof value === 'number' ? value : 24 };
     }
     return { code: 'switch', value: value ?? true };
@@ -204,16 +211,16 @@ export function inferCommand(
 
   // Curtains
   if (cat === 'cl') {
-    if (intent.includes('OPEN'))  return { code: 'control', value: 'open' };
-    if (intent.includes('CLOSE')) return { code: 'control', value: 'close' };
-    if (intent.includes('STOP'))  return { code: 'control', value: 'stop' };
+    if (action === 'on' || action === 'open')   return { code: 'control', value: 'open' };
+    if (action === 'off' || action === 'close')  return { code: 'control', value: 'close' };
+    if (action === 'stop')                        return { code: 'control', value: 'stop' };
     return { code: 'control', value: value ?? 'open' };
   }
 
   // Fan
   if (cat === 'fs') {
-    if (intent.includes('ON'))  return { code: 'switch', value: true };
-    if (intent.includes('OFF')) return { code: 'switch', value: false };
+    if (action === 'on')  return { code: 'switch', value: true };
+    if (action === 'off') return { code: 'switch', value: false };
     return { code: 'switch', value: value ?? true };
   }
 

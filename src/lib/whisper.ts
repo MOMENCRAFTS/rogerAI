@@ -19,9 +19,10 @@ export interface WhisperResult {
 
 /**
  * Transcribe an audio blob via the whisper-transcribe Edge Function.
- * @param blob - WebM/Opus audio blob from MediaRecorder
+ * @param blob      - WebM/Opus audio blob from MediaRecorder
+ * @param promptHint - Optional vocabulary hint for Whisper (contact names, brands, etc.)
  */
-export async function transcribeAudio(blob: Blob): Promise<WhisperResult> {
+export async function transcribeAudio(blob: Blob, promptHint?: string): Promise<WhisperResult> {
   const t0 = Date.now();
 
   const token = await getAuthToken();
@@ -34,6 +35,7 @@ export async function transcribeAudio(blob: Blob): Promise<WhisperResult> {
   form.append('file',            file);
   form.append('model',           'whisper-1');
   form.append('response_format', 'json');
+  if (promptHint) form.append('prompt', promptHint);
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
     method:  'POST',

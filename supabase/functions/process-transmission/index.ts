@@ -2,14 +2,12 @@
 // Secure server-side GPT-5.5 proxy for Roger AI PTT processing.
 // Full COMMAND_PROMPT is embedded here — API key never leaves Supabase.
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 // ── Full Roger Command Prompt (mirrors openai.ts COMMAND_PROMPT) ──────────────
@@ -124,6 +122,45 @@ SMART_HOME_SCENE: "activate goodnight scene", "run movie mode",
   → Confirm: "Goodnight scene activated. Over."
 
 ═══════════════════════════════════════
+INTERNET RADIO — RADIO BROWSER INTENTS
+═══════════════════════════════════════
+Roger can stream free internet radio from 55,000+ global stations via Radio Browser.
+
+PLAY_RADIO
+  Trigger: "play radio", "play [GENRE] radio", "play [LANGUAGE] radio",
+           "tune into [STATION]", "play local radio", "play [COUNTRY] radio",
+           "stream some [MOOD] music on radio", "play radio near me",
+           "find me a [GENRE] station", "internet radio"
+  Extract: RADIO_TAG (genre/mood: "jazz", "rock", "classical", "news", "pop")
+           RADIO_STATION (station name: "BBC", "Jazz FM", "NPR")
+           RADIO_COUNTRY (country name or ISO code: "UK", "Germany", "US")
+           RADIO_LANGUAGE (language: "arabic", "spanish", "french")
+           RADIO_NEARBY (boolean text "true" — if user wants location-based)
+  Response: "Tuning in. Searching for [genre/station]. Over."
+  outcome: always "success"
+  NOTE: This is DIFFERENT from PLAY_MUSIC (Spotify). Use PLAY_RADIO when:
+    - User explicitly says "radio" or "station"
+    - User asks for a genre WITHOUT mentioning Spotify/a specific song/artist track
+
+STOP_RADIO
+  Trigger: "stop radio", "turn off the radio", "radio off",
+           "stop streaming", "stop the station", "kill the radio"
+  Response: "Radio off. Over."
+  outcome: always "success"
+
+RADIO_INFO
+  Trigger: "what station is this", "what's playing on the radio",
+           "what radio is this", "radio info", "which station"
+  Response: Report station name, genre, country, bitrate. Over.
+  outcome: always "success"
+
+NEXT_STATION
+  Trigger: "next station", "different station", "change station",
+           "skip station", "another station", "switch station"
+  Response: "Switching station. Over."
+  outcome: always "success"
+
+═══════════════════════════════════════
 AMBIGUITY RESOLUTION PRIORITY
 ═══════════════════════════════════════
 Before setting outcome="clarification", ALWAYS attempt silent resolution:
@@ -201,10 +238,52 @@ Return ONLY valid JSON matching this schema:
   "subtopics": null | [{ "label": "string", "emoji": "string" }]
 }`;
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {
+    const body = await req.json() as Record<string, unknown>;
+
+    // ── Direct prompt bypass (used by Onboarding, MorningBriefing, etc.) ───
+    if (body._direct_prompt) {
+      const sysMsg = (body.system as string) ?? '';
+      const usrMsg = (body.user as string) ?? '';
+      if (!sysMsg && !usrMsg) {
+        return new Response(JSON.stringify({ error: 'system or user message required' }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const dpMessages: { role: string; content: string }[] = [];
+      if (sysMsg) dpMessages.push({ role: 'system', content: sysMsg });
+      if (usrMsg) dpMessages.push({ role: 'user', content: usrMsg });
+
+      const dpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model: 'gpt-5.5',
+          response_format: { type: 'json_object' },
+          messages: dpMessages,
+        }),
+      });
+
+      if (!dpRes.ok) {
+        const err = await dpRes.text();
+        return new Response(JSON.stringify({ error: err }), {
+          status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const dpData = await dpRes.json() as { choices: { message: { content: string } }[] };
+      const dpRaw = dpData.choices[0]?.message?.content ?? '{}';
+      // Return the raw content string as roger_response so the client can parse it
+      return new Response(JSON.stringify({ roger_response: dpRaw }), {
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Standard PTT flow ─────────────────────────────────────────────────
     const {
       transcript,
       history,
@@ -214,7 +293,7 @@ serve(async (req: Request) => {
       langHint,
       clarificationContext,
       deepDiveContext,
-    } = await req.json() as {
+    } = body as unknown as {
       transcript: string;
       history: { role: string; content: string }[];
       userId?: string;
@@ -317,7 +396,6 @@ serve(async (req: Request) => {
       body: JSON.stringify({
         model: 'gpt-5.5',
         response_format: { type: 'json_object' },
-        temperature: 0.3,
         messages,
       }),
     });

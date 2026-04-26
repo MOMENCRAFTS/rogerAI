@@ -2,7 +2,6 @@
 // Edge Function: Secure GPT-5.5 weekly digest generation
 // Replaces client-side OpenAI call in UserAnalytics.tsx
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
@@ -12,7 +11,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {

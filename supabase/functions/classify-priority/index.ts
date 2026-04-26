@@ -2,7 +2,6 @@
 // AI-driven classification of user response to a proactively surfaced item.
 // Uses gpt-5.4-mini for speed and cost.
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
@@ -25,7 +24,7 @@ Classify their response as one of these actions:
 Return ONLY a JSON object: { "action": "execute", "reschedule_hint": null }
 reschedule_hint should contain any time reference they mentioned (e.g. "tomorrow morning", "next Monday") or null.`;
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {

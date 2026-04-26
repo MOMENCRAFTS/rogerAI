@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { I18nProvider } from './context/I18nContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ViewModeProvider, useViewMode } from './context/ViewModeContext';
 import StatusBar from './components/layout/StatusBar';
@@ -207,8 +208,10 @@ function AppInner() {
 export default function App() {
   return (
     <AuthProvider>
-      <OfflineBanner />
-      <AppInner />
+      <I18nProvider>
+        <OfflineBanner />
+        <AppInner />
+      </I18nProvider>
     </AuthProvider>
   );
 }

@@ -38,11 +38,19 @@ function extractQuery(transcript: string): string | undefined {
   return t.length > 2 ? t : undefined;
 }
 
-export async function fetchNews(transcript: string): Promise<NewsBrief> {
+export async function fetchNews(
+  transcript: string,
+  /** AI-extracted news category entity (e.g. 'technology', 'business') */
+  aiCategory?: string,
+  /** AI-extracted clean search query */
+  aiQuery?: string,
+): Promise<NewsBrief> {
   if (!NEWS_API_KEY) throw new Error('News API key not configured');
 
-  const category = detectCategory(transcript);
-  const keyword  = extractQuery(transcript);
+  // AI-powered: use LLM-extracted entities when available,
+  // fall back to regex only if AI doesn't provide them
+  const category = aiCategory ?? detectCategory(transcript);
+  const keyword  = aiQuery ?? extractQuery(transcript);
 
   let url: string;
 

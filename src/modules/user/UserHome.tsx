@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, MapPin, Square } from 'lucide-react';
+import { useI18n } from '../../context/I18nContext';
 import MorningBriefing from './MorningBriefing';
 import SpotifyMiniPlayer from './SpotifyMiniPlayer';
+import RadioMiniPlayer from './RadioMiniPlayer';
 import { useLocation, type UserLocation } from '../../lib/useLocation';
 import { getCommute } from '../../lib/api';
 import { checkGeoFences, geocodePlace } from '../../lib/geoFence';
@@ -9,17 +11,19 @@ import { supabase } from '../../lib/supabase';
 import {
   hapticPTTDown, hapticPTTUp, hapticRogerSpeaking,
   hapticResponseReceived, hapticError, hapticGeoAlert, hapticSurface,
+  hapticMilestone,
 } from '../../lib/haptics';
 import {
   preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError,
 } from '../../lib/sfx';
 
 import { processTransmission, extractMemoryFacts, generateSurfaceScript, compileEncyclopediaArticle, type ConversationTurn } from '../../lib/openai';
-import { speakResponse, stopSpeaking } from '../../lib/tts';
+import { speakResponse, stopSpeaking, unlockAudio } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
+import { buildWhisperHint } from '../../lib/whisperHint';
 import { fetchNews, type NewsArticle } from '../../lib/news';
-import { fetchQuote, detectTicker, fetchMarketContext, quoteToSpeech } from '../../lib/finance';
-import { fetchFlightStatus, parseFlight, flightToSpeech } from '../../lib/flight';
+import { fetchQuote, fetchMarketContext, quoteToSpeech } from '../../lib/finance';
+import { fetchFlightStatus, flightToSpeech } from '../../lib/flight';
 import { fetchTodayEvents, createCalendarEvent, deleteCalendarEvent, eventToSpeech } from '../../lib/googleCalendar';
 import { playSearch, pausePlayback, nextTrack, isSpotifyConnected } from '../../lib/spotify';
 import { pushTaskToNotion } from '../../lib/notion';
@@ -48,14 +52,56 @@ import {
 import { useArrivalDebrief } from '../../lib/useArrivalDebrief';
 import { useAlarmEngine } from '../../lib/useAlarmEngine';
 import {
-  initProactive, handleProactivePTT, setProactiveMode, triggerIdleCheckin,
+  initProactive, handleProactivePTT, setProactiveMode, setTalkativeDelivery,
+  triggerIdleCheckin, triggerThinkingMessage,
   clearPending, type PendingMessage,
 } from '../../lib/proactiveEngine';
 import { useSubscription } from '../../lib/useSubscription';
+import { getSilentNode } from '../../lib/silentNode';
+import { buildIntentContext } from '../../lib/intentRegistry';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
 type PTTState = 'idle' | 'recording' | 'transcribing' | 'processing' | 'speaking' | 'responded' | 'awaiting_answer';
+
+// ── Badge celebration ────────────────────────────────────────────────────────
+interface BadgeCelebration {
+  icon: string;
+  title: string;
+  subtitle: string;
+  color: string;
+  glow: string;
+  image: string;
+}
+
+const MILESTONE_BADGES: Record<number, BadgeCelebration> = {
+  7:   { icon: '🔥', title: '7-Day Warrior', subtitle: 'First streak freeze earned', color: '#ef4444', glow: 'rgba(239,68,68,0.3)', image: '/badges/badge_7day_warrior.png' },
+  14:  { icon: '⭐', title: 'Dedicated Learner', subtitle: '14 days of commitment', color: '#f59e0b', glow: 'rgba(245,158,11,0.3)', image: '/badges/badge_dedicated_learner.png' },
+  30:  { icon: '🏆', title: 'Monthly Master', subtitle: 'One full month conquered', color: '#d4a044', glow: 'rgba(212,160,68,0.3)', image: '/badges/badge_monthly_master.png' },
+  60:  { icon: '💎', title: 'Diamond Scholar', subtitle: 'Two months of excellence', color: '#60a5fa', glow: 'rgba(96,165,250,0.3)', image: '/badges/badge_diamond_scholar.png' },
+  100: { icon: '🎖️', title: 'Elite Commander', subtitle: 'Triple-digit legend', color: '#8b5cf6', glow: 'rgba(139,92,246,0.3)', image: '/badges/badge_elite_commander.png' },
+  365: { icon: '👑', title: 'Supreme Linguist', subtitle: 'One year. Unstoppable.', color: '#fbbf24', glow: 'rgba(251,191,36,0.4)', image: '/badges/badge_supreme_linguist.png' },
+};
+
+const FREEZE_BADGE: BadgeCelebration = {
+  icon: '❄️', title: 'Streak Saved', subtitle: 'Freeze token activated', color: '#38bdf8', glow: 'rgba(56,189,248,0.3)', image: '/badges/badge_streak_freeze.png',
+};
+
+const PTT_RANK_IMAGES: Record<string, string> = {
+  ROOKIE: '/badges/badge_ptt_rookie.png',
+  OPERATOR: '/badges/badge_ptt_operator.png',
+  COMMANDER: '/badges/badge_ptt_commander.png',
+  LEGEND: '/badges/badge_ptt_legend.png',
+};
+
+function getPTTRank(totalSessions: number): { label: string; icon: string; color: string; image?: string } {
+  if (totalSessions >= 1000) return { label: 'LEGEND', icon: '👑', color: '#fbbf24', image: PTT_RANK_IMAGES.LEGEND };
+  if (totalSessions >= 500)  return { label: 'COMMANDER', icon: '🎖️', color: '#8b5cf6', image: PTT_RANK_IMAGES.COMMANDER };
+  if (totalSessions >= 200)  return { label: 'VETERAN', icon: '⭐', color: '#f59e0b' };
+  if (totalSessions >= 50)   return { label: 'OPERATOR', icon: '📡', color: '#3b82f6', image: PTT_RANK_IMAGES.OPERATOR };
+  if (totalSessions >= 10)   return { label: 'CADET', icon: '🎯', color: '#10b981' };
+  return { label: 'ROOKIE', icon: '📻', color: '#64748b', image: PTT_RANK_IMAGES.ROOKIE };
+}
 
 // ── Pending confirmation gate ────────────────────────────────────────────────
 interface PendingAction {
@@ -64,12 +110,13 @@ interface PendingAction {
   execute: () => void;    // the actual DB write
 }
 
-interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; isKnowledge?: boolean; subtopics?: { label: string; emoji: string }[]; deepDiveDepth?: number; }
+interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; isKnowledge?: boolean; subtopics?: { label: string; emoji: string }[]; deepDiveDepth?: number; translationSource?: string; translationTarget?: string; translationTargetLang?: string; translationRomanized?: string; }
 
 type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'settings';
 
 export default function UserHome({ userId, sessionId, onTabChange, location: locationProp }: { userId: string; sessionId: string; onTabChange: (t: UserTab) => void; location?: UserLocation | null }) {
   const { checkGate } = useSubscription(userId);
+  const { t } = useI18n();
   const [pttState, setPttState]   = useState<PTTState>('idle');
   const [messages, setMessages]   = useState<Message[]>([]);
   const [history, setHistory]     = useState<ConversationTurn[]>([]);
@@ -77,7 +124,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [surfaceItems, setSurfaceItems] = useState<DbSurfaceItem[]>([]);
   const [activeSurface, setActiveSurface] = useState<DbSurfaceItem | null>(null);
-  const [rogerMode]               = useState<'quiet' | 'active' | 'briefing'>('active');
+  const [rogerMode, setRogerMode] = useState<'quiet' | 'active' | 'briefing'>('active');
+  const [talkativeEnabled, setTalkativeEnabled] = useState(false);
+  const [talkativeFreq, setTalkativeFreq] = useState<'thoughtful' | 'active_talk' | 'always_on'>('thoughtful');
+  const [thinkingPulse, setThinkingPulse]       = useState(false);  // pulsating red PTT
   const [clarifQuestion, setClarifQuestion] = useState<string>('');
   const [clarifCountdown, setClarifCountdown] = useState(0);
   const clarifTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -106,6 +156,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [pendingClarification, setPendingClarification] = useState<ClarificationContext | null>(null);
   const [intentOptions, setIntentOptions] = useState<IntentOption[] | null>(null);
   const clarificationExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Badge celebration overlay ─────────────────────────────────────────────
+  const [activeBadge, setActiveBadge] = useState<BadgeCelebration | null>(null);
+  const badgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showBadge = useCallback((badge: BadgeCelebration) => {
+    setActiveBadge(badge);
+    if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    badgeTimerRef.current = setTimeout(() => setActiveBadge(null), 5000);
+  }, []);
 
   // ── Ambient Listening state ───────────────────────────────────────────────
   const [ambientActive, setAmbientActive]           = useState(false);
@@ -127,6 +185,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
   const recorderRef  = useRef<ReturnType<typeof createAudioRecorder> extends Promise<infer T> ? T : never | null>(null);
   const holdRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pttStartRef  = useRef<number>(0);
   const awaitRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -137,6 +196,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const lastTapTimeRef    = useRef<number>(0);         // timestamp of last short tap
   const tapCountRef       = useRef<number>(0);          // consecutive short taps for triple-tap confirm
   const pttWasSpeakingRef = useRef<boolean>(false);    // tracks if PTT down happened during speaking
+  const whisperHintRef    = useRef<string>('');          // Whisper vocabulary hint (contact names, etc.)
 
   // Arrival debrief — geo-triggered spoken brief on arriving at work/home
   useArrivalDebrief(userId, location ?? null, (text) => {
@@ -158,6 +218,16 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         if (data?.callsign) setMyCallsign(data.callsign);
       } catch { /* silent */ }
     })();
+    // Build Whisper vocabulary hint (contacts + memory + static vocab)
+    buildWhisperHint(userId).then(h => { whisperHintRef.current = h; }).catch(() => {});
+  }, [userId]);
+
+  // ── Silent AI Node — lifecycle ─────────────────────────────────────────────
+  const silentNodeRef = useRef(getSilentNode());
+  useEffect(() => {
+    const node = silentNodeRef.current;
+    node.start({ userId }).catch(err => console.warn('[SilentNode] Init failed:', err));
+    return () => { node.stop(); };
   }, [userId]);
 
   // ── Alarm engine (polls due reminders every 60s, fires voice alerts) ──────
@@ -288,18 +358,18 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       .on('broadcast', { event: 'tune_in_request' }, ({ payload }) => {
         const p = payload as { requestId: string; from: string; callsign: string; reason: string | null; expiresAt: string; rogerSpeak?: string };
         setIncomingTuneInRequest({ requestId: p.requestId, from: p.from, callsign: p.callsign, reason: p.reason, expiresAt: p.expiresAt });
-        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       })
       .on('broadcast', { event: 'tune_in_accepted' }, ({ payload }) => {
         const p = payload as { sessionId: string; withName: string; rogerSpeak?: string };
         setActiveTuneInSession({ sessionId: p.sessionId, withName: p.withName });
         setIncomingTuneInRequest(null);
-        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       })
       .on('broadcast', { event: 'tune_in_declined' }, ({ payload }) => {
         const p = payload as { rogerSpeak?: string };
         setIncomingTuneInRequest(null);
-        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       })
       .subscribe();
 
@@ -317,7 +387,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const p = payload as { speakerId: string; spokenLine: string; transcript: string };
         // Only speak turns from the OTHER person
         if (p.speakerId !== userId && p.spokenLine) {
-          speakResponse(p.spokenLine).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.spokenLine)); });
+          speakResponse(p.spokenLine).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           setMessages(prev => [...prev, { id: `turn-${Date.now()}`, role: 'roger', text: `📡 ${withName}: ${p.transcript}`, ts: Date.now() }]);
         }
       })
@@ -325,14 +395,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const p = payload as { rogerSpeak?: string };
         const prevSession = activeTuneInSession; // capture before clearing
         setActiveTuneInSession(null);
-        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(p.rogerSpeak!)); });
+        if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         // If the other person was a stranger (not yet saved as contact), prompt to save
         if (prevSession?.withName?.startsWith('Callsign ')) {
           const cs = prevSession.withName.replace('Callsign ', '');
           setPendingContactSave({ callsign: cs, contactName: '' });
           setContactSaveInput('');
           const prompt = `That was Callsign ${cs}. Want to save them as a contact? Just type or say their name.`;
-          setTimeout(() => speakResponse(prompt).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(prompt)); }), 2000);
+          setTimeout(() => speakResponse(prompt).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }), 2000);
         }
       })
       .subscribe();
@@ -360,7 +430,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }).catch(() => {});
         // Speak the alert
         const msg = `Location alert — you're near ${reminder.due_location}. ${reminder.text}. Over.`;
-        speakResponse(msg).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+        speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       });
     }).catch(() => {});
   }, [location, userId]);
@@ -388,7 +458,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     setPttState('speaking');
     setIsSpeaking(true);
     speakResponse(script)
-      .catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(script)); })
+      .catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); })
       .finally(() => { setIsSpeaking(false); setPttState('awaiting_answer'); });
   }, [rogerMode, surfaceItems, pttState]);
 
@@ -425,7 +495,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     const ack = pendingAction.type === 'reminder' ? 'Reminder set. Over.'
       : pendingAction.type === 'meeting' ? 'Meeting booked. Over.'
       : 'Task saved. Over.';
-    speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+    speakResponse(ack).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
     setPendingAction(null);
     window.dispatchEvent(new CustomEvent('roger:refresh'));
   }, [pendingAction]);
@@ -433,14 +503,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const cancelPendingAction = useCallback(() => {
     if (!pendingAction) return;
     const ack = 'Cancelled. Standing by. Over.';
-    speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+    speakResponse(ack).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
     setPendingAction(null);
   }, [pendingAction]);
 
   // Speak confirmation gate prompt whenever pendingAction is set
   useEffect(() => {
     if (!pendingAction) return;
-    speakResponse(pendingAction.label).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(pendingAction.label)); });
+    speakResponse(pendingAction.label).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
   }, [pendingAction]);
 
   // Preload SFX buffers once on mount
@@ -455,11 +525,64 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     });
   }, []);
 
-  // Sync proactive mode with drive speed
+  // Sync proactive mode with drive speed + talkative mode
   useEffect(() => {
     const speed = (locationProp ?? hookLocation)?.speed ?? 0;
-    setProactiveMode(speed >= 5.56 ? 'drive' : 'normal');
-  }, [(locationProp ?? hookLocation)?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (speed >= 5.56) {
+      setProactiveMode('drive');
+    } else if (talkativeEnabled) {
+      setProactiveMode('talkative');
+    } else {
+      setProactiveMode('normal');
+    }
+  }, [(locationProp ?? hookLocation)?.speed, talkativeEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Talkative mode: fetch prefs & listen for push thinking messages ────
+  useEffect(() => {
+    // Fetch talkative preferences
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('user_preferences')
+          .select('roger_mode, talkative_enabled, talkative_frequency, talkative_delivery')
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (data) {
+          const d = data as Record<string, unknown>;
+          if (d.roger_mode === 'quiet' || d.roger_mode === 'active' || d.roger_mode === 'briefing') {
+            setRogerMode(d.roger_mode);
+          }
+          setTalkativeEnabled(!!d.talkative_enabled);
+          if (d.talkative_frequency === 'thoughtful' || d.talkative_frequency === 'active_talk' || d.talkative_frequency === 'always_on') {
+            setTalkativeFreq(d.talkative_frequency);
+          }
+          if (d.talkative_delivery === 'auto_speak' || d.talkative_delivery === 'ptt_pulse') {
+            setTalkativeDelivery(d.talkative_delivery);
+          }
+        }
+      } catch { /* silent */ }
+    })();
+
+    // Listen for push notification messages relayed from service worker
+    const handleThinkingMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'thinking') {
+        const { thought, delivery } = event.data;
+        if (delivery === 'auto_speak') {
+          // Auto-speak: just speak immediately
+          triggerThinkingMessage(thought);
+        } else {
+          // PTT Pulse: show pulsating red + queue message
+          setThinkingPulse(true);
+          triggerThinkingMessage(thought);
+        }
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', handleThinkingMessage);
+
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', handleThinkingMessage);
+    };
+  }, [userId]);
 
   // ── Replay last Roger message ─────────────────────────────────────────────
   const replayLastMessage = useCallback(() => {
@@ -469,15 +592,22 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     setPttState('speaking');
     setIsSpeaking(true);
     speakResponse(msg)
-      .catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); })
+      .catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); })
       .finally(() => { setIsSpeaking(false); setPttState('responded'); });
   }, []);
 
   // ── PTT Down ──────────────────────────────────────────────────────────────
-  const handlePTTDown = useCallback(async () => {
+  const handlePTTDown = useCallback(async (e?: React.PointerEvent) => {
     resetIdleTimer();
+
+    // Capture the pointer so pointerleave doesn't fire while holding on desktop
+    if (e) { try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ } }
+
     // ── Proactive intercept: if Roger has a pending message, consume PTT ────
-    if (handleProactivePTT()) return;
+    if (handleProactivePTT()) {
+      setThinkingPulse(false);  // clear red pulse if thinking was consumed
+      return;
+    }
 
     // ── While speaking: stop Roger, do NOT start recording yet ──────────────
     if (pttState === 'speaking') {
@@ -494,9 +624,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     if (pttState !== 'idle' && pttState !== 'responded' && pttState !== 'awaiting_answer') return;
     if (awaitRef.current) clearTimeout(awaitRef.current);
     stopSpeaking(); setIsSpeaking(false);
+
+    // Keep AudioContext alive on PC browsers — must run inside a user gesture
+    unlockAudio().catch(() => {});
+
     hapticPTTDown();
     sfxPTTDown();
     setPttState('recording'); setHoldMs(0);
+    pttStartRef.current = Date.now();
     holdRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
 
     if (MEDIA_RECORDER_SUPPORTED) {
@@ -579,11 +714,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     // ── Short tap that interrupted speaking → handle stop / double-tap replay ──
     if (pttWasSpeakingRef.current) {
       pttWasSpeakingRef.current = false;
-      if (holdMs >= 300) {
+      const elapsed = Date.now() - pttStartRef.current;
+      if (elapsed >= 300) {
         // Long press while speaking → stop + start recording
         resetIdleTimer();
         hapticPTTDown(); sfxPTTDown();
         setPttState('recording'); setHoldMs(0);
+        pttStartRef.current = Date.now();
         holdRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
         if (MEDIA_RECORDER_SUPPORTED) {
           const recorder = await createAudioRecorder();
@@ -616,8 +753,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     }
 
     if (pttState !== 'recording') {
-      // ── Idle multi-tap: double=replay, triple=confirm pending ──────────────
-      if (holdMs < 300) {
+      // Use timestamp ref for hold duration — immune to stale-closure issues
+      const idleElapsed = Date.now() - pttStartRef.current;
+      if (idleElapsed < 300) {
         const now = Date.now();
         if (now - lastTapTimeRef.current < 400) {
           tapCountRef.current += 1;
@@ -642,12 +780,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     hapticPTTUp();
     sfxPTTUp();
 
-    if (holdMs < 300) {
+    // Use timestamp ref for hold duration — immune to stale-closure issues
+    const recordElapsed = Date.now() - pttStartRef.current;
+    if (recordElapsed < 300) {
       hapticError();
       sfxError();
       setPttState('idle');
       const m = 'Too brief. Hold and speak clearly. Over.';
-      speakResponse(m).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); });
+      speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       return;
     }
 
@@ -660,18 +800,18 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     try {
       const blob = await recorder.stop();
       recorder.dispose();
-      const { transcript: t } = await transcribeAudio(blob);
+      const { transcript: t } = await transcribeAudio(blob, whisperHintRef.current || undefined);
       transcript = t;
       const clean = transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '');
       if (!clean || clean.length < 3) {
         const m = 'Nothing received. Say your command. Over.';
-        await speakResponse(m).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); });
+        await speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         setPttState('idle');
         return;
       }
     } catch {
       const m = 'Voice processing offline. Type below. Over.';
-      speakResponse(m).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); });
+      speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       setPttState('idle');
       return;
     }
@@ -682,19 +822,48 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     // ── Verbal confirmation gate: intercept yes/no before GPT processing ────
     if (pendingAction) {
       const norm = transcript.toLowerCase().trim();
+      // AI-powered confirmation gate: classify intent with context about pending action
+      // Falls back to regex if AI call fails (latency-sensitive path)
+      let decision: 'confirm' | 'cancel' | 'new_command' = 'new_command';
+
+      // Quick regex check first (instant path for clear single-word responses)
       const CONFIRM_WORDS = /^(yes|yeah|yep|yup|confirm|do it|go ahead|go|execute|approved|affirmative|roger|proceed|ok|okay|sure|absolutely|correct|right)$/i;
       const CANCEL_WORDS  = /^(no|nah|nope|cancel|stop|don't|abort|negative|nevermind|never mind|scratch that|forget it|disregard)$/i;
-      if (CONFIRM_WORDS.test(norm) || CONFIRM_WORDS.test(norm.replace(/[.,!?]/g, ''))) {
+      const cleanNorm = norm.replace(/[.,!?]/g, '');
+
+      if (CONFIRM_WORDS.test(norm) || CONFIRM_WORDS.test(cleanNorm)) {
+        decision = 'confirm';
+      } else if (CANCEL_WORDS.test(norm) || CANCEL_WORDS.test(cleanNorm)) {
+        decision = 'cancel';
+      } else {
+        // Ambiguous phrasing — use AI to understand (e.g. "yeah go for it", "nah scratch that idea")
+        try {
+          const confirmResult = await processTransmission(
+            transcript, [],
+            `Roger asked: "${pendingAction.label}". The user is responding to confirm or cancel this action. Classify their response.`,
+            userId
+          );
+          if (confirmResult.intent.includes('CONFIRM') || confirmResult.outcome === 'success') {
+            decision = 'confirm';
+          } else if (confirmResult.intent.includes('CANCEL') || confirmResult.intent.includes('DECLINE')) {
+            decision = 'cancel';
+          }
+        } catch {
+          // AI failed — default to treating as new command (cancel pending + process normally)
+        }
+      }
+
+      if (decision === 'confirm') {
         confirmPendingAction();
         setPttState('responded');
         return;
       }
-      if (CANCEL_WORDS.test(norm) || CANCEL_WORDS.test(norm.replace(/[.,!?]/g, ''))) {
+      if (decision === 'cancel') {
         cancelPendingAction();
         setPttState('idle');
         return;
       }
-      // If the user said something else entirely, cancel the pending action
+      // User said something else entirely — cancel the pending action
       // and process the new command normally (they changed their mind)
       cancelPendingAction();
     }
@@ -708,8 +877,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
       const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-      // Check for TUNE_IN_FLAG keyword before relaying
-      const isFlagged = /flag this|note this|mark this|remember this/i.test(transcript);
+      // AI-powered flag detection: run a quick classification to detect
+      // flag/note/mark intents instead of brittle regex matching
+      let isFlagged = false;
+      try {
+        const flagCheck = await processTransmission(transcript, [], undefined, userId);
+        isFlagged = flagCheck.intent === 'TUNE_IN_FLAG';
+      } catch { /* silent — default to not flagged */ }
 
       supabase.auth.getSession().then(async ({ data: { session } }) => {
         const token = session?.access_token ?? SUPABASE_ANON_KEY;
@@ -724,7 +898,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       setMessages(prev => [...prev, { id: `r-${Date.now()}`, role: 'roger', text: `📡 You → ${sess.withName}: ${transcript}${isFlagged ? ' ⭐' : ''}`, ts: Date.now() }]);
       setPttState('responded');
       const ack = isFlagged ? 'Flagged and relayed. Over.' : 'Relayed. Over.';
-      speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+      speakResponse(ack).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       return;
     }
 
@@ -745,13 +919,16 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         // Max retries exceeded — abandon
         const abandonMsg = 'Transmission unclear. Let\'s start over. What do you need? Over.';
         setMessages(prev => [...prev, { id: `r-abandon-${Date.now()}`, role: 'roger', text: abandonMsg, ts: Date.now(), intent: 'ABANDON_CLARIFICATION', outcome: 'error' }]);
-        speakResponse(abandonMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(abandonMsg)); });
+        speakResponse(abandonMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         setPendingClarification(null);
         setIntentOptions(null);
         setClarifQuestion('');
         setPttState('responded');
         return;
       }
+
+      // Inject live service health into GPT-5.5 system prompt
+      const serviceContext = silentNodeRef.current.getServiceContext();
 
       const result = await processTransmission(
         transcript, history, undefined, userId, locationContext,
@@ -761,7 +938,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           clarification_question: activeClariCtx.clarification_question,
           missing_entities: activeClariCtx.missing_entities,
           attempt: activeClariCtx.attempt,
-        } : null
+        } : null,
+        null, // deepDiveContext (passed separately below if active)
+        serviceContext
       );
 
       // Append history
@@ -778,8 +957,38 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       const meaningfulWords = transcript.replace(/[^a-zA-Z\u0600-\u06FF\s]/g, '').trim().split(/\s+/).filter(w => w.length > 1);
       const isQualityTx = meaningfulWords.length >= 4;
 
-      // Save to DB based on intent
-      if (result.intent === 'CREATE_REMINDER') {
+      // ── Silent AI Node: try registry dispatch first ─────────────────────────
+      const silentNodeHandled = await (async () => {
+        try {
+          const prefs = await import('../../lib/api').then(m => m.fetchUserPreferences(userId)).catch(() => null);
+          const ctx = buildIntentContext({
+            result, transcript, userId, sessionId,
+            location: location ? { latitude: location.latitude, longitude: location.longitude } : null,
+            preferences: prefs as Record<string, unknown> | null,
+            isTest: false,
+            tuneIn: {
+              incomingRequest: incomingTuneInRequest,
+              activeSession: activeTuneInSession,
+            },
+            ambient: {
+              active: ambientActive,
+              lastChunk: ambientLastChunk,
+              sessionRef: ambientSessionRef,
+            },
+            meeting: {
+              active: meetingActive,
+              recorderRef: meetingRecorderRef,
+            },
+          });
+          return await silentNodeRef.current.dispatch(result, ctx);
+        } catch (err) {
+          console.warn('[SilentNode] Dispatch failed, falling back to legacy:', err);
+          return false;
+        }
+      })();
+
+      // Save to DB based on intent (legacy — skipped if SilentNode handled it)
+      if (!silentNodeHandled && result.intent === 'CREATE_REMINDER') {
         // ── Confirmation gate for reminders ────────────────────────────────
         const locEntity = result.entities?.find(e => e.type === 'LOCATION' || e.type === 'PLACE');
         const timeEntity = result.entities?.find(e => e.type === 'TIME' || e.type === 'DATE' || e.type === 'MEETING_TIME');
@@ -822,11 +1031,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 const devices = await listTuyaDevices(uid);
                 const matched = matchDevice(deviceLabel, devices);
                 if (!matched) { speakResponse(`Could not find "${deviceLabel}" in your devices. Over.`).catch(() => {}); return; }
-                const cmd = inferCommand(result.intent, matched.category, valueEntity ? (isNaN(Number(valueEntity.text)) ? valueEntity.text : Number(valueEntity.text)) : undefined);
+                const actionEnt = result.entities?.find(e => e.type === 'DEVICE_ACTION');
+                const cmd = inferCommand(result.intent, matched.category, valueEntity ? (isNaN(Number(valueEntity.text)) ? valueEntity.text : Number(valueEntity.text)) : undefined, actionEnt?.text);
                 if (!cmd) { speakResponse('Unable to determine command. Over.').catch(() => {}); return; }
                 await controlDevice(matched.id, [cmd]);
                 const ack = `Done. ${matched.name} ${cmd.value === true ? 'on' : cmd.value === false ? 'off' : 'updated'}. Over.`;
-                speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+                speakResponse(ack).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               } catch (err) {
                 const msg = `Smart home error: ${err instanceof Error ? err.message : 'unknown'}. Over.`;
                 speakResponse(msg).catch(() => {});
@@ -856,7 +1066,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 if (!matched) { speakResponse(`Could not find scene "${sceneName}". Over.`).catch(() => {}); return; }
                 await triggerTuyaScene(homeId, matched.scene_id);
                 const ack = `Scene "${matched.name}" triggered. Over.`;
-                speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+                speakResponse(ack).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               } catch (err) {
                 const msg = `Scene error: ${err instanceof Error ? err.message : 'unknown'}. Over.`;
                 speakResponse(msg).catch(() => {});
@@ -884,6 +1094,97 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }
       } else if (result.intent === 'BOOK_MEETING') {
         // BOOK_MEETING confirmation is handled inside the BOOK_MEETING block below — skip here
+      } else if (result.intent === 'SEND_SMS' || result.intent === 'TEXT_MESSAGE') {
+        // ── Voice-driven SMS: resolve contact + open native SMS composer ──────
+        const personEntity = result.entities?.find(e => e.type === 'PERSON');
+        const msgEntity    = result.entities?.find(e => e.type === 'MESSAGE_BODY' || e.type === 'MESSAGE');
+        const contactName  = personEntity?.text ?? '';
+        const msgBody      = msgEntity?.text ?? transcript;
+
+        if (contactName) {
+          import('../../lib/deviceContacts').then(async ({ fetchDeviceContacts, resolveContactByName, getPhoneNumber }) => {
+            const contacts = await fetchDeviceContacts();
+            const matches = resolveContactByName(contactName, contacts);
+            if (matches.length > 0) {
+              const phone = getPhoneNumber(matches[0]);
+              if (phone) {
+                const { openSmsComposer } = await import('../../lib/nativeIntents');
+                const confirmLabel = `Text ${matches[0].displayName}: "${msgBody.slice(0, 50)}". Send? Over.`;
+                setPendingAction({
+                  type: 'sms',
+                  label: confirmLabel,
+                  execute: () => openSmsComposer(phone, msgBody),
+                });
+              } else {
+                speakResponse(`Found ${matches[0].displayName} but no phone number on file. Over.`).catch(() => {});
+              }
+            } else {
+              speakResponse(`I couldn't find ${contactName} in your contacts. Check the name and try again. Over.`).catch(() => {});
+            }
+          }).catch(() => {
+            speakResponse('Contacts not connected. Enable in Settings to use voice messaging. Over.').catch(() => {});
+          });
+        }
+      } else if (result.intent === 'PHONE_CALL' || result.intent === 'CALL_CONTACT') {
+        // ── Voice-driven phone call: resolve contact + open native dialer ──────
+        const personEntity = result.entities?.find(e => e.type === 'PERSON');
+        const contactName  = personEntity?.text ?? '';
+
+        if (contactName) {
+          import('../../lib/deviceContacts').then(async ({ fetchDeviceContacts, resolveContactByName, getPhoneNumber }) => {
+            const contacts = await fetchDeviceContacts();
+            const matches = resolveContactByName(contactName, contacts);
+            if (matches.length > 0) {
+              const phone = getPhoneNumber(matches[0]);
+              if (phone) {
+                const { openPhoneDialer } = await import('../../lib/nativeIntents');
+                const confirmLabel = `Call ${matches[0].displayName}? Over.`;
+                setPendingAction({
+                  type: 'task' as const,
+                  label: confirmLabel,
+                  execute: () => openPhoneDialer(phone),
+                });
+              } else {
+                speakResponse(`Found ${matches[0].displayName} but no phone number. Over.`).catch(() => {});
+              }
+            } else {
+              speakResponse(`I couldn't find ${contactName} in your contacts. Over.`).catch(() => {});
+            }
+          }).catch(() => {
+            speakResponse('Contacts not connected. Enable in Settings. Over.').catch(() => {});
+          });
+        }
+      } else if (result.intent === 'WHATSAPP_SEND' || result.intent === 'WHATSAPP_MESSAGE') {
+        // ── Voice-driven WhatsApp: resolve contact + open WhatsApp ──────────
+        const personEntity = result.entities?.find(e => e.type === 'PERSON');
+        const msgEntity    = result.entities?.find(e => e.type === 'MESSAGE_BODY' || e.type === 'MESSAGE');
+        const contactName  = personEntity?.text ?? '';
+        const msgBody      = msgEntity?.text ?? transcript;
+
+        if (contactName) {
+          import('../../lib/deviceContacts').then(async ({ fetchDeviceContacts, resolveContactByName, getPhoneNumber }) => {
+            const contacts = await fetchDeviceContacts();
+            const matches = resolveContactByName(contactName, contacts);
+            if (matches.length > 0) {
+              const phone = getPhoneNumber(matches[0]);
+              if (phone) {
+                const { openWhatsApp } = await import('../../lib/nativeIntents');
+                const confirmLabel = `WhatsApp ${matches[0].displayName}: "${msgBody.slice(0, 50)}". Send? Over.`;
+                setPendingAction({
+                  type: 'sms',
+                  label: confirmLabel,
+                  execute: () => openWhatsApp(phone, msgBody),
+                });
+              } else {
+                speakResponse(`Found ${matches[0].displayName} but no phone number for WhatsApp. Over.`).catch(() => {});
+              }
+            } else {
+              speakResponse(`I couldn't find ${contactName} in your contacts. Over.`).catch(() => {});
+            }
+          }).catch(() => {
+            speakResponse('Contacts not connected. Enable in Settings for WhatsApp. Over.').catch(() => {});
+          });
+        }
       } else if (!result.intent.startsWith('QUERY_') &&
                  !result.intent.startsWith('STATUS_') &&
                  !result.intent.startsWith('EXPLAIN_') &&
@@ -896,6 +1197,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                  !result.intent.endsWith('_QUERY') &&
                  result.intent !== 'CONVERSE' &&
                  result.intent !== 'COMMUTE_QUERY' &&
+                 result.intent !== 'SEND_SMS' &&
+                 result.intent !== 'TEXT_MESSAGE' &&
+                 result.intent !== 'PHONE_CALL' &&
+                 result.intent !== 'CALL_CONTACT' &&
+                 result.intent !== 'WHATSAPP_SEND' &&
+                 result.intent !== 'WHATSAPP_MESSAGE' &&
                  isQualityTx) {
         // Save action intents as tasks (with quality gate)
         const taskLabel = `Task: "${transcript.slice(0, 60)}". Confirm? Over.`;
@@ -919,6 +1226,89 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           location_label: location?.city ?? null,
           location_lat:   location?.latitude  ?? null,
           location_lng:   location?.longitude ?? null,
+        }).catch(() => {});
+      } // end legacy if/else chain
+
+      // ── Academy: auto-save vocab words + record session ─────────────────────
+      if (result.intent?.startsWith('ACADEMY_')) {
+        import('../../lib/api').then(({ recordAcademySession, upsertVocabWord, upsertAcademyStreak, fetchAcademyStreak }) => {
+          recordAcademySession(userId).then(({ milestone, frozeUsed }) => {
+            if (milestone) {
+              const celebrations: Record<number, string> = {
+                7: '🔥 7-day streak! You earned a Streak Freeze. Keep it up, Commander!',
+                14: '⭐ 14 days strong! Your dedication is showing. Over.',
+                30: '🏆 30-day streak! One full month. You\'re unstoppable. Over.',
+                60: '💎 60 days! Two months of consistent learning. Impressive. Over.',
+                100: '🎖️ 100-day streak! Triple digits. You\'re in the elite tier now. Over.',
+                365: '👑 365 days! One full year. Legendary status achieved. Over.',
+              };
+              const msg = celebrations[milestone] ?? `🎯 ${milestone}-day streak milestone! Over.`;
+              hapticMilestone();
+              // Show badge overlay
+              const badge = MILESTONE_BADGES[milestone] ?? { icon: '🎯', title: `${milestone}-Day Streak`, subtitle: 'Keep the momentum going', color: '#d4a044', glow: 'rgba(212,160,68,0.3)' };
+              showBadge(badge);
+              import('../../lib/tts').then(({ speakResponse }) => speakResponse(msg).catch(() => {}));
+            }
+            if (frozeUsed) {
+              showBadge(FREEZE_BADGE);
+              import('../../lib/tts').then(({ speakResponse }) =>
+                speakResponse('❄️ Streak Freeze activated — your streak is safe. Over.').catch(() => {})
+              );
+            }
+          }).catch(() => {});
+
+          // ACADEMY_START: auto-set target language from voice ("I want to learn French")
+          if (result.intent === 'ACADEMY_START') {
+            const langEntity = result.entities?.find(e => e.type === 'LANGUAGE' || e.type === 'TARGET_LANGUAGE');
+            if (langEntity) {
+              // Fuzzy-match against available locales
+              import('../../lib/i18n').then(({ ALL_LOCALES: locales, getLocaleName: getName }) => {
+                const spoken = langEntity.text.toLowerCase().trim();
+                const matched = locales.find(l => getName(l).toLowerCase().includes(spoken) || l.toLowerCase().startsWith(spoken.slice(0, 2)));
+                if (matched) {
+                  upsertAcademyStreak(userId, { target_locale: matched }).catch(() => {});
+                  window.dispatchEvent(new CustomEvent('roger:refresh'));
+                }
+              }).catch(() => {});
+            }
+          }
+
+          // If vocab mode returned a word, save it
+          if (result.academy_word) {
+            fetchAcademyStreak(userId).then(streak => {
+              const locale = streak?.target_locale ?? 'fr-fr';
+              upsertVocabWord(userId, result.academy_word!.word, result.academy_word!.translation, locale, 1).catch(() => {});
+            }).catch(() => {});
+          }
+
+          // ── Drill answer: update mastery level based on correctness ──
+          if (result.academy_drill_result && result.academy_drill_word) {
+            fetchAcademyStreak(userId).then(async streak => {
+              const locale = streak?.target_locale ?? 'fr-fr';
+              const { fetchVocabWords } = await import('../../lib/api');
+              const words = await fetchVocabWords(userId, locale);
+              const existing = words.find(w => w.word.toLowerCase() === result.academy_drill_word!.toLowerCase());
+              const currentMastery = existing?.mastery ?? 0;
+
+              let newMastery = currentMastery;
+              if (result.academy_drill_result === 'correct') newMastery = Math.min(5, currentMastery + 1);
+              else if (result.academy_drill_result === 'wrong') newMastery = Math.max(0, currentMastery - 1);
+              // 'close' keeps same mastery
+
+              const translation = result.academy_word?.translation ?? existing?.translation ?? '';
+              upsertVocabWord(userId, result.academy_drill_word!, translation, locale, newMastery).catch(() => {});
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+
+      // ── Translation: auto-save translated words as vocab ────────────────────
+      if ((result.intent === 'TRANSLATE_TEXT' || result.intent === 'TRANSLATE_LAST') && result.translation_target && result.translation_source) {
+        import('../../lib/api').then(({ upsertVocabWord, fetchAcademyStreak }) => {
+          fetchAcademyStreak(userId).then(streak => {
+            const locale = result.translation_target_lang ? `${result.translation_target_lang}-${result.translation_target_lang}` : (streak?.target_locale ?? 'fr-fr');
+            upsertVocabWord(userId, result.translation_target!, result.translation_source!, locale, 0).catch(() => {});
+          }).catch(() => {});
         }).catch(() => {});
       }
 
@@ -979,15 +1369,19 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       }
 
       // ── NEWS INTENT — fetch live headlines ────────────────────────────────
+      // AI-powered: trust the LLM's intent classification instead of regex
+      // fallback that caused false positives (e.g. "update my calendar" → news)
       const isNewsIntent = result.intent.startsWith('QUERY_NEWS') ||
         result.intent.startsWith('NEWS_') ||
         result.intent === 'BRIEFING_NEWS' ||
-        result.intent.includes('NEWS') ||
-        /\b(news|headlines?|briefing|updates?)\b/i.test(transcript);
+        result.intent.includes('NEWS');
 
       if (isNewsIntent) {
         try {
-          const brief = await fetchNews(transcript);
+          // AI-powered: extract category and query from LLM entities
+          const newsCatEnt   = result.entities?.find(e => e.type === 'NEWS_CATEGORY');
+          const newsQueryEnt = result.entities?.find(e => e.type === 'NEWS_QUERY' || e.type === 'TOPIC');
+          const brief = await fetchNews(transcript, newsCatEnt?.text, newsQueryEnt?.text);
           const newsText = brief.spokenBrief;
           setMessages(prev => [...prev, {
             id: `news-${Date.now()}`, role: 'roger' as const,
@@ -1019,7 +1413,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             if (commute) {
               const etaMsg = `${destination} is ${commute.duration} away by ${commute.mode} (${commute.distance}). Standing by. Over.`;
               setMessages(prev => [...prev, { id: `eta-${Date.now()}`, role: 'roger' as const, text: etaMsg, ts: Date.now(), type: 'response' as const }]);
-              speakResponse(etaMsg).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(etaMsg)); });
+              speakResponse(etaMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
             }
           }).catch(() => {});
         }
@@ -1037,7 +1431,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           if (errands.length > 0) parts.push(`${errands.length} errand${errands.length > 1 ? 's' : ''} on your list.`);
           parts.push('Have a safe drive. Over.');
           const brief = parts.join(' ');
-          speakResponse(brief).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(brief)); });
+          speakResponse(brief).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         }).catch(() => {});
       }
 
@@ -1060,7 +1454,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           const msg = park
             ? `Your last logged parking: ${park.location_label}. Logged ${Math.floor((Date.now() - new Date(park.created_at).getTime()) / 60000)} minutes ago. Over.`
             : 'No parking location logged. To save it, say: I parked at Level B2. Over.';
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         }).catch(() => {});
       }
 
@@ -1098,7 +1492,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }
           parts.push('Over.');
           const brief = parts.join(' ');
-          speakResponse(brief).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(brief)); });
+          speakResponse(brief).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         }).catch(() => {});
       }
 
@@ -1118,7 +1512,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             body: JSON.stringify({ targetCallsign, reason }),
           }).then(r => r.json()).catch(() => ({ ok: false, rogerResponse: 'Connection failed. Over.' }));
           const msg = res.rogerResponse ?? result.roger_response;
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         };
 
         if (callsignEnt?.text) {
@@ -1136,7 +1530,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               doTuneInRequest(contact.callsign, `Request from ${contact.display_name}`).catch(() => {});
             } else {
               const msg = `${nameEnt.text} doesn't have a callsign saved. Ask them to share their Roger code. Over.`;
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
             }
           }).catch(() => {});
         }
@@ -1159,7 +1553,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             setActiveTuneInSession({ sessionId: res.sessionId, withName: res.withName ?? req.from });
             setIncomingTuneInRequest(null);
             const msg = res.rogerResponse ?? result.roger_response;
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }
         }).catch(() => {});
       }
@@ -1196,7 +1590,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }).then(r => r.json()).catch(() => ({ ok: false }));
           setActiveTuneInSession(null);
           const msg = res.rogerResponse ?? result.roger_response;
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         }).catch(() => {});
       }
 
@@ -1233,7 +1627,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               setPendingContactSave(null);
               setContactSaveInput('');
               const conf = `${name} saved. You can now say "tune in with ${name}" to reach them. Over.`;
-              speakResponse(conf).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(conf)); });
+              speakResponse(conf).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
             }).catch(() => {});
 
         }
@@ -1252,7 +1646,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
           if (results.length === 0) {
             const msg = `No sessions found${keyword ? ` mentioning ${keyword}` : ''}. Over.`;
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
             return;
           }
 
@@ -1271,7 +1665,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }
           msg += ' Full transcript is in your Session Log. Over.';
 
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
 
           // Surface a card pointing to the archive
           insertSurfaceItem({
@@ -1287,13 +1681,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // ── QUERY_STOCK — live stock quote ──────────────────────────────────────
       if (result.intent === 'QUERY_STOCK' || result.intent === 'MARKET_BRIEF') {
         const tickerEnt = result.entities?.find(e => e.type === 'STOCK_TICKER');
-        const ticker = tickerEnt?.text ?? detectTicker(transcript);
+        // AI-powered: GPT-5.5 resolves any company name → ticker symbol
+        // (replaces hard-coded 16-company detectTicker() regex dictionary)
+        const ticker = tickerEnt?.text ?? null;
 
         if (result.intent === 'MARKET_BRIEF' || !ticker) {
           // Market overview
           fetchMarketContext(['AAPL', 'MSFT', 'NVDA', 'TSLA']).then(ctx => {
             const msg = ctx ? `Market brief: ${ctx}. Over.` : 'Market data unavailable at this time. Over.';
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {});
         } else {
           fetchQuote(ticker).then(quote => {
@@ -1305,7 +1701,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 ts: Date.now(), intent: result.intent, outcome: 'success',
               }]);
             }
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {});
         }
       }
@@ -1313,7 +1709,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // ── QUERY_FLIGHT — live flight status ────────────────────────────────────
       if (result.intent === 'QUERY_FLIGHT') {
         const flightEnt = result.entities?.find(e => e.type === 'FLIGHT_NUMBER');
-        const flightNum = flightEnt?.text ?? parseFlight(transcript);
+        // AI-powered: GPT-5.5 resolves any airline name + number → IATA code
+        // (replaces hard-coded 18-airline parseFlight() regex dictionary)
+        const flightNum = flightEnt?.text ?? null;
 
         if (flightNum) {
           fetchFlightStatus(flightNum).then(flight => {
@@ -1326,10 +1724,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 ts: Date.now(), intent: result.intent, outcome: 'success',
               }]);
             }
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {
             const msg = 'Flight tracking unavailable. Check your AviationStack API key. Over.';
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           });
         }
       }
@@ -1354,7 +1752,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             const phone = contact?.phone_number ?? (recipientEnt?.type === 'PHONE_NUMBER' ? recipient : null);
             if (!phone) {
               const noPhone = `${recipient} doesn't have a phone number saved. Add it in your Memory Vault. Over.`;
-              speakResponse(noPhone).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(noPhone)); });
+              speakResponse(noPhone).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               return;
             }
 
@@ -1372,7 +1770,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             const msg = smsData.ok
               ? `SMS sent to ${contact?.display_name ?? recipient}. Over.`
               : `SMS failed: ${smsData.error ?? 'unknown error'}. Over.`;
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {});
         }
       }
@@ -1383,7 +1781,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           fetchTodayEvents(userId).then(cal => {
             if (!cal.events.length) {
               const msg = 'Your calendar is clear today. Over.';
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               return;
             }
             const summary = cal.events.slice(0, 3).map(eventToSpeech).join(', then ');
@@ -1393,10 +1791,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               text: `📅 ${cal.events.length} events today`,
               ts: Date.now(), intent: result.intent, outcome: 'success',
             }]);
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {
             const msg = 'Calendar not connected. Go to Settings to link your Google Calendar. Over.';
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           });
         }
 
@@ -1426,10 +1824,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               execute: () => {
                 createCalendarEvent(userId, { title, startIso, endIso }).then(() => {
                   const msg = `${title} booked at ${timeEnt.text}. Done. Over.`;
-                  speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                  speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
                 }).catch(() => {
                   const msg = 'Could not book meeting. Calendar not connected. Over.';
-                  speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                  speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
                 });
               },
             });
@@ -1441,7 +1839,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           if (titleEnt?.text) {
             deleteCalendarEvent(userId, titleEnt.text).then(ok => {
               const msg = ok ? `${titleEnt.text} cancelled. Over.` : `Could not find that meeting to cancel. Over.`;
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
             }).catch(() => {});
           }
         }
@@ -1451,16 +1849,16 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       if (['PLAY_MUSIC','PLAY_PLAYLIST','PAUSE_MUSIC','SKIP_TRACK'].includes(result.intent)) {
         if (!isSpotifyConnected()) {
           const msg = 'Spotify not connected. Go to Settings to link your account. Over.';
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         } else if (result.intent === 'PAUSE_MUSIC') {
           pausePlayback().then(() => {
             const msg = 'Music paused. Over.';
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {});
         } else if (result.intent === 'SKIP_TRACK') {
           nextTrack().then(() => {
             const msg = 'Skipping. Over.';
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {});
         } else {
           // PLAY_MUSIC or PLAY_PLAYLIST
@@ -1470,8 +1868,65 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           const query = playlistEnt?.text ?? artistEnt?.text ?? moodEnt?.text ?? transcript.replace(/play|music|queue|spotify/gi, '').trim();
           playSearch(query).then(label => {
             const msg = label ? `Playing ${label}. Over.` : 'Could not find that on Spotify. Over.';
-            speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }).catch(() => {});
+        }
+      }
+
+      // ── INTERNET RADIO INTENTS ──────────────────────────────────────────────
+      if (['PLAY_RADIO','STOP_RADIO','RADIO_INFO','NEXT_STATION'].includes(result.intent)) {
+        const { searchAndPlay, stopRadio: stopRadioFn, getCurrentStation, playNextStation } = await import('../../lib/radioBrowser');
+
+        if (result.intent === 'STOP_RADIO') {
+          stopRadioFn();
+          // Roger already spoke "Radio off. Over." from GPT response
+        } else if (result.intent === 'RADIO_INFO') {
+          const station = getCurrentStation();
+          if (station) {
+            const infoMsg = `Now playing: ${station.name}. ${station.tags?.split(',')[0] ?? 'Radio'}. ${station.country}. ${station.bitrate > 0 ? station.bitrate + 'kbps.' : ''} Over.`;
+            speakResponse(infoMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+          } else {
+            const noRadio = 'No radio playing right now. Say "play radio" to start. Over.';
+            speakResponse(noRadio).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+          }
+        } else if (result.intent === 'NEXT_STATION') {
+          const next = await playNextStation();
+          if (next) {
+            const msg = `Switching to ${next.name}. Over.`;
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+          } else {
+            const msg = 'No more stations in queue. Try a new search. Over.';
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+          }
+        } else {
+          // PLAY_RADIO — extract search criteria from entities
+          const tagEnt     = result.entities?.find(e => e.type === 'RADIO_TAG' || e.type === 'MOOD');
+          const stationEnt = result.entities?.find(e => e.type === 'RADIO_STATION');
+          const countryEnt = result.entities?.find(e => e.type === 'RADIO_COUNTRY');
+          const langEnt    = result.entities?.find(e => e.type === 'RADIO_LANGUAGE');
+          const nearbyEnt  = result.entities?.find(e => e.type === 'RADIO_NEARBY');
+
+          const station = await searchAndPlay({
+            tag: tagEnt?.text,
+            name: stationEnt?.text,
+            countrycode: countryEnt?.text,
+            language: langEnt?.text,
+            geo_lat: nearbyEnt ? location?.latitude : undefined,
+            geo_long: nearbyEnt ? location?.longitude : undefined,
+          });
+
+          if (station) {
+            const msg = `Tuning in to ${station.name}. ${station.tags?.split(',')[0] ?? 'Radio'}. Over.`;
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+            setMessages(prev => [...prev, {
+              id: `radio-${Date.now()}`, role: 'roger' as const,
+              text: `📻 Now playing: ${station.name} (${station.country})`,
+              ts: Date.now(), intent: result.intent, outcome: 'success',
+            }]);
+          } else {
+            const msg = 'No stations found matching that. Try a different genre or country. Over.';
+            speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+          }
         }
       }
 
@@ -1483,7 +1938,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           tags: [result.intent, ...(result.entities?.map(e => e.text) ?? [])],
         }).then(page => {
           const msg = page ? `Logged to Notion. Over.` : 'Notion not connected. Add your token in Settings. Over.';
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         }).catch(() => {});
       }
 
@@ -1538,7 +1993,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const gate = checkGate('ambient_listener');
         if (!gate.allowed) {
           const gateMsg = `${gate.reason} Say "upgrade" to unlock it. Over.`;
-          speakResponse(gateMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(gateMsg)); });
+          speakResponse(gateMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         } else {
           const sess = createAmbientSession(
             {
@@ -1562,7 +2017,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               },
               onMusicDetected: (info) => {
                 const msg = `That's "${info.title}" by ${info.artist}${info.album ? ` from ${info.album}` : ''}. Over.`;
-                speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               },
               onError: (err) => console.warn('[Ambient]', err),
             },
@@ -1573,7 +2028,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             setAmbientActive(true);
           } else {
             const errMsg = 'Microphone access required for listening mode. Over.';
-            speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+            speakResponse(errMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }
         }
       }
@@ -1583,13 +2038,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const chunk = ambientLastChunk;
         if (!chunk) {
           const msg = "I haven't captured anything yet. Say 'listen to this' to start. Over.";
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         } else {
           let msg = chunk.summary;
           if (chunk.language && chunk.language !== 'en') msg += ` Spoken in ${chunk.languageName ?? chunk.language}.`;
           if (chunk.musicHint) msg += ` Music note: ${chunk.musicHint}.`;
           msg += ' Over.';
-          speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+          speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         }
       }
 
@@ -1620,7 +2075,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
         const summary = finalResult.summary || 'No clear audio captured.';
         const finalMsg = `Listening stopped. ${summary} Over.`;
-        speakResponse(finalMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(finalMsg)); });
+        speakResponse(finalMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         setMessages(prev => [...prev, {
           id: `ambient-end-${Date.now()}`, role: 'roger' as const,
           text: `🎙️ Ambient session ended · ${finalResult.durationS}s · ${finalResult.contentType}${finalResult.musicTitle ? ` · 🎵 ${finalResult.musicTitle}` : ''}${finalResult.language && finalResult.language !== 'en' ? ` · 🌐 ${finalResult.languageName}` : ''}`,
@@ -1634,7 +2089,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const gate = checkGate('meeting_recorder');
         if (!gate.allowed) {
           const gateMsg = `${gate.reason} Say "upgrade" to unlock it. Over.`;
-          speakResponse(gateMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(gateMsg)); });
+          speakResponse(gateMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
         } else {
           const titleEnt  = result.entities?.find(e => e.type === 'MEETING_TITLE');
           const mTitle = titleEnt?.text ?? 'Meeting';
@@ -1655,7 +2110,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 setMeetingElapsed(0);
                 setMeetingWords(0);
                 const msg = res.notes.spoken_summary || `Meeting notes ready. ${res.notes.action_items.length} action item${res.notes.action_items.length !== 1 ? 's' : ''}. Over.`;
-                speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
                 setMessages(prev => [...prev, {
                   id: `meeting-done-${Date.now()}`, role: 'roger' as const,
                   text: `📋 Meeting notes ready: "${res.title}" · ${res.notes.action_items.length} actions · ${res.notes.decisions.length} decisions`,
@@ -1672,7 +2127,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             setMeetingActive(true);
           } else {
             const errMsg = 'Microphone access required for meeting recording. Over.';
-            speakResponse(errMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(errMsg)); });
+            speakResponse(errMsg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           }
         }
       }
@@ -1693,7 +2148,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const spelled = firstPerson.text.toUpperCase().split('').join(', ');
         const namePrompt = `Confirming name: ${spelled}. Is that correct? Over.`;
         setTimeout(() => {
-          speakResponse(namePrompt).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(namePrompt)); });
+          speakResponse(namePrompt).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
           setPendingNameConfirm({ name: firstPerson.text });
         }, 1500); // small delay so Roger's main response finishes first
       }
@@ -1753,6 +2208,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         isKnowledge,
         subtopics: result.subtopics ?? undefined,
         deepDiveDepth: isKnowledge ? currentDepth : undefined,
+        translationSource: result.translation_source ?? undefined,
+        translationTarget: result.translation_target ?? undefined,
+        translationTargetLang: result.translation_target_lang ?? undefined,
+        translationRomanized: result.translation_romanized ?? undefined,
       }]);
 
       hapticResponseReceived();
@@ -1827,10 +2286,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       hapticError();
       sfxError();
       const m = e instanceof Error && e.message.includes('abort') ? 'Signal timeout. Retry. Over.' : 'AI offline. Retry. Over.';
-      speakResponse(m).catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); });
+      speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       setIsSpeaking(false); setPttState('responded');
     }
-  }, [pttState, holdMs, history, userId, handlePTTDown, resetIdleTimer]);
+  }, [pttState, history, userId, handlePTTDown, resetIdleTimer]);
 
   // ── Surface item response ─────────────────────────────────────────────────
   const handleSurfaceAction = async (action: 'execute' | 'forget' | 'defer') => {
@@ -1846,13 +2305,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   };
 
   // ── State display ─────────────────────────────────────────────────────────
-  const stateLabel = pttState === 'recording' ? `● REC ${(holdMs/1000).toFixed(1)}s`
-    : pttState === 'transcribing' ? '▸▸ TRANSCRIBING...'
-    : pttState === 'processing'   ? '◈ THINKING...'
-    : pttState === 'speaking'     ? '◉ ROGER SPEAKING'
+  const stateLabel = pttState === 'recording' ? `● ${t('ptt.recording_time', { time: (holdMs/1000).toFixed(1) })}`
+    : pttState === 'transcribing' ? `▸▸ ${t('ptt.listening')}`
+    : pttState === 'processing'   ? `◈ ${t('ptt.thinking')}`
+    : pttState === 'speaking'     ? `◉ ${t('ptt.speaking')}`
     : pttState === 'awaiting_answer' ? '⚡ ANSWER NOW'
-    : pttState === 'responded'    ? '✓ STANDING BY'
-    : '▣ HOLD TO TRANSMIT';
+    : pttState === 'responded'    ? `✓ ${t('ptt.standing_by')}`
+    : `▣ ${t('ptt.hold_to_talk')}`;
 
   const btnColor = pttState === 'recording'       ? '#d4a044'
     : pttState === 'speaking'                     ? '#4ade80'
@@ -1886,7 +2345,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Radio size={14} style={{ color: 'var(--green)' }} className="led-pulse" />
-          <span style={{ fontFamily: 'monospace', fontSize: 12, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', fontWeight: 600 }}>Roger AI</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 12, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', fontWeight: 600 }}>{t('app.name')}</span>
           {myCallsign && (
             <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: '1px solid rgba(212,160,68,0.25)', color: 'rgba(212,160,68,0.6)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
               {myCallsign}
@@ -1912,16 +2371,16 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       {proactivePending && (
         <div style={{
           margin: '8px 16px 0',
-          background: 'rgba(212,160,68,0.08)',
-          border: '1px solid rgba(212,160,68,0.35)',
+          background: proactivePending.trigger === 'thinking' ? 'rgba(239,161,51,0.10)' : 'rgba(212,160,68,0.08)',
+          border: `1px solid ${proactivePending.trigger === 'thinking' ? 'rgba(239,161,51,0.45)' : 'rgba(212,160,68,0.35)'}`,
           padding: '10px 14px',
           display: 'flex', alignItems: 'center', gap: 10,
-          animation: 'rogerPingPulse 2s ease-in-out infinite',
+          animation: proactivePending.trigger === 'thinking' ? 'thinkingPulse 1.5s ease-in-out infinite' : 'rogerPingPulse 2s ease-in-out infinite',
         }}>
-          <span style={{ fontSize: 16 }}>📡</span>
+          <span style={{ fontSize: 16 }}>{proactivePending.trigger === 'thinking' ? '🧠' : '📡'}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 2 }}>
-              ROGER HAS A MESSAGE · {proactivePending.trigger.toUpperCase()}
+            <div style={{ fontFamily: 'monospace', fontSize: 9, color: proactivePending.trigger === 'thinking' ? '#efa133' : 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 2 }}>
+              {proactivePending.trigger === 'thinking' ? 'ROGER IS THINKING' : `ROGER HAS A MESSAGE · ${proactivePending.trigger.toUpperCase()}`}
             </div>
             <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {proactivePending.text}
@@ -1929,9 +2388,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
             <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              PTT → speak · 2×PTT → snooze
+              {proactivePending.trigger === 'thinking' ? '1×PTT → hear · 2×PTT → snooze 15m' : 'PTT → speak · 2×PTT → snooze'}
             </span>
-            <button onClick={() => { clearPending(); }} style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-subtle)', padding: '2px 8px', cursor: 'pointer', textTransform: 'uppercase' }}>
+            <button onClick={() => { clearPending(); setThinkingPulse(false); }} style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-subtle)', padding: '2px 8px', cursor: 'pointer', textTransform: 'uppercase' }}>
               DISMISS
             </button>
           </div>
@@ -2102,13 +2561,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               }).then(r => r.json()).catch(() => ({ ok: false }));
               setActiveTuneInSession(null);
               const msg = res.rogerResponse ?? 'Channel closed. Over.';
-              speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+              speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               if (prevSess?.withName?.startsWith('Callsign ')) {
                 const cs = prevSess.withName.replace('Callsign ', '');
                 setPendingContactSave({ callsign: cs, contactName: '' });
                 setContactSaveInput('');
                 const prompt = `That was Callsign ${cs}. Want to save them? Type or say their name.`;
-                setTimeout(() => speakResponse(prompt).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(prompt)); }), 2000);
+                setTimeout(() => speakResponse(prompt).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }), 2000);
               }
             }}>
             END SESSION
@@ -2155,7 +2614,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 setAmbientActive(false);
                 setAmbientLastChunk(null);
                 const msg = `Listening stopped. ${res.summary || 'Session ended'}. Over.`;
-                speakResponse(msg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); });
+                speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               }
             }}
             style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.35)', color: '#a855f7', borderRadius: 3, flexShrink: 0 }}
@@ -2230,7 +2689,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 setPendingContactSave(null);
                 setContactSaveInput('');
                 const conf = `${name} saved. You can now say "tune in with ${name}". Over.`;
-                speakResponse(conf).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(conf)); });
+                speakResponse(conf).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
               }}
               placeholder="Type name + Enter"
               style={{ flex: 1, padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', borderRadius: 3, outline: 'none' }}
@@ -2291,12 +2750,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={() => { setPendingNameConfirm(null); const m = 'Name confirmed. Over.'; speakResponse(m).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); }); }}
+              onClick={() => { setPendingNameConfirm(null); const m = 'Name confirmed. Over.'; speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }); }}
               style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(167,139,250,0.12)', border: '1px solid #a78bfa', color: '#a78bfa' }}>
               ✓ CORRECT
             </button>
             <button
-              onClick={() => { setPendingNameConfirm(null); const m = 'Please say the name again. Over.'; speakResponse(m).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(m)); }); }}
+              onClick={() => { setPendingNameConfirm(null); const m = 'Please say the name again. Over.'; speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }); }}
               style={{ padding: '8px 16px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
               ✕ WRONG
             </button>
@@ -2456,7 +2915,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         {messages.length === 0 && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: 0.3 }}>
             <Radio size={36} style={{ color: 'var(--amber)' }} />
-            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.25em' }}>Hold to transmit</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.25em' }}>{t('ptt.hold_to_talk')}</span>
           </div>
         )}
         {messages.map(msg => (
@@ -2495,6 +2954,32 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               }`,
             }}>
               <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+              {/* ── Translation Dual-Line Bubble ── */}
+              {msg.translationTarget && (
+                <div style={{
+                  marginTop: 10, padding: '10px 12px',
+                  background: 'rgba(59,130,246,0.08)',
+                  border: '1px solid rgba(59,130,246,0.2)',
+                  borderRadius: 6,
+                }}>
+                  <div style={{ fontFamily: 'monospace', fontSize: 8, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                    🌐 TRANSLATION {msg.translationTargetLang ? `(${msg.translationTargetLang.toUpperCase()})` : ''}
+                  </div>
+                  {msg.translationSource && (
+                    <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, opacity: 0.6 }}>
+                      {msg.translationSource}
+                    </div>
+                  )}
+                  <div style={{ fontFamily: 'monospace', fontSize: 15, color: '#60a5fa', fontWeight: 600 }}>
+                    {msg.translationTarget}
+                  </div>
+                  {msg.translationRomanized && (
+                    <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'rgba(96,165,250,0.6)', fontStyle: 'italic', marginTop: 3 }}>
+                      {msg.translationRomanized}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* News article cards */}
@@ -2680,16 +3165,19 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
       {/* ── Spotify Mini Player — renders when connected and playing ── */}
       <SpotifyMiniPlayer />
+      <RadioMiniPlayer />
 
       {/* ── Morning Briefing ── */}
       {messages.length === 0 && <MorningBriefing userId={userId} location={location} />}
 
       {/* ── Quick Actions (tap to synthesise a voice command) ── */}
+      {/* Radio chip added alongside existing quick actions */}
       <div style={{ padding: '8px 16px 0', display: 'flex', gap: 6, borderTop: '1px solid var(--border-subtle)', overflowX: 'auto', flexShrink: 0 }}>
         {([
           { label: '📋 My tasks',       prompt: 'What tasks do I have open right now?' },
           { label: '⏰ Reminders',       prompt: 'What reminders do I have coming up?' },
           { label: '📅 Calendar',        prompt: "What's on my calendar today?" },
+          { label: '📻 Radio',           prompt: 'Play some popular radio near me.' },
           { label: '🧠 Memory',          prompt: 'What do you know about me?' },
           { label: '📰 News',            prompt: 'Give me a quick news briefing.' },
           { label: '📈 Markets',         prompt: 'Give me a market brief.' },
@@ -2718,15 +3206,118 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
       {/* ── PTT Button ── */}
       <div style={{
-        padding: '20px 16px 24px',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+        padding: '24px 16px 32px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14,
         borderTop: '1px solid var(--border-subtle)',
-        background: 'rgba(0,0,0,0.35)',
+        background: 'linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.5) 100%)',
         flexShrink: 0,
+        position: 'relative',
       }}>
         <span style={{ fontFamily: 'monospace', fontSize: 10, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 300ms', minHeight: 14 }}>
           {stateLabel}
         </span>
+
+        {/* ── Mode Roll Selector (right side of PTT) ── */}
+        {(() => {
+          type RollMode = { key: string; emoji: string; label: string; color: string; roger: 'quiet' | 'active' | 'briefing'; talk: boolean; freq?: 'thoughtful' | 'active_talk' | 'always_on' };
+          const modes: RollMode[] = [
+            { key: 'quiet',      emoji: '🔇', label: 'QRT',  color: '#6b7280', roger: 'quiet',    talk: false },
+            { key: 'active',     emoji: '📡', label: 'ACT',  color: '#d4a044', roger: 'active',   talk: false },
+            { key: 'briefing',   emoji: '🎙', label: 'BRF',  color: '#a78bfa', roger: 'briefing', talk: false },
+            { key: 'thoughtful', emoji: '💭', label: 'THK',  color: '#f59e0b', roger: 'active',   talk: true, freq: 'thoughtful' },
+            { key: 'chatty',     emoji: '🗣', label: 'CHT',  color: '#ef8a33', roger: 'active',   talk: true, freq: 'active_talk' },
+            { key: 'always_on',  emoji: '⚡', label: 'MAX',  color: '#ef4444', roger: 'active',   talk: true, freq: 'always_on' },
+          ];
+          let currentIdx = talkativeEnabled
+            ? modes.findIndex(m => m.talk && m.freq === talkativeFreq)
+            : modes.findIndex(m => !m.talk && m.roger === rogerMode);
+          if (currentIdx < 0) currentIdx = 1;
+          const current = modes[currentIdx];
+
+          const cycleMode = () => {
+            const nextIdx = (currentIdx + 1) % modes.length;
+            const next = modes[nextIdx];
+            // Update roger_mode
+            setRogerMode(next.roger);
+            // Update talkative
+            setTalkativeEnabled(next.talk);
+            if (next.freq) setTalkativeFreq(next.freq);
+            if (!next.talk) setThinkingPulse(false);
+            // Persist
+            const update: Record<string, unknown> = {
+              roger_mode: next.roger,
+              talkative_enabled: next.talk,
+            };
+            if (next.freq) update.talkative_frequency = next.freq;
+            supabase
+              .from('user_preferences')
+              .update(update)
+              .eq('user_id', userId)
+              .then(() => {});
+          };
+
+          return (
+            <>
+              <div
+                id="mode-roll-selector"
+                onClick={cycleMode}
+                style={{
+                  position: 'absolute',
+                  right: 12, top: '50%', transform: 'translateY(-50%)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                  cursor: 'pointer',
+                  userSelect: 'none', WebkitUserSelect: 'none',
+                }}
+              >
+                {/* Up arrow hint */}
+                <div style={{
+                  width: 0, height: 0,
+                  borderLeft: '4px solid transparent', borderRight: '4px solid transparent',
+                  borderBottom: `5px solid ${current.color}30`,
+                  transition: 'border-color 300ms',
+                }} />
+
+                {/* Mode dial */}
+                <div style={{
+                  width: 48, height: 48,
+                  borderRadius: '50%',
+                  border: `1.5px solid ${current.color}60`,
+                  background: `${current.color}10`,
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', gap: 1,
+                  transition: 'all 300ms ease',
+                  boxShadow: `0 0 14px ${current.color}18, inset 0 0 8px ${current.color}08`,
+                }}>
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>{current.emoji}</span>
+                  <span style={{
+                    fontFamily: 'monospace', fontSize: 6,
+                    color: current.color, textTransform: 'uppercase',
+                    letterSpacing: '0.1em', fontWeight: 700,
+                    lineHeight: 1,
+                  }}>{current.label}</span>
+                </div>
+
+                {/* Down arrow hint */}
+                <div style={{
+                  width: 0, height: 0,
+                  borderLeft: '4px solid transparent', borderRight: '4px solid transparent',
+                  borderTop: `5px solid ${current.color}30`,
+                  transition: 'border-color 300ms',
+                }} />
+
+                {/* Mode name below */}
+                <span style={{
+                  fontFamily: 'monospace', fontSize: 7,
+                  color: `${current.color}90`,
+                  textTransform: 'uppercase', letterSpacing: '0.08em',
+                  marginTop: 1,
+                }}>
+                  {current.key === 'quiet' ? 'Silent' : current.key === 'active' ? 'Active' : current.key === 'briefing' ? 'Brief' : current.key === 'thoughtful' ? 'Think' : current.key === 'chatty' ? 'Chatty' : 'Always'}
+                </span>
+              </div>
+            </>
+          );
+        })()}
 
         {/* Sonar rings + button — touch target is the full outer area */}
         <div
@@ -2739,52 +3330,61 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           aria-label={isSpeaking ? 'Interrupt Roger' : 'Push to talk'}
           style={{
             position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 165, height: 165,
-            padding: 20,            /* invisible touch padding — total hit area ~205px */
-            margin: -20,            /* negative margin so padding doesn't shift layout */
+            width: 190, height: 190,
+            padding: 24,            /* invisible touch padding — total hit area ~238px */
+            margin: -24,            /* negative margin so padding doesn't shift layout */
             cursor: 'pointer',
             touchAction: 'none',
             userSelect: 'none', WebkitUserSelect: 'none',
           }}
         >
           {/* Idle breathing glow — subtle hero animation */}
-          {(pttState === 'idle' || pttState === 'responded' || pttState === 'awaiting_answer') && (
+          {(pttState === 'idle' || pttState === 'responded' || pttState === 'awaiting_answer') && !thinkingPulse && (
             <>
-              <div style={{ position: 'absolute', width: 140, height: 140, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0.15, animation: 'pttBreathe 3s ease-in-out infinite' }} />
-              <div style={{ position: 'absolute', width: 155, height: 155, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0.08, animation: 'pttBreathe 3s ease-in-out 1.5s infinite' }} />
+              <div style={{ position: 'absolute', width: 160, height: 160, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0.12, animation: 'pttBreathe 3s ease-in-out infinite' }} />
+              <div style={{ position: 'absolute', width: 175, height: 175, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0.06, animation: 'pttBreathe 3s ease-in-out 1.5s infinite' }} />
+            </>
+          )}
+          {/* Thinking pulse — pulsating red glow when Roger has a thought */}
+          {thinkingPulse && (pttState === 'idle' || pttState === 'responded') && (
+            <>
+              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: '2px solid #ef4444', opacity: 0.5, animation: 'thinkingRedPulse 1.2s ease-in-out infinite' }} />
+              <div style={{ position: 'absolute', width: 185, height: 185, borderRadius: '50%', border: '1.5px solid #ef4444', opacity: 0.25, animation: 'thinkingRedPulse 1.2s ease-in-out 0.4s infinite' }} />
+              <div style={{ position: 'absolute', width: 155, height: 155, borderRadius: '50%', background: 'rgba(239,68,68,0.08)', animation: 'thinkingRedPulse 1.2s ease-in-out 0.2s infinite' }} />
             </>
           )}
           {/* Sonar rings */}
           {pttState === 'recording' && (
             <>
-              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out infinite' }} />
-              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 0.5s infinite' }} />
-              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 1.0s infinite' }} />
+              <div style={{ position: 'absolute', width: 190, height: 190, borderRadius: '50%', border: `2px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out infinite' }} />
+              <div style={{ position: 'absolute', width: 190, height: 190, borderRadius: '50%', border: `2px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 0.5s infinite' }} />
+              <div style={{ position: 'absolute', width: 190, height: 190, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 1.0s infinite' }} />
             </>
           )}
           {/* Speaking pulse */}
           {(pttState === 'speaking') && (
-            <div style={{ position: 'absolute', width: 148, height: 148, borderRadius: '50%', background: `${btnColor}18`, animation: 'pulse 1.2s ease-in-out infinite' }} />
+            <div style={{ position: 'absolute', width: 168, height: 168, borderRadius: '50%', background: `${btnColor}18`, animation: 'pulse 1.2s ease-in-out infinite' }} />
           )}
           <div
             style={{
-              width: 120, height: 120, borderRadius: '50%',
-              border: `2.5px solid ${btnColor}`,
+              width: 140, height: 140, borderRadius: '50%',
+              border: `3px solid ${thinkingPulse ? '#ef4444' : btnColor}`,
               background: pttState === 'recording'
-                ? `radial-gradient(circle, ${btnColor}30 0%, ${btnColor}10 100%)`
-                : pttState === 'speaking' ? `${btnColor}14`
-                : 'rgba(255,255,255,0.04)',
+                ? `radial-gradient(circle at 40% 40%, ${btnColor}40 0%, ${btnColor}15 60%, transparent 100%)`
+                : pttState === 'speaking' ? `radial-gradient(circle, ${btnColor}20 0%, ${btnColor}08 100%)`
+                : `radial-gradient(circle at 40% 40%, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.01) 100%)`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'border-color 250ms, background 250ms',
+              transition: 'border-color 250ms, background 250ms, box-shadow 350ms, transform 200ms',
+              transform: pttState === 'recording' ? 'scale(1.05)' : 'scale(1)',
               boxShadow: pttState === 'recording'
-                ? `0 0 48px ${btnColor}66, 0 0 16px ${btnColor}33, inset 0 0 20px ${btnColor}1a`
-                : pttState === 'speaking' ? `0 0 28px ${btnColor}44`
-                : `0 0 20px ${btnColor}18`,
-              animation: (pttState === 'idle' || pttState === 'responded') ? 'pttGlow 3s ease-in-out infinite' : 'none',
+                ? `0 0 60px ${btnColor}66, 0 0 24px ${btnColor}44, inset 0 0 28px ${btnColor}1a`
+                : pttState === 'speaking' ? `0 0 36px ${btnColor}44, 0 0 12px ${btnColor}22`
+                : `0 0 24px ${btnColor}20, 0 0 8px ${btnColor}10`,
+              animation: (pttState === 'idle' || pttState === 'responded') ? (thinkingPulse ? 'thinkingGlow 1.2s ease-in-out infinite' : 'pttGlow 3s ease-in-out infinite') : 'none',
               pointerEvents: 'none',  /* visual only — parent handles events */
             }}
           >
-            {pttState === 'speaking' ? <Square size={28} style={{ color: btnColor, transition: 'color 250ms' }} /> : <Radio size={38} style={{ color: btnColor, transition: 'color 250ms' }} />}
+            {pttState === 'speaking' ? <Square size={32} style={{ color: btnColor, transition: 'color 250ms' }} /> : <Radio size={44} style={{ color: btnColor, transition: 'color 250ms', filter: `drop-shadow(0 0 6px ${btnColor}44)` }} />}
           </div>
         </div>
 
@@ -2796,6 +3396,95 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             ))}
           </div>
         )}
+
+        {/* PTT Rank Badge */}
+        {(() => {
+          const totalTx = messages.filter(m => m.role === 'user').length;
+          const rank = getPTTRank(totalTx);
+          return (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '4px 12px',
+              borderRadius: 20,
+              border: `1px solid ${rank.color}30`,
+              background: `${rank.color}0a`,
+              animation: 'rankPulse 3s ease-in-out infinite',
+            }}>
+              {rank.image ? (
+                <img src={rank.image} alt={rank.label} style={{ width: 24, height: 24, objectFit: 'contain', filter: `drop-shadow(0 0 4px ${rank.color}44)` }} />
+              ) : (
+                <span style={{ fontSize: 12 }}>{rank.icon}</span>
+              )}
+              <span style={{
+                fontFamily: 'monospace', fontSize: 9,
+                color: rank.color, textTransform: 'uppercase',
+                letterSpacing: '0.15em', fontWeight: 700,
+              }}>
+                {rank.label}
+              </span>
+            </div>
+          );
+        })()}
+
+        {/* Talkative Mode Quick Toggle */}
+        <div
+          id="talkative-quick-toggle"
+          onClick={() => {
+            const next = !talkativeEnabled;
+            setTalkativeEnabled(next);
+            setThinkingPulse(false);
+            supabase
+              .from('user_preferences')
+              .update({ talkative_enabled: next })
+              .eq('user_id', userId)
+              .then(() => {});
+          }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 14px',
+            borderRadius: 20,
+            cursor: 'pointer',
+            border: `1px solid ${talkativeEnabled ? 'rgba(239,161,51,0.4)' : 'rgba(255,255,255,0.08)'}`,
+            background: talkativeEnabled ? 'rgba(239,161,51,0.08)' : 'rgba(255,255,255,0.03)',
+            transition: 'all 300ms ease',
+            userSelect: 'none', WebkitUserSelect: 'none',
+          }}
+        >
+          {/* Animated brain icon */}
+          <span style={{
+            fontSize: 13,
+            filter: talkativeEnabled ? 'drop-shadow(0 0 6px rgba(239,161,51,0.5))' : 'none',
+            transition: 'filter 300ms',
+          }}>🧠</span>
+
+          <span style={{
+            fontFamily: 'monospace', fontSize: 8,
+            color: talkativeEnabled ? '#efa133' : 'var(--text-muted)',
+            textTransform: 'uppercase', letterSpacing: '0.12em',
+            transition: 'color 300ms',
+          }}>
+            {talkativeEnabled ? 'Thinking' : 'Silent'}
+          </span>
+
+          {/* Toggle pill */}
+          <div style={{
+            width: 28, height: 14,
+            borderRadius: 7,
+            background: talkativeEnabled ? 'rgba(239,161,51,0.35)' : 'rgba(255,255,255,0.1)',
+            position: 'relative',
+            transition: 'background 300ms',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 2, left: talkativeEnabled ? 14 : 2,
+              width: 10, height: 10,
+              borderRadius: '50%',
+              background: talkativeEnabled ? '#efa133' : 'rgba(255,255,255,0.3)',
+              transition: 'left 300ms cubic-bezier(0.4, 0, 0.2, 1), background 300ms',
+              boxShadow: talkativeEnabled ? '0 0 8px rgba(239,161,51,0.5)' : 'none',
+            }} />
+          </div>
+        </div>
       </div>
 
       {/* Sonar keyframe */}
@@ -2805,14 +3494,124 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           100% { transform: scale(1.6); opacity: 0; }
         }
         @keyframes pttBreathe {
-          0%, 100% { transform: scale(1); opacity: 0.08; }
-          50%      { transform: scale(1.08); opacity: 0.2; }
+          0%, 100% { transform: scale(1); opacity: 0.06; }
+          50%      { transform: scale(1.1); opacity: 0.2; }
         }
         @keyframes pttGlow {
-          0%, 100% { box-shadow: 0 0 20px ${btnColor}18; }
-          50%      { box-shadow: 0 0 32px ${btnColor}30, 0 0 12px ${btnColor}20; }
+          0%, 100% { box-shadow: 0 0 24px ${btnColor}20, 0 0 8px ${btnColor}10; }
+          50%      { box-shadow: 0 0 40px ${btnColor}38, 0 0 16px ${btnColor}28; }
+        }
+        @keyframes badgeEnter {
+          0%   { transform: scale(0.3) rotate(-12deg); opacity: 0; }
+          50%  { transform: scale(1.08) rotate(2deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes badgeBurst {
+          0%   { transform: scale(0.5); opacity: 0.9; }
+          100% { transform: scale(3.5); opacity: 0; }
+        }
+        @keyframes badgeShimmer {
+          0%, 100% { opacity: 0.4; }
+          50%      { opacity: 1; }
+        }
+        @keyframes badgeFadeOut {
+          0%   { opacity: 1; }
+          100% { opacity: 0; transform: scale(0.9) translateY(-20px); }
+        }
+        @keyframes rankPulse {
+          0%, 100% { opacity: 0.5; }
+          50%      { opacity: 0.9; }
+        }
+        @keyframes thinkingRedPulse {
+          0%, 100% { transform: scale(1); opacity: 0.15; }
+          50%      { transform: scale(1.12); opacity: 0.55; }
+        }
+        @keyframes thinkingGlow {
+          0%, 100% { box-shadow: 0 0 24px rgba(239,68,68,0.15), 0 0 8px rgba(239,68,68,0.1); }
+          50%      { box-shadow: 0 0 50px rgba(239,68,68,0.4), 0 0 20px rgba(239,68,68,0.3); }
+        }
+        @keyframes thinkingPulse {
+          0%, 100% { background: rgba(239,161,51,0.06); border-color: rgba(239,161,51,0.3); }
+          50%      { background: rgba(239,161,51,0.14); border-color: rgba(239,161,51,0.55); }
         }
       `}</style>
+
+      {/* ── Badge Celebration Overlay ── */}
+      {activeBadge && (
+        <div
+          onClick={() => setActiveBadge(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 0,
+            background: 'rgba(0,0,0,0.85)',
+            backdropFilter: 'blur(12px)',
+            animation: 'fadeIn 300ms ease-out',
+            cursor: 'pointer',
+          }}
+        >
+          {/* Radial burst rings */}
+          <div style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', border: `2px solid ${activeBadge.color}`, opacity: 0, animation: 'badgeBurst 1.2s ease-out forwards' }} />
+          <div style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', border: `1.5px solid ${activeBadge.color}`, opacity: 0, animation: 'badgeBurst 1.2s ease-out 0.2s forwards' }} />
+          <div style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', border: `1px solid ${activeBadge.color}`, opacity: 0, animation: 'badgeBurst 1.2s ease-out 0.4s forwards' }} />
+
+          {/* Badge image */}
+          <img
+            src={activeBadge.image}
+            alt={activeBadge.title}
+            style={{
+              width: 180, height: 180,
+              objectFit: 'contain',
+              animation: 'badgeEnter 600ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+              filter: `drop-shadow(0 0 40px ${activeBadge.glow})`,
+              marginBottom: 16,
+            }}
+          />
+
+          {/* Glow ring behind badge */}
+          <div style={{
+            position: 'absolute',
+            width: 200, height: 200, borderRadius: '50%',
+            background: `radial-gradient(circle, ${activeBadge.glow} 0%, transparent 70%)`,
+            animation: 'badgeShimmer 2s ease-in-out infinite',
+            marginTop: -80,
+            pointerEvents: 'none',
+          }} />
+
+          {/* Title */}
+          <div style={{
+            fontFamily: 'monospace', fontSize: 22, fontWeight: 800,
+            color: activeBadge.color, textTransform: 'uppercase',
+            letterSpacing: '0.15em',
+            animation: 'badgeEnter 600ms cubic-bezier(0.34, 1.56, 0.64, 1) 200ms both',
+            textShadow: `0 0 20px ${activeBadge.glow}`,
+          }}>
+            {activeBadge.title}
+          </div>
+
+          {/* Subtitle */}
+          <div style={{
+            fontFamily: 'monospace', fontSize: 12,
+            color: 'rgba(255,255,255,0.5)',
+            textTransform: 'uppercase', letterSpacing: '0.2em',
+            marginTop: 8,
+            animation: 'badgeEnter 600ms cubic-bezier(0.34, 1.56, 0.64, 1) 400ms both',
+          }}>
+            {activeBadge.subtitle}
+          </div>
+
+          {/* Dismiss hint */}
+          <div style={{
+            position: 'absolute', bottom: 40,
+            fontFamily: 'monospace', fontSize: 9,
+            color: 'rgba(255,255,255,0.2)',
+            textTransform: 'uppercase', letterSpacing: '0.2em',
+            animation: 'badgeShimmer 2s ease-in-out 1s infinite',
+          }}>
+            TAP TO DISMISS
+          </div>
+        </div>
+      )}
     </div>
   );
 }

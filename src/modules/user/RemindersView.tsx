@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Bell, CheckCircle2, X, Clock, MapPin, Plus, ChevronUp, Pencil, Check } from 'lucide-react';
 import { fetchReminders, updateReminderStatus, subscribeToReminders, insertReminder, type DbReminder } from '../../lib/api';
+import { useI18n } from '../../context/I18nContext';
 
 type Filter = 'all' | 'pending' | 'geo' | 'done' | 'dismissed';
 
@@ -14,6 +15,7 @@ interface NewReminder {
 const EMPTY_NEW: NewReminder = { text: '', due_date: '', due_time: '', due_location: '' };
 
 export default function RemindersView({ userId }: { userId: string }) {
+  const { t } = useI18n();
   const [reminders, setReminders] = useState<DbReminder[]>([]);
   const [filter, setFilter]       = useState<Filter>('all');
   const [loading, setLoading]     = useState(true);

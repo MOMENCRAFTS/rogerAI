@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw, Contact, Brain } from 'lucide-react';
 import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, fullUserReset, type DbUserPreferences } from '../../lib/api';
 import { useLocation } from '../../lib/useLocation';
 import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { useAuth } from '../../context/AuthContext';
+import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
 
 type Mode = 'quiet' | 'active' | 'briefing';
@@ -26,6 +27,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 export default function RogerSettings({ userId, onReplayTour, onReplayOrientation }: { userId: string; onReplayTour?: () => void; onReplayOrientation?: () => void }) {
   const { user, signOut }         = useAuth();
+  const { t } = useI18n();
   const [prefs, setPrefs]         = useState<Partial<DbUserPreferences>>({ roger_mode: 'active', language: 'en', briefing_time: '08:00', briefing_time2: '18:00', haptic_enabled: true, sfx_enabled: true });
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
@@ -34,6 +36,12 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
   const [callsign, setCallsign]   = useState<string | null>(null);
   const [copied, setCopied]       = useState(false);
   const { locationLabel, permissionState: locPerm } = useLocation(userId);
+
+  // ── Contacts state ──
+  const [contactCount, setContactCount]     = useState<number>(0);
+  const [contactSyncing, setContactSyncing] = useState(false);
+  const [contactLastSync, setContactLastSync] = useState<number>(0);
+  const [contactConnected, setContactConnected] = useState(false);
 
   // ── Factory Reset state (3-step safe flow) ──
   const [resetStep, setResetStep]       = useState<0 | 1 | 2 | 3>(0); // 0=hidden, 1=confirm prompt, 2=type phrase, 3=final
@@ -76,6 +84,16 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
       try {
         const { data } = await supabase.from('user_callsigns').select('callsign').eq('user_id', userId).maybeSingle();
         if (data?.callsign) setCallsign(data.callsign);
+      } catch { /* silent */ }
+    })();
+    // Load contacts state
+    (async () => {
+      try {
+        const { checkContactsPermission, getCachedContactCount, getLastSyncTime } = await import('../../lib/deviceContacts');
+        const perm = await checkContactsPermission();
+        setContactConnected(perm === 'granted');
+        setContactCount(getCachedContactCount());
+        setContactLastSync(getLastSyncTime());
       } catch { /* silent */ }
     })();
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -161,7 +179,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           <Zap size={18} style={{ color: '#a855f7', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Orientation</p>
-            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Walk through all 10 capability chapters again.</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Walk through all 13 capability chapters again.</p>
           </div>
           <button
             onClick={() => { resetOrientationSeen(userId).catch(() => {}); onReplayOrientation(); }}
@@ -238,14 +256,14 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.06)')}
           onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
         >
-          <LogOut size={12} /> Sign Out
+          <LogOut size={12} /> {t('settings.sign_out')}
         </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
         <Settings size={16} style={{ color: 'var(--amber)' }} />
         <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>
-          Roger Settings
+          {t('settings.title')}
         </span>
 
         {saving && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>Saving...</span>}
@@ -285,7 +303,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
       <div style={{ marginBottom: 24, padding: '12px 14px', border: `1px solid ${locColor}33`, background: `${locColor}0a`, display: 'flex', alignItems: 'center', gap: 10 }}>
         <MapPin size={13} style={{ color: locColor, flexShrink: 0 }} />
         <div>
-          <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 2px' }}>Location Awareness</p>
+          <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 2px' }}>{t('settings.location_awareness')}</p>
           <p style={{ fontFamily: 'monospace', fontSize: 12, color: locColor, margin: 0 }}>{locationLabel}</p>
         </div>
         {locPerm === 'denied' && (
@@ -295,9 +313,77 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         )}
       </div>
 
+      {/* ── Contacts ── */}
+      <div style={{ marginBottom: 24, padding: '14px 16px', border: `1px solid ${contactConnected ? 'rgba(59,130,246,0.3)' : 'var(--border-subtle)'}`, background: contactConnected ? 'rgba(59,130,246,0.04)' : 'var(--bg-elevated)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: contactConnected ? 12 : 0 }}>
+          <Contact size={16} style={{ color: contactConnected ? '#3b82f6' : 'var(--text-muted)', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 12, color: contactConnected ? '#3b82f6' : 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Contacts</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>
+              {contactConnected
+                ? `📡 ${contactCount} contacts synced${contactLastSync ? ` · Last: ${new Date(contactLastSync).toLocaleTimeString()}` : ''}`
+                : 'Not connected — grant access to unlock voice messaging'}
+            </p>
+          </div>
+          {contactSyncing && <Loader size={14} style={{ color: '#3b82f6', animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+          {contactConnected && !contactSyncing && (
+            <button
+              onClick={async () => {
+                setContactSyncing(true);
+                try {
+                  const { fetchDeviceContacts, getCachedContactCount, getLastSyncTime, clearContactsCache } = await import('../../lib/deviceContacts');
+                  const { invalidateWhisperHint } = await import('../../lib/whisperHint');
+                  clearContactsCache();
+                  invalidateWhisperHint();
+                  await fetchDeviceContacts();
+                  setContactCount(getCachedContactCount());
+                  setContactLastSync(getLastSyncTime());
+                } catch { /* silent */ }
+                setContactSyncing(false);
+              }}
+              style={{ flexShrink: 0, padding: '6px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', cursor: 'pointer' }}
+            >🔄 Sync</button>
+          )}
+        </div>
+        {contactConnected ? (
+          <button
+            onClick={async () => {
+              const { clearContactsCache } = await import('../../lib/deviceContacts');
+              const { invalidateWhisperHint } = await import('../../lib/whisperHint');
+              clearContactsCache();
+              invalidateWhisperHint();
+              setContactConnected(false);
+              setContactCount(0);
+              setContactLastSync(0);
+              localStorage.removeItem('roger_contacts_prompted');
+            }}
+            style={{ width: '100%', padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', cursor: 'pointer' }}
+          >⛔ Disconnect Contacts</button>
+        ) : (
+          <button
+            onClick={async () => {
+              try {
+                const { requestContactsPermission, fetchDeviceContacts, getCachedContactCount, getLastSyncTime } = await import('../../lib/deviceContacts');
+                const { invalidateWhisperHint } = await import('../../lib/whisperHint');
+                const granted = await requestContactsPermission();
+                if (granted) {
+                  await fetchDeviceContacts();
+                  invalidateWhisperHint();
+                  setContactConnected(true);
+                  setContactCount(getCachedContactCount());
+                  setContactLastSync(getLastSyncTime());
+                }
+              } catch { /* silent */ }
+            }}
+            style={{ marginTop: 10, width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', cursor: 'pointer' }}
+          >📡 Connect Contacts</button>
+        )}
+        <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '8px 0 0', opacity: 0.6 }}>🔒 Only names are read. Numbers stay on your device.</p>
+      </div>
+
       {/* Push Notifications */}
       <div style={{ marginBottom: 28 }}>
-        <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Notifications</p>
+        <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>{t('settings.notifications')}</p>
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: 12 }}>
           {pushState === 'subscribed'
             ? <Bell size={18} style={{ color: 'var(--green)', flexShrink: 0 }} />
@@ -424,6 +510,116 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           </div>
         </div>
       )}
+
+      {/* ── Talkative Mode ── */}
+      <div style={{ marginBottom: 28 }}>
+        <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Talkative Mode</p>
+
+        {/* Master toggle */}
+        <div style={{
+          padding: '14px 16px',
+          border: `1px solid ${(prefs as Record<string, unknown>).talkative_enabled ? 'rgba(239,161,51,0.4)' : 'var(--border-subtle)'}`,
+          background: (prefs as Record<string, unknown>).talkative_enabled ? 'rgba(239,161,51,0.06)' : 'var(--bg-elevated)',
+          marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, transition: 'all 200ms',
+        }}>
+          <Brain size={18} style={{ color: (prefs as Record<string, unknown>).talkative_enabled ? '#efa133' : 'var(--text-muted)', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 12, color: (prefs as Record<string, unknown>).talkative_enabled ? '#efa133' : 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Talkative Mode</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Roger thinks about you and reaches out proactively</p>
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[true, false].map(val => {
+              const active = !!(prefs as Record<string, unknown>).talkative_enabled === val;
+              return (
+                <button key={String(val)}
+                  id={`talkative-toggle-${val ? 'on' : 'off'}`}
+                  onClick={() => {
+                    const next = { ...prefs, talkative_enabled: val } as Record<string, unknown>;
+                    setPrefs(next as typeof prefs);
+                    upsertUserPreferences(userId, { talkative_enabled: val } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                    setSaved(true); setTimeout(() => setSaved(false), 1500);
+                  }}
+                  style={{
+                    padding: '6px 12px', fontFamily: 'monospace', fontSize: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
+                    border: `1px solid ${active ? 'rgba(239,161,51,0.5)' : 'var(--border-subtle)'}`,
+                    background: active ? 'rgba(239,161,51,0.15)' : 'transparent',
+                    color: active ? '#efa133' : 'var(--text-muted)',
+                  }}>
+                  {val ? 'On' : 'Off'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Frequency picker — only shown when enabled */}
+        {!!(prefs as Record<string, unknown>).talkative_enabled && (
+          <div style={{ padding: '12px 16px', border: '1px solid rgba(239,161,51,0.15)', background: 'rgba(239,161,51,0.03)', marginBottom: 8 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(239,161,51,0.7)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>How Chatty</p>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {([
+                { value: 'thoughtful',  label: '💭 Thoughtful',  desc: '2-3/day' },
+                { value: 'active_talk', label: '📡 Active',      desc: 'Up to 6/day' },
+                { value: 'always_on',   label: '⚡ Always On',    desc: 'Whenever' },
+              ] as { value: string; label: string; desc: string }[]).map(opt => {
+                const active = ((prefs as Record<string, unknown>).talkative_frequency ?? 'thoughtful') === opt.value;
+                return (
+                  <button key={opt.value}
+                    onClick={() => {
+                      const next = { ...prefs, talkative_frequency: opt.value } as Record<string, unknown>;
+                      setPrefs(next as typeof prefs);
+                      upsertUserPreferences(userId, { talkative_frequency: opt.value } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                    }}
+                    style={{
+                      flex: 1, padding: '8px 6px', fontFamily: 'monospace', fontSize: 10, cursor: 'pointer',
+                      textAlign: 'center', transition: 'all 150ms',
+                      border: `1px solid ${active ? 'rgba(239,161,51,0.5)' : 'var(--border-subtle)'}`,
+                      background: active ? 'rgba(239,161,51,0.12)' : 'transparent',
+                      color: active ? '#efa133' : 'var(--text-muted)',
+                    }}>
+                    <span style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>{opt.label}</span>
+                    <span style={{ display: 'block', fontSize: 8, opacity: 0.6 }}>{opt.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Delivery picker — only shown when enabled */}
+        {!!(prefs as Record<string, unknown>).talkative_enabled && (
+          <div style={{ padding: '12px 16px', border: '1px solid rgba(239,161,51,0.15)', background: 'rgba(239,161,51,0.03)' }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(239,161,51,0.7)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>Delivery</p>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {([
+                { value: 'auto_speak', label: '🔊 Auto Speak', desc: 'Roger talks immediately' },
+                { value: 'ptt_pulse',  label: '🔴 PTT Pulse',  desc: 'Button glows red' },
+              ] as { value: string; label: string; desc: string }[]).map(opt => {
+                const active = ((prefs as Record<string, unknown>).talkative_delivery ?? 'ptt_pulse') === opt.value;
+                return (
+                  <button key={opt.value}
+                    onClick={() => {
+                      const next = { ...prefs, talkative_delivery: opt.value } as Record<string, unknown>;
+                      setPrefs(next as typeof prefs);
+                      upsertUserPreferences(userId, { talkative_delivery: opt.value } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                    }}
+                    style={{
+                      flex: 1, padding: '8px 6px', fontFamily: 'monospace', fontSize: 10, cursor: 'pointer',
+                      textAlign: 'center', transition: 'all 150ms',
+                      border: `1px solid ${active ? 'rgba(239,161,51,0.5)' : 'var(--border-subtle)'}`,
+                      background: active ? 'rgba(239,161,51,0.12)' : 'transparent',
+                      color: active ? '#efa133' : 'var(--text-muted)',
+                    }}>
+                    <span style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>{opt.label}</span>
+                    <span style={{ display: 'block', fontSize: 8, opacity: 0.6 }}>{opt.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Language */}
       <div style={{ marginBottom: 28 }}>

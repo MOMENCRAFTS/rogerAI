@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, Volume2, VolumeX, Mic } from 'lucide-react';
+import { useI18n } from '../../context/I18nContext';
 import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION, ISLAMIC_CHAPTER } from '../../lib/orientationScript';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { createAudioRecorder } from '../../lib/audioRecorder';
@@ -35,6 +36,7 @@ interface Props {
 }
 
 export default function Orientation({ displayName, islamicMode, onComplete }: Props) {
+  const { t } = useI18n();
   const [chapter, setChapter]         = useState(0);
   const [direction, setDirection]     = useState(1);
   const [speaking, setSpeaking]       = useState(false);
@@ -259,7 +261,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
         borderBottom: '1px solid rgba(255,255,255,0.04)',
       }}>
         <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(212,160,68,0.5)', textTransform: 'uppercase', letterSpacing: '0.25em', flex: 1 }}>
-          Roger AI · Orientation
+          {t('orientation.header')}
         </span>
         <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(212,160,68,0.4)', letterSpacing: '0.1em' }}>
           {chapter + 1} / {total}
@@ -270,7 +272,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
         </button>
         <button onClick={handleSkip} title="Skip orientation"
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 10px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(107,106,94,0.5)' }}>
-          Skip →
+          {t('orientation.skip')}
         </button>
       </div>
 

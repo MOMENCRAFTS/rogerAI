@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { Zap, RefreshCw, Power, Play, Wifi, WifiOff, Home, ChevronRight } from 'lucide-react';
 import { listTuyaDevices, controlDevice, listTuyaScenes, triggerTuyaScene, TUYA_CATEGORY_LABELS, type TuyaDevice, type TuyaScene } from '../../lib/tuya';
 import { fetchUserPreferences } from '../../lib/api';
+import { useI18n } from '../../context/I18nContext';
 
 type ViewMode = 'devices' | 'scenes';
 
 export default function SmartHomeView({ userId }: { userId: string }) {
+  const { t } = useI18n();
   const [devices, setDevices]     = useState<TuyaDevice[]>([]);
   const [scenes, setScenes]       = useState<TuyaScene[]>([]);
   const [loading, setLoading]     = useState(true);

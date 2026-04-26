@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { FileText, CheckSquare, Zap, Users, Clock, ChevronDown, ChevronUp, Trash2, Mic } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useI18n } from '../../context/I18nContext';
 
 interface ActionItem { text: string; owner: string | null; due_date: string | null }
 interface Decision   { text: string }
@@ -43,6 +44,7 @@ function formatDate(iso: string) {
 }
 
 export default function MeetingRecorderView({ userId }: Props) {
+  const { t } = useI18n();
   const [meetings, setMeetings]     = useState<MeetingRecord[]>([]);
   const [loading, setLoading]       = useState(true);
   const [expanded, setExpanded]     = useState<string | null>(null);

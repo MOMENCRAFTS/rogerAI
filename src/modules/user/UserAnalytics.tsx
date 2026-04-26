@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { BarChart3, Mic, Brain, User, TrendingUp, Clock, Newspaper, Loader } from 'lucide-react';
 import {
   fetchAllEntityMentions, fetchMemoryGraph, fetchConversationSessions,
-  fetchTasks, fetchReminders,
-  type DbEntityMention, type DbMemoryFact,
+  fetchTasks, fetchReminders, fetchAcademyStreak, fetchVocabWords,
+  type DbEntityMention, type DbMemoryFact, type DbAcademyStreak,
 } from '../../lib/api';
 import { speakResponse } from '../../lib/tts';
+import { useI18n } from '../../context/I18nContext';
 
 
 
@@ -20,6 +21,8 @@ interface Stats {
   todayCount: number;
   dailyCounts: number[]; // last 7 days, index 0 = oldest
   dayLabels: string[];   // e.g. ['Mon','Tue',...]
+  academy: DbAcademyStreak | null;
+  vocabDistribution: number[]; // mastery levels 0-5 counts
 }
 
 const FACT_COLORS: Record<string, string> = {
@@ -31,9 +34,11 @@ const FACT_COLORS: Record<string, string> = {
   habit: '#10b981',
   relationship: '#f97316',
   location: '#6366f1',
+  language_vocab: '#06b6d4',
 };
 
 export default function UserAnalytics({ userId }: { userId: string }) {
+  const { t } = useI18n();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [digestState, setDigestState] = useState<'idle' | 'loading' | 'speaking' | 'done'>('idle');
@@ -90,7 +95,9 @@ export default function UserAnalytics({ userId }: { userId: string }) {
       fetchAllEntityMentions(userId).catch(() => []),
       fetchMemoryGraph(userId).catch(() => []),
       fetchConversationSessions(userId).catch(() => []),
-    ]).then(([entities, facts, sessions]) => {
+      fetchAcademyStreak(userId).catch(() => null),
+      fetchVocabWords(userId).catch(() => []),
+    ]).then(([entities, facts, sessions, academy, vocabWords]) => {
       const today = new Date().toDateString();
       const todaySessions = sessions.filter(s => new Date(s.created_at).toDateString() === today);
       const userTurns = sessions.filter(s => s.role === 'user');
@@ -117,6 +124,8 @@ export default function UserAnalytics({ userId }: { userId: string }) {
           const d = new Date(); d.setDate(d.getDate() - (6 - i));
           return d.toLocaleDateString('en', { weekday: 'short' });
         }),
+        academy,
+        vocabDistribution: [0, 1, 2, 3, 4, 5].map(level => vocabWords.filter((w: { mastery: number }) => w.mastery === level).length),
       });
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -298,6 +307,78 @@ export default function UserAnalytics({ userId }: { userId: string }) {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Academy stats */}
+      {stats.academy && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>🎓</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+              Language Academy
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+            {[
+              { label: 'Streak', value: `${stats.academy.current_streak}d`, color: '#ef4444' },
+              { label: 'Words', value: String(stats.academy.total_words), color: '#06b6d4' },
+              { label: 'Sessions', value: String(stats.academy.total_sessions), color: '#8b5cf6' },
+              { label: 'Accuracy', value: stats.academy.accuracy_pct > 0 ? `${Math.round(stats.academy.accuracy_pct)}%` : '—', color: '#10b981' },
+            ].map(s => (
+              <div key={s.label} style={{ textAlign: 'center', padding: '10px 6px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderTop: `2px solid ${s.color}` }}>
+                <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
+                <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          {stats.academy.longest_streak > 1 && (
+            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginTop: 6, textAlign: 'center', opacity: 0.5 }}>
+              Best streak: {stats.academy.longest_streak} days · Target: {stats.academy.target_locale.toUpperCase()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Academy mastery distribution */}
+      {stats.academy && stats.vocabDistribution.some(n => n > 0) && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>📊</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+              Word Mastery Distribution
+            </span>
+          </div>
+          {[
+            { label: 'New',            color: 'rgba(255,255,255,0.2)', count: stats.vocabDistribution[0] },
+            { label: 'Seen',           color: '#64748b',               count: stats.vocabDistribution[1] },
+            { label: 'Practiced',      color: '#f59e0b',               count: stats.vocabDistribution[2] },
+            { label: 'Drilled',        color: '#3b82f6',               count: stats.vocabDistribution[3] },
+            { label: 'Conversational', color: '#8b5cf6',               count: stats.vocabDistribution[4] },
+            { label: 'Mastered',       color: '#10b981',               count: stats.vocabDistribution[5] },
+          ].filter(l => l.count > 0).map(l => {
+            const maxCount = Math.max(...stats.vocabDistribution, 1);
+            return (
+              <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 9, width: 80, textAlign: 'right', color: 'var(--text-muted)', opacity: 0.6 }}>{l.label}</span>
+                <div style={{ flex: 1, height: 10, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${(l.count / maxCount) * 100}%`,
+                    height: '100%',
+                    background: l.color,
+                    borderRadius: 3,
+                    transition: 'width 600ms ease',
+                  }} />
+                </div>
+                <span style={{ fontFamily: 'monospace', fontSize: 10, width: 24, color: l.color, fontWeight: 700 }}>{l.count}</span>
+              </div>
+            );
+          })}
+          {/* Freezes & milestone info */}
+          <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center', opacity: 0.5, display: 'flex', justifyContent: 'center', gap: 12 }}>
+            <span>❄️ {stats.academy.streak_freezes} freeze{stats.academy.streak_freezes !== 1 ? 's' : ''}</span>
+            {stats.academy.last_milestone > 0 && <span>🏆 {stats.academy.last_milestone}d milestone</span>}
           </div>
         </div>
       )}

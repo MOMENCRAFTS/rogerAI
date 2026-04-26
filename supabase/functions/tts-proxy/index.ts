@@ -15,7 +15,7 @@
  * Streaming would reduce latency but requires a more complex client-side reader.
  */
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const OPENAI_API_KEY   = Deno.env.get('OPENAI_API_KEY') ?? '';
@@ -35,7 +35,7 @@ interface TTSRequest {
   model?: string;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS });
   }

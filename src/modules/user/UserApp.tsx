@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Car, Mic, Crown, Moon, Lightbulb } from 'lucide-react';
+import { Home, Settings, RotateCcw, Trash2, AlertTriangle, LayoutGrid } from 'lucide-react';
+import OrbitalMenu from './OrbitalMenu';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useI18n } from '../../context/I18nContext';
 import { useLocation } from '../../lib/useLocation';
+import LanguageGate from '../../components/LanguageGate';
 import UserHome      from './UserHome';
 import RemindersView from './RemindersView';
 import TasksView     from './TasksView';
@@ -18,6 +21,7 @@ import MeetingRecorderView from './MeetingRecorderView';
 import SubscriptionView  from './SubscriptionView';
 import SalahView        from './SalahView';
 import SmartHomeView    from './SmartHomeView';
+import AcademyView      from './AcademyView';
 import PermissionGate from '../../components/PermissionGate';
 import LegalDisclaimer, { hasAcceptedLegal } from '../../components/LegalDisclaimer';
 import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasOrientationBeenSeen, markOrientationSeen } from '../../lib/api';
@@ -27,7 +31,7 @@ import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
 
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
 
 interface UserAppProps {
@@ -35,20 +39,11 @@ interface UserAppProps {
   userEmail: string;
 }
 
-const TABS: { key: UserTab; label: string; Icon: typeof Home }[] = [
-  { key: 'home',      label: 'HOME',     Icon: Home },
-  { key: 'reminders', label: 'REMIND',   Icon: Bell },
-  { key: 'tasks',     label: 'TASKS',    Icon: CheckSquare },
-  { key: 'memory',    label: 'MEMORY',   Icon: BookOpen },
-  { key: 'meetings',  label: 'MEETINGS', Icon: Mic },
-  { key: 'journal',   label: 'JOURNAL',  Icon: BookMarked },
-  { key: 'analytics', label: 'STATS',    Icon: BarChart3 },
-  { key: 'location',  label: 'LOCATE',   Icon: MapPin },
-  { key: 'commute',   label: 'DRIVE',    Icon: Car },
-  { key: 'upgrade',   label: 'UPGRADE',  Icon: Crown },
-  { key: 'salah',     label: 'SALAH',    Icon: Moon },
-  { key: 'smarthome', label: 'IOT',      Icon: Lightbulb },
-  { key: 'settings',  label: 'SETTINGS', Icon: Settings },
+// Bottom bar now has just 3 items — all other modules live in the OrbitalMenu
+const BOTTOM_BAR: { key: UserTab | 'modules'; labelKey: string; Icon: typeof Home }[] = [
+  { key: 'home',     labelKey: 'nav.home',     Icon: Home },
+  { key: 'modules',  labelKey: 'nav.modules',  Icon: LayoutGrid },
+  { key: 'settings', labelKey: 'nav.settings', Icon: Settings },
 ];
 
 export default function UserApp({ userId, userEmail }: UserAppProps) {
@@ -65,19 +60,13 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const [taskCount, setTaskCount]   = useState(0);
   const sessionId = useRef(crypto.randomUUID());
   const { location } = useLocation(userId);
+  const { locale, t, isRTL, ready, setLocale } = useI18n();
   const [islamicMode, setIslamicMode] = useState(false);
-
-  // Mount a tab on first visit, keep it alive for instant re-visits
-  const handleTabChange = (newTab: UserTab) => {
-    setMountedTabs(prev => { const s = new Set(prev); s.add(newTab); return s; });
-    setTab(newTab);
-  };
-
-  // ── Permission gate — shown once on first install ─────────────────────────
-  // Must be checked at component mount time (not lazily) so the gate renders
-  // before onboarding and primes the Android audio pipeline on first tap.
   const [permsGranted, setPermsGranted] = useState<boolean>(hasGrantedPermissions);
   const [legalAccepted, setLegalAccepted] = useState<boolean>(hasAcceptedLegal());
+  const [orbitalOpen, setOrbitalOpen]   = useState(false);
+
+  // ── All hooks MUST be above this line (React Rules of Hooks) ──────────────
 
   const refreshBadges = () => {
     fetchReminders(userId, 'pending').then(r => setReminderCount(r.length)).catch(() => {});
@@ -120,6 +109,17 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
 
   useEffect(() => { applyUXPrefs(); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Language Gate — must select locale before anything else ───────────────
+  if (!locale || !ready) {
+    return <LanguageGate onLocaleSelected={setLocale} />;
+  }
+
+  // Mount a tab on first visit, keep it alive for instant re-visits
+  const handleTabChange = (newTab: UserTab) => {
+    setMountedTabs(prev => { const s = new Set(prev); s.add(newTab); return s; });
+    setTab(newTab);
+  };
+
   const handleOnboardingComplete = (answers: OnboardingAnswers) => {
     setOnboarded(true);
     setOrientationSeen(false); // Always show orientation after fresh onboarding
@@ -151,7 +151,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--bg-base)' }}>
         <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
-          Initialising...
+          {t('app.initialising')}
         </span>
       </div>
     );
@@ -318,6 +318,11 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
             <SmartHomeView userId={userId} />
           </div>
         )}
+        {mountedTabs.has('academy') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'academy' ? 'block' : 'none' }}>
+            <AcademyView userId={userId} />
+          </div>
+        )}
         {mountedTabs.has('settings') && (
           <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'settings' ? 'block' : 'none' }}>
             <RogerSettings
@@ -328,36 +333,50 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         )}
       </div>
 
-      {/* ── Bottom Nav ── */}
+      {/* ── Orbital Menu overlay ── */}
+      <OrbitalMenu
+        open={orbitalOpen}
+        onClose={() => setOrbitalOpen(false)}
+        onNavigate={(newTab) => handleTabChange(newTab)}
+        islamicMode={islamicMode}
+        reminderCount={reminderCount}
+        taskCount={taskCount}
+        t={t}
+      />
+
+      {/* ── Bottom Nav — simplified 3-tab bar ── */}
       <nav style={{
         borderTop: '1px solid var(--border-subtle)',
         background: 'var(--bg-elevated)',
         display: 'flex', flexShrink: 0,
-        overflowX: 'auto',
-        WebkitOverflowScrolling: 'touch',
-        scrollbarWidth: 'none',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
-        {TABS.map(({ key, label, Icon }) => {
-          // Hide SALAH tab for non-Islamic Mode users
-          if (key === 'salah' && !islamicMode) return null;
-          const active = tab === key;
-          const badge = key === 'reminders' ? reminderCount : key === 'tasks' ? taskCount : 0;
+        {BOTTOM_BAR.map(({ key, labelKey, Icon }) => {
+          const isModulesTrigger = key === 'modules';
+          const active = isModulesTrigger ? orbitalOpen : tab === key;
+          const totalBadge = isModulesTrigger ? (reminderCount + taskCount) : 0;
           return (
             <button
               key={key}
-              onClick={() => handleTabChange(key)}
+              onClick={() => {
+                if (isModulesTrigger) {
+                  setOrbitalOpen(o => !o);
+                } else {
+                  handleTabChange(key as UserTab);
+                  setOrbitalOpen(false);
+                }
+              }}
               style={{
-                flex: '0 0 auto', minWidth: 60, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
                 justifyContent: 'center', gap: 4, padding: '12px 8px', position: 'relative',
                 background: 'transparent', border: 'none', cursor: 'pointer',
-                borderTop: `2px solid ${active ? (key === 'salah' ? '#10b981' : 'var(--amber)') : 'transparent'}`,
+                borderTop: `2px solid ${active ? 'var(--amber)' : 'transparent'}`,
                 transition: 'border-color 150ms',
               }}
             >
               <div style={{ position: 'relative' }}>
                 <Icon size={22} style={{ color: active ? 'var(--amber)' : 'var(--text-muted)', transition: 'color 150ms' }} />
-                {badge > 0 && (
+                {totalBadge > 0 && (
                   <span style={{
                     position: 'absolute', top: -6, right: -8,
                     minWidth: 16, height: 16, borderRadius: 8,
@@ -366,7 +385,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     padding: '0 3px',
                   }}>
-                    {badge > 99 ? '99+' : badge}
+                    {totalBadge > 99 ? '99+' : totalBadge}
                   </span>
                 )}
               </div>
@@ -376,7 +395,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
                 color: active ? 'var(--amber)' : 'var(--text-muted)',
                 transition: 'color 150ms',
               }}>
-                {label}
+                {t(labelKey)}
               </span>
             </button>
           );

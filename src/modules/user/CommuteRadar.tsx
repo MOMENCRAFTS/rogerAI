@@ -1,9 +1,10 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Car, Navigation } from 'lucide-react';
 import RadarView from './RadarView';
 import { fetchCommuteProfile, fetchErrands, getCommute, type DbCommuteProfile, type DbErrandItem } from '../../lib/api';
 import { speakResponse } from '../../lib/tts';
 import type { UserLocation } from '../../lib/useLocation';
+import { useI18n } from '../../context/I18nContext';
 
 interface Props { userId: string; location?: UserLocation | null; }
 
@@ -13,6 +14,7 @@ const DRIVE_EXIT_MS  = 1.39; // 5 km/h
 const EXIT_DELAY_MS  = 10_000;
 
 export default function CommuteRadar({ userId, location = null }: Props) {
+  const { t } = useI18n();
 
   const [innerTab, setInnerTab] = useState<'radar' | 'route'>('radar');
   const [driveMode, setDriveMode] = useState(false);

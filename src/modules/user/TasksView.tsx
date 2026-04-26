@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CheckSquare, CheckCircle2, XCircle, Zap, Plus, ChevronUp, Pencil, Check, X, Calendar } from 'lucide-react';
 import { fetchTasks, updateTaskStatus, insertTask, type DbTask } from '../../lib/api';
+import { useI18n } from '../../context/I18nContext';
 
 type Filter = 'all' | 'open' | 'done' | 'cancelled';
 
@@ -11,6 +12,7 @@ const priorityColor = (p: number) => p >= 8 ? '#f87171' : p >= 5 ? 'var(--amber)
 const priorityLabel = (p: number) => p >= 8 ? 'HIGH' : p >= 5 ? 'MED' : 'LOW';
 
 export default function TasksView({ userId }: { userId: string }) {
+  const { t } = useI18n();
   const [tasks, setTasks]     = useState<DbTask[]>([]);
   const [filter, setFilter]   = useState<Filter>('all');
   const [loading, setLoading] = useState(true);

@@ -60,6 +60,10 @@
 	<key>NSMotionUsageDescription</key>
 	<string>Roger AI uses your device compass to show the Qibla direction in Islamic Mode. No motion data is stored or transmitted.</string>
 
+	<!-- ─── Contacts — Whisper vocabulary + voice-driven SMS/call ────── -->
+	<key>NSContactsUsageDescription</key>
+	<string>Roger AI uses your contacts to recognize names when you speak. Only display names are used — no phone numbers or emails leave your device.</string>
+
 	<!-- ─── Allow OpenAI and Supabase network calls ───────────────────── -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

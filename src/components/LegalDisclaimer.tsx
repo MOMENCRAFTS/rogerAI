@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 // ── Version key — bump this string to force re-acceptance on legal update ──
-const LEGAL_VERSION_KEY = 'roger_legal_v2';
+const LEGAL_VERSION_KEY = 'roger_legal_v3';
 
 export function hasAcceptedLegal(): boolean {
   return localStorage.getItem(LEGAL_VERSION_KEY) === 'accepted';
@@ -27,6 +27,8 @@ The Service does not constitute professional, legal, financial, medical, or safe
     num: '02',
     title: 'Data Collection & Privacy',
     body: `By using the Service, you consent to the collection and processing of the following categories of data: voice recordings and transcriptions, device location and GPS coordinates, contact information (where permission is granted), task and calendar data, and usage analytics.
+
+Contact Information: When you grant contacts access, Roger AI reads only display names from your device address book to improve voice recognition accuracy and enable hands-free messaging. Phone numbers are stored on-device only and are never transmitted to Momencrafts servers. No email addresses, photos, or physical addresses are accessed. You may revoke this access at any time through Settings → Contacts → Disconnect.
 
 All personal data is encrypted at rest and in transit. Momencrafts does not sell, rent, or trade your personal data to third parties. Data is stored on secure cloud infrastructure in compliance with applicable data protection regulations. You may request deletion of your data at any time by contacting support@momencrafts.com.`,
   },
@@ -59,7 +61,7 @@ You may revoke these permissions at any time through your device settings. Revok
     id: 's6',
     num: '06',
     title: 'Islamic Mode (Optional Features)',
-    body: `ROGER·AI includes an optional Islamic Mode that provides prayer time reminders, Qibla direction, and curated Quranic content sourced from publicly available APIs (AlAdhan, AlQuran.cloud). This feature is strictly opt-in and disabled by default.
+    body: `ROGER·AI includes an optional Islamic Mode that provides prayer time reminders, Qibla direction, Quranic verses, Hadith, Duas, Hijri calendar, and the 99 Names of Allah — sourced from UmmahAPI.com. This feature is strictly opt-in and disabled by default.
 
 Content provided through Islamic Mode is for informational and educational purposes only. Momencrafts does not claim religious authority and recommends consulting qualified Islamic scholars for matters of religious guidance. Islamic Mode content is not a substitute for personal religious study or scholarly advice.`,
   },

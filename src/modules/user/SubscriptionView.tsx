@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Crown, Zap, Check, Radio, Users, Star } from 'lucide-react';
 import { useSubscription, FREE_LIMITS } from '../../lib/useSubscription';
 import type { SubscriptionPlan } from '../../lib/useSubscription';
+import { useI18n } from '../../context/I18nContext';
 
 interface Props { userId: string }
 
@@ -110,6 +111,7 @@ function UsageMeter({ label, used, max, color }: { label: string; used: number; 
 }
 
 export default function SubscriptionView({ userId }: Props) {
+  const { t } = useI18n();
   const {
     plan, status, isPro, isTrialing, trialDaysLeft,
     pttUsedToday, startTrial, loading,

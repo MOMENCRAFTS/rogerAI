@@ -2,7 +2,6 @@
 // Classifies a 30-second Whisper transcript chunk:
 // speech (with language detection), music, ambient noise, or mixed.
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const OPENAI_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
@@ -33,7 +32,7 @@ Rules:
 - If unclear/silence/noise only, classify as "ambient"
 - transcript_clean should remove Whisper artifacts like [BLANK_AUDIO], (music), etc.`;
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {

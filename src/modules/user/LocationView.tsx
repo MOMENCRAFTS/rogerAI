@@ -12,6 +12,7 @@ import {
   type CommuteDestination,
   type CommuteMode,
 } from '../../lib/commute';
+import { useI18n } from '../../context/I18nContext';
 
 interface LocationViewProps {
   userId: string;
@@ -19,6 +20,7 @@ interface LocationViewProps {
 }
 
 export default function LocationView({ userId, location }: LocationViewProps) {
+  const { t } = useI18n();
   const [weather, setWeather]       = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [geoReminders, setGeoReminders] = useState<DbReminder[]>([]);

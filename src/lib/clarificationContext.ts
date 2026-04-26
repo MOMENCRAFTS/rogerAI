@@ -56,14 +56,21 @@ export function createClarificationContext(
   response: RogerAIResponse,
   previousContext?: ClarificationContext | null,
 ): ClarificationContext {
-  // Extract which entity types are missing from the clarification question
-  const missingEntities: string[] = [];
-  const q = (response.clarification_question ?? response.roger_response).toLowerCase();
+  // AI-powered: use the LLM's own missing_entities when available
+  // (replaces brittle regex parsing of the clarification question)
+  let missingEntities: string[] = [];
 
-  if (/\b(who|whom|which person|name)\b/.test(q)) missingEntities.push('PERSON');
-  if (/\b(where|which place|location|address)\b/.test(q)) missingEntities.push('LOCATION');
-  if (/\b(when|what time|what date|which day)\b/.test(q)) missingEntities.push('TIME');
-  if (/\b(what|which|specify|clarify)\b/.test(q)) missingEntities.push('TOPIC');
+  if (response.missing_entities?.length) {
+    // Trust the AI — it knows exactly what information it needs
+    missingEntities = [...response.missing_entities];
+  } else {
+    // Legacy fallback: infer from clarification question text
+    const q = (response.clarification_question ?? response.roger_response).toLowerCase();
+    if (/\b(who|whom|which person|name)\b/.test(q)) missingEntities.push('PERSON');
+    if (/\b(where|which place|location|address)\b/.test(q)) missingEntities.push('LOCATION');
+    if (/\b(when|what time|what date|which day)\b/.test(q)) missingEntities.push('TIME');
+    if (/\b(what|which|specify|clarify)\b/.test(q)) missingEntities.push('TOPIC');
+  }
 
   // If this is a follow-up clarification, increment the attempt counter
   const attempt = previousContext ? previousContext.attempt + 1 : 1;

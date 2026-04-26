@@ -6,6 +6,7 @@ import {
   type DbMemory, type DbMemoryFact, type DbEncyclopediaEntry,
 } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
+import { useI18n } from '../../context/I18nContext';
 
 type MainTab = 'vault' | 'roger_knows' | 'knowledge';
 type VaultFilter = 'all' | 'note' | 'book' | 'observation' | 'capture';
@@ -25,6 +26,7 @@ const typeColor = (t: DbMemory['type']) =>
   t === 'book' ? 'var(--amber)' : t === 'observation' ? '#a78bfa' : 'var(--green)';
 
 export default function MemoryView({ userId }: { userId: string }) {
+  const { t } = useI18n();
   const [mainTab, setMainTab]         = useState<MainTab>('vault');
 
   // Vault state

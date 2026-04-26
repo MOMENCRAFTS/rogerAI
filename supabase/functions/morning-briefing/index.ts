@@ -27,12 +27,13 @@ async function sb(path: string) {
 
 async function generateBriefing(userId: string, displayName: string, timeOfDay: string): Promise<string> {
   // Fetch context in parallel
-  const [history, facts, reminders, tasks, surface] = await Promise.all([
+  const [history, facts, reminders, tasks, surface, academyStreak] = await Promise.all([
     sb(`conversation_history?user_id=eq.${userId}&order=created_at.desc&limit=6&select=role,content`),
     sb(`memory_graph?user_id=eq.${userId}&order=confidence.desc&limit=8&select=subject,predicate,object`),
     sb(`reminders?user_id=eq.${userId}&status=eq.pending&order=due_at.asc&limit=5&select=text,due_at`),
     sb(`tasks?user_id=eq.${userId}&status=eq.open&order=priority.desc&limit=5&select=text,priority,due_at`),
     sb(`surface_queue?user_id=eq.${userId}&dismissed=eq.false&snooze_count=lt.5&order=priority.desc&limit=3&select=content`),
+    sb(`academy_streaks?user_id=eq.${userId}&select=current_streak,total_words,target_locale,accuracy_pct,streak_freezes`),
   ]);
 
   const factLines    = Array.isArray(facts)    ? facts.map((f: {subject: string; predicate: string; object: string}) => `${f.subject} ${f.predicate} ${f.object}`).join('; ') : '';
@@ -40,6 +41,12 @@ async function generateBriefing(userId: string, displayName: string, timeOfDay: 
   const taskLines    = Array.isArray(tasks)    ? tasks.sort((a: {priority: number}, b: {priority: number}) => b.priority - a.priority).slice(0,5).map((t: {text: string; priority: number}) => `• [P${t.priority}] ${t.text}`).join('\n') : '';
   const surfaceLines = Array.isArray(surface)   ? surface.map((s: {content: string}) => `• ${s.content}`).join('\n') : '';
   const histLines    = Array.isArray(history)   ? [...history].reverse().slice(-4).map((h: {role: string; content: string}) => `[${h.role}]: ${h.content}`).join('\n') : '';
+  const streakData   = Array.isArray(academyStreak) && academyStreak.length > 0
+    ? (academyStreak[0] as { current_streak: number; total_words: number; target_locale: string; accuracy_pct: number; streak_freezes: number })
+    : null;
+  const academyLine  = streakData
+    ? `Language learning: ${streakData.current_streak}-day streak, ${streakData.total_words} words learned (${streakData.target_locale}), ${Math.round(streakData.accuracy_pct)}% accuracy, ${streakData.streak_freezes} streak freeze${streakData.streak_freezes !== 1 ? 's' : ''} available`
+    : '';
 
   const prompt = `You are Roger AI delivering a ${timeOfDay} briefing to ${displayName ?? 'Commander'}.
 Generate a crisp spoken briefing (90–140 words). Be warm, direct, like a trusted aide.
@@ -57,6 +64,9 @@ ${surfaceLines || 'none'}
 
 RECENT CONVERSATION:
 ${histLines || 'none'}
+
+LANGUAGE ACADEMY:
+${academyLine || 'not enrolled'}
 
 Rules:
 - Start with a warm ${timeOfDay} opener using their name

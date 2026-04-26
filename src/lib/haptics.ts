@@ -14,17 +14,28 @@ export function setHapticsEnabled(v: boolean): void { hapticsEnabled = v; }
 
 const guard = (fn: () => Promise<void>) => hapticsEnabled ? safe(fn) : Promise.resolve();
 
-/** PTT button pressed — heavy thump, like a radio PTT click */
-export const hapticPTTDown = () =>
-  guard(() => Haptics.impact({ style: ImpactStyle.Heavy }));
+/** Delay helper for multi-tap patterns */
+const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-/** PTT button released — light tap on release */
+/** PTT button pressed — heavy thump + medium follow-up, like a satisfying radio click */
+export const hapticPTTDown = () =>
+  guard(async () => {
+    await Haptics.impact({ style: ImpactStyle.Heavy });
+    await delay(50);
+    await Haptics.impact({ style: ImpactStyle.Medium });
+  });
+
+/** PTT button released — crisp light tap */
 export const hapticPTTUp = () =>
   guard(() => Haptics.impact({ style: ImpactStyle.Light }));
 
-/** Roger is about to speak — success notification pulse */
+/** Roger is about to speak — anticipation pulse: light → pause → success notification */
 export const hapticRogerSpeaking = () =>
-  guard(() => Haptics.notification({ type: NotificationType.Success }));
+  guard(async () => {
+    await Haptics.impact({ style: ImpactStyle.Light });
+    await delay(80);
+    await Haptics.notification({ type: NotificationType.Success });
+  });
 
 /** AI response processed and saved — medium confirmation tap */
 export const hapticResponseReceived = () =>
@@ -49,3 +60,13 @@ export const hapticTick = () =>
 /** Onboarding: all steps complete — celebratory success pulse */
 export const hapticSuccess = () =>
   guard(() => Haptics.notification({ type: NotificationType.Success }));
+
+/** Milestone celebration — triple-tap burst pattern */
+export const hapticMilestone = () =>
+  guard(async () => {
+    await Haptics.notification({ type: NotificationType.Success });
+    await delay(120);
+    await Haptics.impact({ style: ImpactStyle.Heavy });
+    await delay(120);
+    await Haptics.notification({ type: NotificationType.Success });
+  });

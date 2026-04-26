@@ -2,7 +2,6 @@
 // Secure Tuya Cloud API proxy — HMAC-SHA256 signed requests.
 // Secrets (APP_KEY, APP_SECRET) stay server-side in Supabase secrets.
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const TUYA_APP_KEY    = Deno.env.get('TUYA_APP_KEY') ?? '';
 const TUYA_APP_SECRET = Deno.env.get('TUYA_APP_SECRET') ?? '';
@@ -153,7 +152,7 @@ async function getDeviceSpec(deviceId: string): Promise<unknown> {
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {

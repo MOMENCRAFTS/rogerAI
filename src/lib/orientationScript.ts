@@ -10,11 +10,11 @@
 
 import {
   Radio, Brain, CheckSquare, Car, TrendingUp,
-  Calendar, Users, Mic, FileText, Zap, Moon, BookOpen,
+  Calendar, Users, Mic, FileText, Zap, Moon, BookOpen, Contact,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export const ORIENTATION_VERSION = 2;
+export const ORIENTATION_VERSION = 3;
 
 export interface OrientationChapter {
   id: string;
@@ -209,12 +209,32 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Your callsign is in Settings. Share it for others to reach you even when you\'re not in the app.',
   },
 
-  // ── 10 ── Ambient Listening ────────────────────────────────────────────
+  // ── 10 ── Contacts ──────────────────────────────────────────────────────
+  {
+    id: 'contacts',
+    icon: Contact,
+    iconColor: '#3b82f6',
+    chapterLabel: 'Chapter 10',
+    headline: 'I Know Your People.',
+    body: 'When you grant Roger access to your contacts, I can recognize names when you speak, text and call people hands-free, and build a smarter memory about the people in your life. Only display names are read — phone numbers never leave your device.',
+    rogerSpeech: (name) =>
+      `${name ? `${name}, ` : ''}here\'s where things get personal. If you grant me access to your phone contacts, three things happen. First — voice accuracy. Right now when you say "call Ahmad", my transcription might hear "Akhmad" or "Ahmed". With your contacts synced, I know exactly who Ahmad is — spelled correctly, every time. Second — hands-free messaging. Say "Roger, text Mom I\'m on my way" and I\'ll open your SMS app with her number and your message ready to send. Same for WhatsApp and phone calls. Third — smarter memory. I\'ll learn who matters to you so when you mention "Sarah" in a meeting note, I already know which Sarah you mean. And here\'s the important part — I only read display names. Phone numbers stay locked on your device. Nothing is uploaded. You can disconnect at any time in Settings. Say "understood" when ready. Over.`,
+    confirmPrompt: 'Say "understood" or tap Continue.',
+    keyExamples: [
+      '"Roger, text Ahmad I\'m running late"',
+      '"Roger, call Mom"',
+      '"Roger, WhatsApp Sarah — meeting at 5pm"',
+      '"Roger, who\'s in my contacts named Khalid?"',
+    ],
+    tip: 'You can connect or disconnect contacts at any time from Settings → Contacts.',
+  },
+
+  // ── 11 ── Ambient Listening ────────────────────────────────────────────
   {
     id: 'ambient',
     icon: Mic,
     iconColor: '#a855f7',
-    chapterLabel: 'Chapter 10',
+    chapterLabel: 'Chapter 11',
     headline: 'I Listen When You Ask.',
     body: 'Ambient Listening mode analyses your surroundings in 30-second chunks. I detect speech in any language, identify music via ACRCloud fingerprinting, and classify ambient noise. This is on-demand only — I never listen without your explicit command.',
     rogerSpeech: () =>
@@ -229,12 +249,12 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Music detection requires ACRCloud API keys set in your Supabase project secrets.',
   },
 
-  // ── 11 ── Meeting Recorder ─────────────────────────────────────────────
+  // ── 12 ── Meeting Recorder ─────────────────────────────────────────────
   {
     id: 'meeting',
     icon: FileText,
     iconColor: '#ef4444',
-    chapterLabel: 'Chapter 11',
+    chapterLabel: 'Chapter 12',
     headline: 'I Record Your Meetings.',
     body: 'Start a meeting recorder and I\'ll transcribe everything in 60-second rolling chunks. When you end the session, I generate structured notes: executive summary, action items with owners and due dates, key decisions made, and a list of participants. Everything is saved to your Meeting Archive.',
     rogerSpeech: () =>
@@ -249,14 +269,14 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Participant names mentioned during the meeting are automatically added to your memory vault as draft contacts.',
   },
 
-  // ── 12 ── Engage ─────────────────────────────────────────────────────────
+  // ── 13 ── Engage ─────────────────────────────────────────────────────────
   {
     id: 'engage',
     icon: Zap,
     iconColor: '#d4a044',
-    chapterLabel: 'Chapter 12',
+    chapterLabel: 'Chapter 13',
     headline: 'You\'re Ready. Let\'s Go.',
-    body: 'That\'s the full briefing. You now know how to use Roger across all 12 capability domains. Start with the PTT button — just press, speak, and release. The more you use me, the better I understand you. You can replay this orientation any time from Settings.',
+    body: 'That\'s the full briefing. You now know how to use Roger across all 13 capability domains. Start with the PTT button — just press, speak, and release. The more you use me, the better I understand you. You can replay this orientation any time from Settings.',
     rogerSpeech: (name) =>
       `${name ? `${name}, ` : ''}that\'s your full briefing. You now have a Chief of Staff that handles your memory, tasks, calendar, commute, intelligence, communications, and meetings — all by voice. My top three tips: one, use me daily so my memory builds context. Two, speak naturally — don\'t use command syntax, just talk to me like a trusted aide. Three, the more specific you are, the more precisely I can act. If you ever need a refresher, say "Roger, replay orientation" or find it in Settings. I\'m standing by. Say "I\'m ready" or tap Engage to enter. Over.`,
     confirmPrompt: 'Say "I\'m ready" — or tap Engage to enter.',
@@ -276,14 +296,15 @@ export const ISLAMIC_CHAPTER: OrientationChapter = {
   iconColor: '#10b981',
   chapterLabel: 'Chapter 11 · Islamic Mode',
   headline: 'Salah. I\'ve Got You Covered.',
-  body: 'Islamic Mode is now active. The SALAH tab in your navigation gives you live prayer times based on your GPS, a Qibla compass that points toward the Kaaba, a daily Quran verse, and a prayer tracker for the day. I will also remind you 10 minutes before each prayer.',
+  body: 'Islamic Mode is now active. The SALAH tab in your navigation gives you live prayer times based on your GPS, a Qibla compass, a daily Quran verse with audio recitation, Hadith of the Day, Dua of the Day, the 99 Names of Allah, and a Hijri calendar. I will also remind you 10 minutes before each prayer.',
   rogerSpeech: (name) =>
-    `${name ? `${name}, ` : ''}Islamic Mode is active. I'll track your five daily prayers based on your live location using the AlAdhan calculation method. The Salah tab has your prayer times, Qibla direction, and a daily verse. 10 minutes before each prayer, I'll alert you by voice — even while you're driving. You can adjust your prayer calculation method, or disable these alerts entirely, from Settings. Say "understood" when ready. Over.`,
+    `${name ? `${name}, ` : ''}Islamic Mode is active. I'll track your five daily prayers based on your live location. The Salah tab has your prayer times, Qibla direction, daily Quran verse with audio recitation, a Hadith, a Dua, and the 99 Names of Allah — all refreshed daily via UmmahAPI. 10 minutes before each prayer, I'll alert you by voice — even while you're driving. You can adjust your prayer calculation method, or disable these alerts entirely, from Settings. Say "understood" when ready. Over.`,
   confirmPrompt: 'Say "understood" or tap Continue to enter.',
   keyExamples: [
     '"Roger, when is Asr today?"',
     '"Roger, which direction is Qibla?"',
     '"Roger, verse of the day"',
+    '"Roger, hadith of the day"',
   ],
   tip: 'Prayer times update automatically as you travel. The compass works best on a flat surface away from metal.',
 };

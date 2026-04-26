@@ -1,15 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Radio } from 'lucide-react';
+import { useI18n } from '../../context/I18nContext';
 import {
-  generateNodeScript, applyOnboardingAnswer, parseReviewIntent, NEXT_NODE, TOTAL_NODES, NODE_INDEX, NODE_LABELS,
-  type OnboardingNode, type OnboardingAnswers,
+  generateInterviewTurn, generateNameConfirm, generateFeaturesTurn,
+  generateIslamicTurn, buildReviewScript, parseReviewIntentAI,
+  mergeExtractedFields, applyFeaturePrefs, silentExtractFields,
+  WELCOME_SCRIPT, PHASE_LABELS, MAX_TOTAL_TURNS, MIN_INTERVIEW_TURNS, MAX_INTERVIEW_TURNS,
+  type OnboardingPhase, type OnboardingAnswers,
 } from '../../lib/onboarding';
-import { speakResponse, stopSpeaking } from '../../lib/tts';
+import { speakResponse, stopSpeaking, unlockAudio } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
 import { createAudioRecorder } from '../../lib/audioRecorder';
 import {
   upsertUserPreferences, upsertMemoryFact, upsertEntityMention,
-  updateOnboardingStep,
 } from '../../lib/api';
 import { hapticPTTDown, hapticPTTUp, hapticTick, hapticSuccess, hapticError } from '../../lib/haptics';
 import { preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError } from '../../lib/sfx';
@@ -38,20 +41,24 @@ interface Props {
   onComplete: (answers: OnboardingAnswers) => void;
 }
 
-type Phase = 'speaking' | 'waiting' | 'recording' | 'processing' | 'done';
+type PttPhase = 'speaking' | 'waiting' | 'recording' | 'processing' | 'done';
 
 export default function Onboarding({ userId, onComplete }: Props) {
-  const [node, setNode]           = useState<OnboardingNode>('welcome');
+  const { t } = useI18n();
+  const [flowPhase, setFlowPhase] = useState<OnboardingPhase>('welcome');
+  const [interviewTurn, setInterviewTurn] = useState(0); // 0 = not started yet
+  const [totalTurns, setTotalTurns] = useState(1); // tracks overall turn count
   const [answers, setAnswers]     = useState<OnboardingAnswers>({});
   const [script, setScript]       = useState('');
-  const [phase, setPhase]         = useState<Phase>('speaking');
+  const [phase, setPhase]         = useState<PttPhase>('speaking');
   const [holdMs, setHoldMs]       = useState(0);
   const [typeText, setTypeText]   = useState('');
-  const [returnToReview, setReturnToReview] = useState(false);
 
-  const recorderRef = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
-  const holdRef     = useRef<ReturnType<typeof setInterval> | null>(null);
-  const typeRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recorderRef  = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
+  const holdRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const typeRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pttStartRef  = useRef<number>(0);
+  const questionHistory = useRef<string[]>([]);
 
   // ── Typewriter ────────────────────────────────────────────────────────────
   const typewrite = useCallback((text: string) => {
@@ -71,84 +78,205 @@ export default function Onboarding({ userId, onComplete }: Props) {
     setScript(text);
     typewrite(text);
     sfxRogerIn();
-    try {
-      await speakResponse(text);
-    } catch {
-      try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch { /* silent */ }
-    }
+    try { await speakResponse(text); } catch (e) { console.warn('[Onboarding TTS]', e); }
     sfxRogerOut();
     setPhase('waiting');
   }, [typewrite]);
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
-    generateNodeScript('welcome', {}).then(({ script: s }) => speakNode(s));
+    speakNode(WELCOME_SCRIPT);
     preloadAll();
-    return () => {
-      stopSpeaking();
-      if (typeRef.current) clearInterval(typeRef.current);
-    };
+    return () => { stopSpeaking(); if (typeRef.current) clearInterval(typeRef.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Advance node ──────────────────────────────────────────────────────────
-  const advanceNode = useCallback(async (
-    currentNode: OnboardingNode,
-    transcript: string,
-    currentAnswers: OnboardingAnswers,
-    isReturningToReview: boolean
-  ) => {
-    // ── Special: review_confirm ───────────────────────────────────────────
-    if (currentNode === 'review_confirm') {
-      const intent = parseReviewIntent(transcript);
-      if (intent !== 'confirm') {
-        // Re-edit a specific field — go back to that node
-        setReturnToReview(true);
-        setNode(intent);
-        const { script: s } = await generateNodeScript(intent, currentAnswers);
-        await speakNode(s);
+  // ── Complete onboarding ───────────────────────────────────────────────────
+  const finishOnboarding = useCallback(async (finalAnswers: OnboardingAnswers) => {
+    hapticSuccess();
+    await persistOnboardingMemory(userId, finalAnswers);
+    setFlowPhase('complete');
+    const doneScript = `Profile locked, ${finalAnswers.name ?? 'Commander'}. Roger standing by. Over.`;
+    await speakNode(doneScript);
+    setPhase('done');
+    await upsertUserPreferences(userId, {
+      onboarding_complete: true,
+      onboarding_step: MAX_TOTAL_TURNS,
+      response_style: finalAnswers.comm_style ?? 'balanced',
+      display_name: finalAnswers.name,
+      ...(finalAnswers.islamic_mode !== undefined && { islamic_mode: finalAnswers.islamic_mode }),
+    } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+    setTimeout(() => onComplete(finalAnswers), 1800);
+  }, [userId, speakNode, onComplete]);
+
+  // ── Advance turn (phase-aware router) ─────────────────────────────────────
+  const advanceTurn = useCallback(async (transcript: string, currentAnswers: OnboardingAnswers) => {
+    const t = totalTurns + 1;
+    setTotalTurns(t);
+    hapticTick();
+
+    // ── WELCOME → this IS interview turn 1 ────────────────────────────────
+    if (flowPhase === 'welcome') {
+      // STEP 1: Silent extraction — process what user said to the welcome greeting
+      const extracted = await silentExtractFields(transcript, currentAnswers);
+      const merged = mergeExtractedFields(currentAnswers, extracted);
+      setAnswers(merged);
+      console.log('[Onboarding] Welcome response extracted:', JSON.stringify(extracted));
+
+      // Seed question history with the welcome greeting so LLM won't repeat it
+      if (questionHistory.current.length === 0) {
+        questionHistory.current.push(WELCOME_SCRIPT);
+      }
+
+      // Transition to interview — welcome IS turn 1
+      setFlowPhase('interview');
+      const turn = 1;
+      setInterviewTurn(turn);
+
+      // Check if name was just extracted → confirm spelling first
+      if (merged.name && !currentAnswers.name) {
+        const nc = await generateNameConfirm(merged.name);
+        setFlowPhase('name_confirm');
+        await speakNode(nc.script);
         return;
       }
-      // Confirmed → complete
-      hapticSuccess();
-      await persistOnboardingMemory(userId, currentAnswers);
-      const { script: cs } = await generateNodeScript('complete', currentAnswers);
-      setNode('complete');
-      await speakNode(cs);
-      setPhase('done');
-      await upsertUserPreferences(userId, {
-        onboarding_complete: true,
-        onboarding_step: TOTAL_NODES,
-        response_style: currentAnswers.comm_style ?? 'balanced',
-        display_name: currentAnswers.name,
-        ...(currentAnswers.islamic_mode !== undefined && { islamic_mode: currentAnswers.islamic_mode }),
-      } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
-      setTimeout(() => onComplete(currentAnswers), 1800);
+
+      // Name NOT found in welcome → ask for it directly before anything else
+      if (!merged.name) {
+        const nameScript = 'Copy. Before we go further — what should I call you?';
+        questionHistory.current.push(nameScript);
+        await speakNode(nameScript);
+        return;
+      }
+
+      // STEP 2: Generate follow-up WITH the user's transcript so LLM
+      // acknowledges what they said and asks about what's STILL missing
+      const result = await generateInterviewTurn(turn, merged, transcript, questionHistory.current);
+      questionHistory.current.push(result.script);
+      const merged2 = mergeExtractedFields(merged, result.extracted_fields);
+      setAnswers(merged2);
+      await speakNode(result.script);
       return;
     }
 
-    // ── Apply answer ──────────────────────────────────────────────────────
-    const updatedAnswers = applyOnboardingAnswer(currentNode, transcript, currentAnswers);
-    setAnswers(updatedAnswers);
+    // ── INTERVIEW (elastic 3-7 turns) ─────────────────────────────────────
+    if (flowPhase === 'interview') {
+      // STEP 1: Silent extraction — process what user said
+      const extracted = await silentExtractFields(transcript, currentAnswers);
+      const merged = mergeExtractedFields(currentAnswers, extracted);
+      setAnswers(merged);
 
-    // After re-editing a field, go back to review
-    const next: OnboardingNode = isReturningToReview ? 'review_confirm' : NEXT_NODE[currentNode];
-    if (isReturningToReview) setReturnToReview(false);
+      // Check if name was just extracted → confirm spelling
+      if (merged.name && !currentAnswers.name) {
+        setFlowPhase('name_confirm');
+        const nc = await generateNameConfirm(merged.name);
+        await speakNode(nc.script);
+        return;
+      }
 
-    updateOnboardingStep(userId, NODE_INDEX(next), updatedAnswers.name).catch(() => {});
+      // STEP 2: Generate next question with UPDATED state + what user said
+      const turn = interviewTurn + 1;
+      setInterviewTurn(turn);
+      const result = await generateInterviewTurn(turn, merged, transcript, questionHistory.current);
+      questionHistory.current.push(result.script);
+      const merged2 = mergeExtractedFields(merged, result.extracted_fields);
+      setAnswers(merged2);
 
-    hapticTick();
-    setNode(next);
-    const { script: nextScript } = await generateNodeScript(next, updatedAnswers, transcript);
-    await speakNode(nextScript);
-  }, [userId, speakNode, onComplete]);
+      // Check if interview is done
+      if ((result.all_covered && turn >= MIN_INTERVIEW_TURNS) || turn >= MAX_INTERVIEW_TURNS) {
+        setFlowPhase('features');
+        const ft = await generateFeaturesTurn(merged2.name ?? 'Commander');
+        await speakNode(ft.script);
+        return;
+      }
+
+      await speakNode(result.script);
+      return;
+    }
+
+    // ── NAME CONFIRM ──────────────────────────────────────────────────────
+    if (flowPhase === 'name_confirm') {
+      const nc = await generateNameConfirm(currentAnswers.name ?? '', transcript);
+      if (nc.extracted_value) {
+        const merged = { ...currentAnswers };
+        if (nc.extracted_value.toLowerCase() !== 'yes') {
+          merged.name = nc.extracted_value;
+        }
+        setAnswers(merged);
+      }
+      // Back to interview — use updated answers
+      setFlowPhase('interview');
+      const turn = interviewTurn + 1;
+      setInterviewTurn(turn);
+      const updatedAnswers = { ...currentAnswers, ...(nc.extracted_value && nc.extracted_value.toLowerCase() !== 'yes' ? { name: nc.extracted_value } : {}) };
+      const result = await generateInterviewTurn(turn, updatedAnswers, undefined, questionHistory.current);
+      questionHistory.current.push(result.script);
+      const merged2 = mergeExtractedFields(updatedAnswers, result.extracted_fields);
+      setAnswers(merged2);
+      await speakNode(result.script);
+      return;
+    }
+
+    // ── FEATURES (dedicated rigid turn) ───────────────────────────────────
+    if (flowPhase === 'features') {
+      const ft = await generateFeaturesTurn(currentAnswers.name ?? '', transcript);
+      const prefs = ft.extracted_value
+        ? applyFeaturePrefs(ft.extracted_value)
+        : [];
+      const merged = { ...currentAnswers, feature_prefs: prefs };
+      setAnswers(merged);
+      // Move to Islamic mode
+      setFlowPhase('islamic');
+      const it = await generateIslamicTurn();
+      await speakNode(it.script);
+      return;
+    }
+
+    // ── ISLAMIC MODE (dedicated rigid turn) ───────────────────────────────
+    if (flowPhase === 'islamic') {
+      const it = await generateIslamicTurn(transcript);
+      const isYes = it.extracted_value?.toLowerCase() === 'yes';
+      const merged = { ...currentAnswers, islamic_mode: isYes };
+      setAnswers(merged);
+      // Move to review
+      setFlowPhase('review');
+      const reviewScript = await buildReviewScript(merged);
+      await speakNode(reviewScript);
+      return;
+    }
+
+    // ── REVIEW ────────────────────────────────────────────────────────────
+    if (flowPhase === 'review') {
+      const intent = await parseReviewIntentAI(transcript, userId);
+      if (intent === 'confirm') {
+        await finishOnboarding(currentAnswers);
+        return;
+      }
+      // User wants to edit — go back to interview for 1 more turn
+      setFlowPhase('interview');
+      const editTurn = interviewTurn + 1;
+      setInterviewTurn(editTurn);
+      const result = await generateInterviewTurn(editTurn, currentAnswers, `I want to change my ${intent}`);
+      await speakNode(result.script);
+      return;
+    }
+  }, [flowPhase, interviewTurn, totalTurns, userId, speakNode, finishOnboarding]);
 
   // ── PTT Down ──────────────────────────────────────────────────────────────
-  const handleDown = useCallback(async () => {
+  const handleDown = useCallback(async (e: React.PointerEvent) => {
     if (phase !== 'waiting') return;
+
+    // Capture the pointer so pointerleave doesn't fire while holding on desktop
+    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+
     stopSpeaking();
+
+    // Keep AudioContext alive on PC browsers
+    unlockAudio().catch(() => {});
+
     hapticPTTDown();
     sfxPTTDown();
     setPhase('recording');
+    pttStartRef.current = Date.now();
     setHoldMs(0);
     holdRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
     const recorder = await createAudioRecorder();
@@ -162,6 +290,21 @@ export default function Onboarding({ userId, onComplete }: Props) {
     if (holdRef.current) clearInterval(holdRef.current);
     hapticPTTUp();
     sfxPTTUp();
+
+    // Use timestamp ref for hold duration — immune to React stale-closure issues
+    const elapsed = Date.now() - pttStartRef.current;
+    console.log('[Onboarding PTT] Hold duration:', elapsed, 'ms');
+
+    // Minimum hold time — too-brief presses don't capture usable audio
+    if (elapsed < 400) {
+      console.warn('[Onboarding PTT] Too brief:', elapsed, 'ms');
+      hapticError(); sfxError();
+      recorderRef.current?.dispose();
+      recorderRef.current = null;
+      setPhase('waiting');
+      return;
+    }
+
     const recorder = recorderRef.current;
     recorderRef.current = null;
     if (!recorder) { setPhase('waiting'); return; }
@@ -169,28 +312,34 @@ export default function Onboarding({ userId, onComplete }: Props) {
     try {
       const blob = await recorder.stop();
       recorder.dispose();
+      console.log('[Onboarding PTT] Blob size:', blob.size, 'type:', blob.type);
+      if (blob.size < 100) {
+        console.warn('[Onboarding PTT] Blob too small, skipping transcription');
+        hapticError(); sfxError(); setPhase('waiting'); return;
+      }
       const { transcript } = await transcribeAudio(blob);
+      console.log('[Onboarding PTT] Transcript:', transcript);
       if (!transcript || transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '').length < 2) {
         hapticError(); sfxError(); setPhase('waiting'); return;
       }
-      await advanceNode(node, transcript, answers, returnToReview);
-    } catch {
+      await advanceTurn(transcript, answers);
+    } catch (err) {
+      console.error('[Onboarding PTT] Error:', err);
       hapticError(); sfxError(); setPhase('waiting');
     }
-  }, [phase, node, answers, returnToReview, advanceNode]);
+  }, [phase, answers, advanceTurn]);
 
   // ── Skip ──────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(async () => {
     if (phase !== 'waiting' && phase !== 'speaking') return;
     stopSpeaking();
-    await advanceNode(node, '', answers, returnToReview);
-  }, [phase, node, answers, returnToReview, advanceNode]);
+    await advanceTurn('', answers);
+  }, [phase, answers, advanceTurn]);
 
   // ── UI helpers ────────────────────────────────────────────────────────────
-  const isAnswerable = node !== 'welcome' && node !== 'complete';
-  const isReview     = node === 'review_confirm';
-  const currentStep  = Math.max(0, NODE_INDEX(node) - 1);
-  const progressPct  = node === 'complete' ? 100 : isReview ? 100 : Math.max(5, (currentStep / TOTAL_NODES) * 100);
+  const isAnswerable = flowPhase !== 'welcome' && flowPhase !== 'complete';
+  const isReview     = flowPhase === 'review';
+  const progressPct  = flowPhase === 'complete' ? 100 : isReview ? 100 : Math.max(5, (totalTurns / MAX_TOTAL_TURNS) * 100);
 
   const btnColor = phase === 'recording'  ? '#d4a044'
     : phase === 'processing' ? '#a78bfa'
@@ -202,7 +351,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
     : phase === 'speaking'   ? 'Roger speaking...'
     : phase === 'done'       ? 'Initializing...'
     : isReview               ? 'Say "confirm" or "change my [field]"'
-    : 'Hold to answer';
+    : 'Hold to speak';
 
   return (
     <div style={{
@@ -230,10 +379,10 @@ export default function Onboarding({ userId, onComplete }: Props) {
         </div>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.25em', margin: 0 }}>
-            ROGER AI
+            {t('app.name')}
           </p>
           <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', margin: '2px 0 0' }}>
-            {returnToReview ? `Editing ${NODE_LABELS[node] ?? node}` : 'Initializing your profile'}
+            {PHASE_LABELS[flowPhase] ?? 'Initializing your profile'}
           </p>
         </div>
       </div>
@@ -243,10 +392,10 @@ export default function Onboarding({ userId, onComplete }: Props) {
         <div style={{ width: '100%', maxWidth: 360, marginBottom: 20, zIndex: 1 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              {NODE_LABELS[node] ?? 'Profile setup'}
+              {PHASE_LABELS[flowPhase] ?? 'Profile setup'}
             </span>
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)' }}>
-              {currentStep}/{TOTAL_NODES}
+              {totalTurns}/{MAX_TOTAL_TURNS}
             </span>
           </div>
           <div style={{ height: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 1 }}>
@@ -431,7 +580,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
         </div>
 
         {/* Skip */}
-        {(phase === 'waiting' || phase === 'speaking') && node !== 'complete' && node !== 'welcome' && !isReview && (
+        {(phase === 'waiting' || phase === 'speaking') && flowPhase !== 'complete' && flowPhase !== 'welcome' && !isReview && (
           <button onClick={handleSkip} style={{
             background: 'transparent', border: 'none', cursor: 'pointer',
             fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)',

@@ -17,6 +17,8 @@ import {
   bearingToCardinal, fetchVerseOfDay, formatCountdown, PRAYER_METHODS,
   type PrayerTimes, type VerseOfDay,
 } from '../../lib/islamicApi';
+import { HijriBanner, HadithCard, DuaCard, AsmaUlHusnaCard, VerseAudioButton } from './SalahExtras';
+import { useI18n } from '../../context/I18nContext';
 
 interface Props {
   userId: string;
@@ -31,6 +33,7 @@ const EMERALD_DIM = 'rgba(16,185,129,0.08)';
 const EMERALD_MID = 'rgba(16,185,129,0.18)';
 
 export default function SalahView({ location }: Props) {
+  const { t } = useI18n();
   const [times, setTimes]           = useState<PrayerTimes | null>(null);
   const [verse, setVerse]           = useState<VerseOfDay | null>(null);
   const [loading, setLoading]       = useState(true);
@@ -168,6 +171,9 @@ export default function SalahView({ location }: Props) {
           </button>
         </div>
       </div>
+
+      {/* ── Hijri Date Banner ── */}
+      <HijriBanner />
 
       <div style={{ padding: '0 16px', position: 'relative', zIndex: 1 }}>
 
@@ -398,16 +404,19 @@ export default function SalahView({ location }: Props) {
             }}>
               "{verse.translation}"
             </p>
-            {/* Reference */}
-            <span style={{
-              fontFamily: 'monospace', fontSize: 9,
-              color: `${EMERALD}70`,
-              textTransform: 'uppercase', letterSpacing: '0.15em',
-              padding: '2px 8px',
-              border: `1px solid ${EMERALD}20`,
-            }}>
-              {verse.ref}
-            </span>
+            {/* Reference + Audio */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{
+                fontFamily: 'monospace', fontSize: 9,
+                color: `${EMERALD}70`,
+                textTransform: 'uppercase', letterSpacing: '0.15em',
+                padding: '2px 8px',
+                border: `1px solid ${EMERALD}20`,
+              }}>
+                {verse.ref}
+              </span>
+              <VerseAudioButton audioUrl={verse.audioUrl} />
+            </div>
           </div>
         )}
 
@@ -447,9 +456,18 @@ export default function SalahView({ location }: Props) {
           })}
         </div>
 
-        {/* Prayer method note */}
+        {/* ── 6. Hadith of the Day ────────────────────────────────────────── */}
+        <HadithCard />
+
+        {/* ── 7. Dua of the Day ───────────────────────────────────────────── */}
+        <DuaCard />
+
+        {/* ── 8. Name of Allah ────────────────────────────────────────────── */}
+        <AsmaUlHusnaCard />
+
+        {/* Provider note */}
         <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(107,106,94,0.4)', textAlign: 'center', letterSpacing: '0.1em', margin: '0 0 40px' }}>
-          Times calculated via AlAdhan.com · {PRAYER_METHODS[0].label} method · Change in Settings
+          Powered by UmmahAPI.com · {PRAYER_METHODS[0].label} method · Change in Settings
         </p>
       </div>
 

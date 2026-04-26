@@ -191,3 +191,28 @@
   0%, 100% { border-color: rgba(212,160,68,0.35); box-shadow: none; }
   50%       { border-color: rgba(212,160,68,0.75); box-shadow: 0 0 10px rgba(212,160,68,0.2); }
 }
+
+/* ═══════════════════════════════════════════════════
+   RTL SUPPORT — Arabic locale layout adjustments
+   Triggered when <html dir="rtl"> is set by I18nContext.
+═══════════════════════════════════════════════════ */
+
+[dir="rtl"] {
+  text-align: right;
+}
+
+/* Flip horizontal paddings/margins for common patterns */
+[dir="rtl"] .rtl-flip {
+  direction: rtl;
+}
+
+/* Mirror nav scrolling direction */
+[dir="rtl"] nav {
+  direction: rtl;
+}
+
+/* Ensure monospace labels still look good RTL */
+[dir="rtl"] [style*="letter-spacing"] {
+  letter-spacing: 0.05em;
+}
+

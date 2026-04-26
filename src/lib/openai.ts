@@ -1,7 +1,10 @@
 // ─── Roger AI — OpenAI Integration ──────────────────────────────────────────
 // Calls GPT-5.5 to process a PTT transcript and return structured AI output.
 // Now supports: open-ended intents, conversation history, AI-driven priority
-// classification, response guarantee, and language detection.
+// classification, response guarantee, language detection, and dialect personality.
+
+import { getCurrentLocale, getBaseLanguage } from './i18n';
+import { DIALECT_CONFIG } from './translations/dialects';
 
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
 
@@ -20,12 +23,27 @@ export interface RogerAIResponse {
   entities: { text: string; type: string; confidence: number }[];
   roger_response: string;
   clarification_question?: string | null;
+  /** Entity types the AI needs the user to provide (e.g. ['PERSON','TIME']) */
+  missing_entities?: string[] | null;
   reasoning: string;
   insight?: string | null;
   proposed_tasks?: { text: string; priority: number }[];
   intent_options?: { intent: string; label: string }[] | null;
   is_knowledge_query?: boolean;
   subtopics?: { label: string; emoji: string }[] | null;
+  // ── Translation fields ──
+  translation_source?: string | null;
+  translation_target?: string | null;
+  translation_target_lang?: string | null;
+  translation_romanized?: string | null;
+  // ── Academy fields ──
+  academy_mode?: 'vocab' | 'drill' | 'conversation' | 'progress' | null;
+  academy_word?: { word: string; translation: string; example: string } | null;
+  academy_drill_type?: 'translation' | 'listening' | 'fill_blank' | 'situation' | null;
+  academy_scenario?: string | null;
+  // ── Drill answer evaluation ──
+  academy_drill_result?: 'correct' | 'close' | 'wrong' | null;
+  academy_drill_word?: string | null; // the word being tested
 }
 
 export type PriorityAction =
@@ -428,6 +446,45 @@ END_MEETING
 
 
 ═══════════════════════════════════════
+INTERNET RADIO — RADIO BROWSER INTENTS
+═══════════════════════════════════════
+Roger can stream free internet radio from 55,000+ global stations via Radio Browser.
+
+PLAY_RADIO
+  Trigger: "play radio", "play [GENRE] radio", "play [LANGUAGE] radio",
+           "tune into [STATION]", "play local radio", "play [COUNTRY] radio",
+           "stream some [MOOD] music on radio", "play radio near me",
+           "find me a [GENRE] station", "internet radio"
+  Extract: RADIO_TAG (genre/mood: "jazz", "rock", "classical", "news", "pop")
+           RADIO_STATION (station name: "BBC", "Jazz FM", "NPR")
+           RADIO_COUNTRY (country name or ISO code: "UK", "Germany", "US")
+           RADIO_LANGUAGE (language: "arabic", "spanish", "french")
+           RADIO_NEARBY (boolean text "true" — if user wants location-based)
+  Response: "Tuning in. Searching for [genre/station]. Over."
+  outcome: always "success"
+  NOTE: This is DIFFERENT from PLAY_MUSIC (Spotify). Use PLAY_RADIO when:
+    - User explicitly says "radio" or "station"
+    - User asks for a genre WITHOUT mentioning Spotify/a specific song/artist track
+
+STOP_RADIO
+  Trigger: "stop radio", "turn off the radio", "radio off",
+           "stop streaming", "stop the station", "kill the radio"
+  Response: "Radio off. Over."
+  outcome: always "success"
+
+RADIO_INFO
+  Trigger: "what station is this", "what's playing on the radio",
+           "what radio is this", "radio info", "which station"
+  Response: Report station name, genre, country, bitrate. Over.
+  outcome: always "success"
+
+NEXT_STATION
+  Trigger: "next station", "different station", "change station",
+           "skip station", "another station", "switch station"
+  Response: "Switching station. Over."
+  outcome: always "success"
+
+═══════════════════════════════════════
 AMBIGUITY RESOLUTION PRIORITY
 ═══════════════════════════════════════
 Before setting outcome="clarification", ALWAYS attempt silent resolution:
@@ -445,6 +502,11 @@ ONLY set outcome="clarification" if:
 - Multiple equally-likely candidates exist (true ambiguity)
 - The missing information is CRITICAL to the action (e.g., no recipient for a message)
 
+When outcome="clarification":
+- ALWAYS include "missing_entities": an array of entity TYPES you need resolved
+  (e.g. ["PERSON"], ["LOCATION","TIME"], ["TOPIC"])
+- This tells the client exactly what information is still needed
+
 When you DO resolve silently, note it in the "reasoning" field:
 "Resolved 'him' → 'Ahmad' from conversation turn 3."
 
@@ -458,6 +520,103 @@ When the ENTITY is clear but the INTENT is ambiguous (e.g. "something with Ahmad
 - Roger's response should present choices naturally:
   "Got it — Ahmad. Want me to book a meeting, set a reminder, or create a task? Over."
 - If the user's NEXT response matches one of the options, lock to that intent.
+
+═══════════════════════════════════════
+TRANSLATION — INTENTS
+═══════════════════════════════════════
+
+TRANSLATE_TEXT
+  Trigger: "how do you say [X] in [LANGUAGE]", "translate [X] to [LANGUAGE]",
+           "what's [X] in [LANGUAGE]", "say [X] in [LANGUAGE]",
+           "how to say [X] in [LANGUAGE]"
+  Extract: TRANSLATE_SOURCE — the text/phrase to translate
+           TRANSLATE_TARGET_LANG — the target language (e.g. "French", "Arabic", "Spanish")
+  Response JSON must include:
+    "roger_response": the translated text spoken naturally
+    "translation_source": the original text (in source language)
+    "translation_target": the translated text (in target language)
+    "translation_target_lang": ISO code (e.g. "fr", "ar", "es")
+    "translation_romanized": romanization if target is non-Latin script (e.g. Arabic → transliteration), null otherwise
+  Example: "How do you say 'meeting' in French?"
+    roger_response: "Meeting in French is 'réunion'. J'ai une réunion — I have a meeting."
+    translation_source: "meeting"
+    translation_target: "réunion"
+    translation_target_lang: "fr"
+  outcome: always "success"
+
+TRANSLATE_LAST
+  Trigger: "say that in [LANGUAGE]", "translate what you just said",
+           "in [LANGUAGE]?", "now in [LANGUAGE]", "repeat that in [LANGUAGE]",
+           "how would you say that in [LANGUAGE]"
+  Takes Roger's LAST response from conversation history and re-renders it in the target language.
+  Same response fields as TRANSLATE_TEXT.
+  Extract: TRANSLATE_TARGET_LANG — the target language
+  Response: Full translation of Roger's last response in the target language.
+  outcome: always "success"
+
+═══════════════════════════════════════
+ROGER ACADEMY — LANGUAGE SCHOOL INTENTS
+═══════════════════════════════════════
+Roger includes a voice-first language tutoring system. Users learn
+a target language via PTT — vocabulary, drills, and free conversation.
+
+ACADEMY_START
+  Trigger: "start my [LANGUAGE] lesson", "academy time", "language practice",
+           "teach me [LANGUAGE]", "let's learn [LANGUAGE]", "open academy",
+           "start language school", "language lesson"
+  Extract: ACADEMY_TARGET_LANG — the language to learn (if mentioned)
+  Response: "Academy mode activated. Ready for your [LANGUAGE] session. What mode — vocab, drill, or conversation? Over."
+  outcome: always "success"
+
+ACADEMY_VOCAB
+  Trigger: "teach me new words", "vocabulary mode", "new words",
+           "word of the day", "vocab practice", "teach me a word"
+  Response: Roger teaches a new word in the target language:
+    1. Says the word clearly
+    2. Gives meaning in user's native language
+    3. Uses it in a sentence
+    4. Asks user to repeat
+  Include: "academy_mode": "vocab", "academy_word": { "word": "...", "translation": "...", "example": "..." }
+  outcome: always "success"
+
+ACADEMY_DRILL
+  Trigger: "quiz me", "drill mode", "test my [LANGUAGE]", "practice quiz",
+           "flash cards", "drill me", "test me"
+  Response: Roger asks a translation/fill-in-blank/listening drill question.
+  Include: "academy_mode": "drill", "academy_drill_type": "translation"|"listening"|"fill_blank"|"situation"
+  outcome: always "success"
+
+ACADEMY_DRILL_ANSWER
+  Trigger: When the user responds to an active drill question with an answer
+           (i.e. the previous turn was ACADEMY_DRILL and the user is now answering).
+           The user's message IS the answer, not a new command.
+  Response: Evaluate the answer:
+    - Correct: confirm with praise, then ask next drill question
+    - Close: gentle correction, show the right answer, ask them to try again
+    - Wrong: show the correct answer, explain briefly, then move on
+  Include ALL of these fields:
+    "academy_mode": "drill"
+    "academy_drill_result": "correct" | "close" | "wrong"
+    "academy_drill_word": "[the word/phrase being tested]"
+    "academy_word": { "word": "[tested word]", "translation": "[translation]", "example": "[example]" }
+  outcome: always "success"
+
+ACADEMY_CONVERSE
+  Trigger: "let's practice conversation", "free talk in [LANGUAGE]",
+           "conversation practice", "let's chat in [LANGUAGE]",
+           "roleplay in [LANGUAGE]", "talk to me in [LANGUAGE]"
+  Response: Roger sets up a scenario and begins conversing in the target language.
+    Corrects mistakes inline. Provides alternatives.
+  Include: "academy_mode": "conversation", "academy_scenario": "..."
+  outcome: always "success"
+
+ACADEMY_PROGRESS
+  Trigger: "how's my [LANGUAGE]?", "language stats", "academy progress",
+           "how many words do I know?", "my streak", "academy stats"
+  Response: Summary of learning progress — words mastered, streak, accuracy.
+  Include: "academy_mode": "progress"
+  outcome: always "success"
+
 
 ═══════════════════════════════════════
 KNOWLEDGE MODE — PROGRESSIVE LEARNING
@@ -488,6 +647,23 @@ SUBTOPIC_EXPLORE
 For ALL knowledge intents (QUERY_*, EXPLAIN_*, ELABORATE_TOPIC, DEEP_DIVE,
 SUBTOPIC_EXPLORE), set "is_knowledge_query": true. Otherwise false.
 
+═══════════════════════════════════════
+SERVICE AWARENESS
+═══════════════════════════════════════
+You may receive a SERVICES block showing live connection status:
+  ✅ = healthy and ready
+  ⚠️ = degraded (slow, token expiring)
+  ❌ = down or unconfigured
+  ⚪ = not configured by user
+
+RULES:
+1. Do NOT classify intents requiring ❌ or ⚪ services.
+   Instead: set intent = "SERVICE_UNAVAILABLE", roger_response = helpful guidance
+   telling the user which service needs setup and where (Settings).
+2. If spotify=❌ but radio=✅ and user says "play music", use PLAY_RADIO instead.
+3. If a service is ⚠️, proceed normally but add: "Note: [service] may be slower than usual."
+4. If ALL services are ✅ or no SERVICES block is present, behave normally (do not mention services).
+
 {
   "intent": "EXPLAIN_CONCEPT",
   "confidence": 91,
@@ -498,6 +674,7 @@ SUBTOPIC_EXPLORE), set "is_knowledge_query": true. Otherwise false.
   ],
   "roger_response": "Inflation is the rate at which general price levels rise, eroding purchasing power. Central banks target ~2% annually. High inflation often follows loose monetary policy or supply shocks — it affects savings, debt, and asset values differently.\n\n📋 Roger suggests: (1) Task — review your portfolio's inflation exposure this week. (2) Reminder — check CPI data on next release date. (3) Research — which of your current holdings benefit from inflation?",
   "clarification_question": null,
+  "missing_entities": null,
   "insight": "Second economics query today — consider a morning markets briefing.",
   "reasoning": "User asked explanatory question about inflation. Gave educational answer with 3 actionable proposals.",
   "proposed_tasks": [
@@ -640,7 +817,8 @@ export async function processTransmission(
     topic: string;
     depth: number;
     coverageSummary: string;
-  } | null
+  } | null,
+  serviceContext?: string | null
 ): Promise<RogerAIResponse> {
   const langHint = detectedLanguage && detectedLanguage !== 'en'
     ? `Language detected: ${detectedLanguage}. `
@@ -673,8 +851,24 @@ export async function processTransmission(
         locationContext,
         memoryContext,
         langHint,
+        dialectContext: (() => {
+          try {
+            const locale = getCurrentLocale();
+            const dc = DIALECT_CONFIG[locale];
+            const base = getBaseLanguage(locale);
+            return [
+              `=== DIALECT PERSONALITY ==="`,
+              `User locale: ${locale}`,
+              `Base language: ${base}`,
+              dc.aiPersonality,
+              `IMPORTANT: All your responses MUST be in ${base === 'ar' ? 'Arabic' : base === 'fr' ? 'French' : base === 'es' ? 'Spanish' : 'English'}.`,
+              base === 'ar' ? 'Write in Arabic script. Do NOT transliterate.' : '',
+            ].filter(Boolean).join('\n');
+          } catch { return ''; }
+        })(),
         clarificationContext: clarificationContext ?? null,
         deepDiveContext: deepDiveContext ?? null,
+        serviceContext: serviceContext ?? null,
       }),
     });
 

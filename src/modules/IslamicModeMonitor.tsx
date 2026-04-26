@@ -1,4 +1,4 @@
-﻿/**
+/**
  * IslamicModeMonitor.tsx — Admin dashboard for Islamic Mode oversight
  *
  * Panels:
@@ -275,7 +275,7 @@ export default function IslamicModeMonitor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Shield size={12} style={{ color: 'var(--amber)', flexShrink: 0 }} />
           <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
-            Islamic Mode is user opt-in only. Admins can disable but not enable on behalf of users. Prayer times use AlAdhan.com (no API key required).
+            Islamic Mode is user opt-in only. Admins can disable but not enable on behalf of users. All Islamic content powered by UmmahAPI.com (no API key required).
           </p>
         </div>
       </div>

@@ -94,6 +94,10 @@ export type DbUserPreferences = {
   // ── Tour ────────────────────────────────────
   tour_seen:          boolean;
   tour_version:       number        | null;
+  // ── Talkative Mode ────────────────────────
+  talkative_enabled:    boolean;
+  talkative_frequency:  'thoughtful' | 'active_talk' | 'always_on';
+  talkative_delivery:   'auto_speak' | 'ptt_pulse';
 };
 
 // ─── Intent Registry ──────────────────────────────────────────────────────────
@@ -336,7 +340,7 @@ export type DbEntityMention = {
 
 export type DbMemoryFact = {
   id: string; user_id: string;
-  fact_type: 'person' | 'company' | 'project' | 'preference' | 'relationship' | 'goal' | 'habit' | 'location';
+  fact_type: 'person' | 'company' | 'project' | 'preference' | 'relationship' | 'goal' | 'habit' | 'location' | 'language_vocab';
   subject: string; predicate: string; object: string;
   confidence: number; source_tx: string | null;
   is_confirmed: boolean;
@@ -492,6 +496,150 @@ export async function confirmMemoryFact(factId: string): Promise<void> {
 
 export async function deleteMemoryFact(factId: string): Promise<void> {
   await supabase.from('memory_graph').delete().eq('id', factId);
+}
+
+// ─── Academy — Streak & Vocab ─────────────────────────────────────────────────
+
+export interface DbAcademyStreak {
+  user_id: string;
+  target_locale: string;
+  current_streak: number;
+  longest_streak: number;
+  last_session: string | null;
+  total_sessions: number;
+  total_words: number;
+  accuracy_pct: number;
+  streak_freezes: number;
+  freezes_used: number;
+  last_milestone: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Fetch the user's academy streak record */
+export async function fetchAcademyStreak(userId: string): Promise<DbAcademyStreak | null> {
+  const { data } = await supabase
+    .from('academy_streaks')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return (data as DbAcademyStreak | null) ?? null;
+}
+
+/** Upsert academy streak — creates if missing, updates if exists */
+export async function upsertAcademyStreak(
+  userId: string,
+  updates: Partial<Omit<DbAcademyStreak, 'user_id' | 'created_at'>>
+): Promise<void> {
+  const now = new Date().toISOString();
+  await supabase.from('academy_streaks').upsert({
+    user_id: userId,
+    ...updates,
+    updated_at: now,
+  }, { onConflict: 'user_id' });
+}
+
+/** Streak milestone thresholds */
+const MILESTONES = [7, 14, 30, 60, 100, 365];
+
+/** Record an academy session — bumps session count, updates streak, handles freezes + milestones */
+export async function recordAcademySession(userId: string): Promise<{ milestone?: number; frozeUsed?: boolean }> {
+  const existing = await fetchAcademyStreak(userId);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const lastDay = existing?.last_session?.slice(0, 10);
+
+  let newStreak = 1;
+  let frozeUsed = false;
+  let freezes = existing?.streak_freezes ?? 1;
+  let freezesUsed = existing?.freezes_used ?? 0;
+
+  if (existing && lastDay) {
+    const diff = (now.getTime() - new Date(lastDay).getTime()) / 86400000;
+    if (diff < 1) {
+      // Same day — don't increment streak
+      newStreak = existing.current_streak;
+    } else if (diff < 2) {
+      // Consecutive day — increment
+      newStreak = existing.current_streak + 1;
+    } else if (diff < 3 && freezes > 0) {
+      // Missed 1 day but has a freeze — consume it, keep streak
+      newStreak = existing.current_streak + 1;
+      freezes -= 1;
+      freezesUsed += 1;
+      frozeUsed = true;
+    }
+    // else gap > 2 days (or no freeze) — reset to 1
+  }
+
+  // Earn a freeze every 7-day streak interval
+  if (newStreak > 0 && newStreak % 7 === 0 && newStreak > (existing?.current_streak ?? 0)) {
+    freezes = Math.min(freezes + 1, 3); // max 3 freezes
+  }
+
+  const longestStreak = Math.max(newStreak, existing?.longest_streak ?? 0);
+  const totalSessions = (existing?.total_sessions ?? 0) + 1;
+  const lastMilestone = existing?.last_milestone ?? 0;
+
+  // Detect new milestone
+  const newMilestone = MILESTONES.find(m => newStreak >= m && m > lastMilestone);
+
+  await upsertAcademyStreak(userId, {
+    current_streak: newStreak,
+    longest_streak: longestStreak,
+    total_sessions: totalSessions,
+    last_session: now.toISOString(),
+    streak_freezes: freezes,
+    freezes_used: freezesUsed,
+    ...(newMilestone ? { last_milestone: newMilestone } : {}),
+  });
+
+  return { milestone: newMilestone, frozeUsed };
+}
+
+/** Save a vocab word to memory_graph as a language_vocab fact */
+export async function upsertVocabWord(
+  userId: string,
+  word: string,
+  translation: string,
+  targetLocale: string,
+  mastery = 0
+): Promise<void> {
+  await upsertMemoryFact({
+    user_id: userId,
+    fact_type: 'language_vocab',
+    subject: targetLocale,
+    predicate: 'vocab_word',
+    object: word,
+    confidence: Math.min(100, 50 + mastery * 10),
+    source_tx: `translation:${translation}|mastery:${mastery}`,
+    is_confirmed: mastery >= 3,
+    is_draft: mastery < 2,
+  });
+}
+
+/** Fetch all vocab words for a given target locale */
+export async function fetchVocabWords(
+  userId: string,
+  targetLocale?: string
+): Promise<{ word: string; translation: string; mastery: number; locale: string }[]> {
+  let q = supabase
+    .from('memory_graph')
+    .select('subject, object, confidence, source_tx')
+    .eq('user_id', userId)
+    .eq('fact_type', 'language_vocab')
+    .eq('predicate', 'vocab_word')
+    .order('updated_at', { ascending: false });
+
+  if (targetLocale) q = q.eq('subject', targetLocale);
+
+  const { data } = await q.limit(200);
+  return (data ?? []).map(d => {
+    const tx = (d.source_tx ?? '').split('|');
+    const translation = tx.find((s: string) => s.startsWith('translation:'))?.replace('translation:', '') ?? '';
+    const mastery = parseInt(tx.find((s: string) => s.startsWith('mastery:'))?.replace('mastery:', '') ?? '0', 10);
+    return { word: d.object, translation, mastery, locale: d.subject };
+  });
 }
 
 // ─── Memory Insights ──────────────────────────────────────────────────────────

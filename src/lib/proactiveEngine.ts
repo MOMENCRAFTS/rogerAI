@@ -8,9 +8,10 @@
  *   No response in 30s → auto-snooze
  *
  * Mode-aware:
- *   drive   → strong haptic + loud ping + auto-speak after 3s
- *   normal  → subtle haptic + quiet ping, waits for PTT
- *   muted   → silent, no ping
+ *   drive      → strong haptic + loud ping + auto-speak after 3s
+ *   normal     → subtle haptic + quiet ping, waits for PTT
+ *   talkative  → same as normal, but also handles thinking messages from cron
+ *   muted      → silent, no ping
  */
 
 import { sfxRogerPing } from './sfx';
@@ -18,21 +19,25 @@ import { hapticTick, hapticSuccess } from './haptics';
 import { speakResponse } from './tts';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const SNOOZE_MS      = 5 * 60 * 1000;  // 5 minutes
-const AUTO_SNOOZE_MS = 30 * 1000;      // 30s no-response → auto-snooze
-const DRIVE_AUTO_MS  = 3 * 1000;       // drive mode: auto-speak after 3s
+const SNOOZE_MS           = 5 * 60 * 1000;   // 5 minutes
+const TALKATIVE_SNOOZE_MS = 15 * 60 * 1000;  // 15 minutes (talkative double-press)
+const AUTO_SNOOZE_MS      = 30 * 1000;       // 30s no-response → auto-snooze
+const DRIVE_AUTO_MS       = 3 * 1000;        // drive mode: auto-speak after 3s
+const TALKATIVE_AUTO_MS   = 2 * 1000;        // talkative auto_speak: auto-speak after 2s
 
-export type ProactiveMode = 'normal' | 'drive' | 'muted';
+export type ProactiveMode = 'normal' | 'drive' | 'talkative' | 'muted';
+export type TalkativeDelivery = 'auto_speak' | 'ptt_pulse';
 
 export interface PendingMessage {
   id:      string;
   text:    string;
-  trigger: 'hazard' | 'reminder' | 'departure' | 'briefing' | 'idle';
+  trigger: 'hazard' | 'reminder' | 'departure' | 'briefing' | 'idle' | 'academy' | 'thinking';
   urgent?: boolean;
 }
 
 // ── Singleton state ───────────────────────────────────────────────────────────
 let _mode:       ProactiveMode   = 'normal';
+let _delivery:   TalkativeDelivery = 'ptt_pulse';
 let _pending:    PendingMessage | null = null;
 let _snoozeUntil = 0;
 let _autoTimer:  ReturnType<typeof setTimeout> | null = null;
@@ -52,9 +57,14 @@ export function initProactive(opts: {
   _onClear = opts.onClear;
 }
 
-/** Update current mode (normal | drive | muted) */
+/** Update current mode (normal | drive | talkative | muted) */
 export function setProactiveMode(mode: ProactiveMode) {
   _mode = mode;
+}
+
+/** Set talkative delivery preference */
+export function setTalkativeDelivery(delivery: TalkativeDelivery) {
+  _delivery = delivery;
 }
 
 /** Queue a message for Roger to proactively deliver */
@@ -83,10 +93,10 @@ export function handleProactivePTT(): boolean {
   _lastPttAt = now;
 
   if (gap < 1000) {
-    // 2nd press within 1s → snooze
+    // 2nd press within 1s → snooze (15 min for thinking messages, 5 min otherwise)
     _pttCount++;
     if (_pttCount >= 2) {
-      _snooze();
+      _snooze(_pending?.trigger === 'thinking');
       return true;
     }
   } else {
@@ -122,8 +132,14 @@ function _ping() {
     _autoTimer = setTimeout(() => {
       if (_pending) _speak();
     }, DRIVE_AUTO_MS);
+  } else if (_mode === 'talkative' && _delivery === 'auto_speak') {
+    // Talkative auto-speak: auto-speak after 2s
+    _cancelAutoTimer();
+    _autoTimer = setTimeout(() => {
+      if (_pending) _speak();
+    }, TALKATIVE_AUTO_MS);
   } else {
-    // Normal: auto-snooze after 30s
+    // Normal / talkative+ptt_pulse: auto-snooze after 30s
     _cancelAutoTimer();
     _autoTimer = setTimeout(() => {
       if (_pending) _snooze();
@@ -141,8 +157,8 @@ async function _speak() {
   } catch { /* silent */ }
 }
 
-function _snooze() {
-  _snoozeUntil = Date.now() + SNOOZE_MS;
+function _snooze(isTalkative = false) {
+  _snoozeUntil = Date.now() + (isTalkative ? TALKATIVE_SNOOZE_MS : SNOOZE_MS);
   clearPending();
 }
 
@@ -184,5 +200,25 @@ export function triggerIdleCheckin(pendingCount: number) {
       ? `Standing by. You have ${pendingCount} pending item${pendingCount > 1 ? 's' : ''}. Hold to transmit.`
       : `Roger standing by. All clear. Hold to transmit.`,
     trigger: 'idle',
+  });
+}
+
+/** Proactive academy quiz — nudge user to practice a word */
+export function triggerAcademyQuiz(word: string, targetLang: string, streakDays: number) {
+  queueMessage({
+    id:      `academy-quiz-${word}`,
+    text:    streakDays > 0
+      ? `Academy check-in. ${streakDays}-day streak. Quick — how do you say "${word}" in ${targetLang}? Hold PTT to answer. Over.`
+      : `Academy time. How do you say "${word}" in ${targetLang}? Hold PTT to answer. Over.`,
+    trigger: 'academy',
+  });
+}
+
+/** Talkative mode — Roger has a thought to share */
+export function triggerThinkingMessage(thought: string, thoughtId?: string) {
+  queueMessage({
+    id:      thoughtId ?? `think-${Date.now()}`,
+    text:    thought,
+    trigger: 'thinking',
   });
 }

@@ -1,7 +1,6 @@
 // supabase/functions/generate-surface-script/index.ts
 // Generates Roger's spoken line for proactively surfacing a memory item.
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
@@ -19,7 +18,7 @@ Keep the response under 35 words total. Always end with "Over."
 Do not read the item verbatim — summarize it naturally.
 Return plain text only (no JSON).`;
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {

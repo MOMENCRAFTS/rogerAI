@@ -8,7 +8,6 @@
 //   - confidence < 50   → discarded with filter_reason logged
 //   - transient details → discarded with filter_reason logged
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
@@ -60,7 +59,7 @@ Return ONLY valid JSON:
 Return facts: [], discarded: [], insight: null if nothing in this turn is worth storing.
 Do NOT re-extract facts already obvious from the context.`;
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {

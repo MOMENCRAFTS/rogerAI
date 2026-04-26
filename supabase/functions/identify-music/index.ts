@@ -2,7 +2,6 @@
 // ACRCloud fingerprint-based music identification.
 // Receives base64-encoded audio, returns track metadata.
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
 const ACR_HOST   = Deno.env.get('ACRCLOUD_HOST')   ?? '';  // e.g. identify-eu-west-1.acrcloud.com
 const ACR_KEY    = Deno.env.get('ACRCLOUD_KEY')    ?? '';
@@ -29,7 +28,7 @@ async function buildSignature(timestamp: number): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {
