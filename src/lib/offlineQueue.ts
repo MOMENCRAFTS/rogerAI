@@ -3,7 +3,7 @@
  *
  * When the user records a PTT transmission while offline, the audio blob
  * is stored here. When connectivity returns, networkMonitor drains this
- * queue by sending each blob through the Whisper → GPT-4o pipeline.
+ * queue by sending each blob through the Whisper → GPT-5.5 pipeline.
  *
  * Schema (store: 'recordings'):
  *   txId       string   — e.g. "TX-SIM-0003"

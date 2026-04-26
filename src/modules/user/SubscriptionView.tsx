@@ -55,7 +55,7 @@ const PLANS: {
       'Unlimited PTT transmissions',
       'Unlimited reminders & tasks',
       'Unlimited memory storage',
-      'GPT-4o full quality responses',
+      'GPT-5.5 full quality responses',
       'Meeting recorder (3h/session)',
       'Ambient listener',
       'Proactive AI check-ins',

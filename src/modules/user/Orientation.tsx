@@ -17,10 +17,13 @@ import { createAudioRecorder } from '../../lib/audioRecorder';
 import { transcribeAudio } from '../../lib/whisper';
 
 // Keywords that mean "I understand, move on"
+// Kept broad because Whisper often returns creative transcriptions of short utterances
 const CONFIRM_KEYWORDS = [
-  'understood', 'got it', 'continue', 'roger', 'okay', 'ok',
-  'next', 'proceed', 'ready', 'yes', 'affirmative', 'copy',
-  "i'm ready", 'engage', 'let\'s go',
+  'understood', 'understand', 'got it', 'continue', 'roger', 'okay', 'ok',
+  'next', 'proceed', 'ready', 'yes', 'affirmative', 'copy', 'yep', 'yup',
+  'sure', 'right', 'alright', 'fine', 'good', 'cool', 'aye',
+  "i'm ready", 'engage', 'let\'s go', 'go ahead', 'move on',
+  'heard', 'noted', 'check', 'confirmed', 'clear', 'ten four', '10-4',
 ];
 
 interface Props {
@@ -37,8 +40,10 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   const [exiting, setExiting]         = useState(false);
   const [pttHeld, setPttHeld]         = useState(false);
   const [pttTranscribing, setPttTranscribing] = useState(false);
+  const [holdMs, setHoldMs]           = useState(0);
   const [flashMsg, setFlashMsg]       = useState<string | null>(null);
   const [showConfirmZone, setShowConfirmZone] = useState(false);
+  const [voiceFailed, setVoiceFailed] = useState(false);
 
   // Build chapter list: add Islamic chapter at the end if user opted in
   const CHAPTERS = islamicMode
@@ -48,6 +53,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   const spokenRef     = useRef<Set<number>>(new Set());
   const recorderRef   = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
   const slipTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null); // grace timer for finger-slip
+  const holdTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null); // hold duration tracker
   // openaiKey is read from env inside whisper.ts — no need to pass it here
 
   const total   = CHAPTERS.length;
@@ -83,6 +89,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     setDirection(1);
     setChapter(c => c + 1);
     setShowConfirmZone(false);
+    setVoiceFailed(false);
   }, [isLast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goPrev = useCallback(() => {
@@ -127,27 +134,39 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   const commitPtt = useCallback(async () => {
     if (!recorderRef.current) return;
     if (slipTimerRef.current) { clearTimeout(slipTimerRef.current); slipTimerRef.current = null; }
+    if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
     setPttHeld(false);
     setPttTranscribing(true);
     try {
       const blob = await recorderRef.current.stop();
+      recorderRef.current.dispose();
       recorderRef.current = null;
-      if (blob.size < 100) { setPttTranscribing(false); return; } // ignore sub-100 B noise
+      if (blob.size < 50) {
+        setPttTranscribing(false);
+        flash('Hold a bit longer and speak clearly');
+        setVoiceFailed(true);
+        return;
+      }
 
       const { transcript } = await transcribeAudio(blob);
-      const lower = transcript.toLowerCase().trim();
-      const confirmed = CONFIRM_KEYWORDS.some(kw => lower.includes(kw));
+      const lower = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 
-      if (confirmed) {
-        flash('✓ Understood');
+      // Orientation is informational — any spoken response means the user
+      // engaged with the content. Accept it and advance.
+      if (lower.length >= 2) {
+        flash('✓ Copy that');
         setTimeout(() => goNext(), 600);
       } else {
-        flash(`"${transcript.slice(0, 40)}" — say "understood" to continue`);
+        // Near-empty transcript — mic noise
+        flash('Didn\'t catch that — try again or tap Continue');
+        setVoiceFailed(true);
       }
     } catch {
-      flash('Could not hear you. Try again or tap Continue.');
+      flash('Could not hear you — tap Continue below');
+      setVoiceFailed(true);
     } finally {
       setPttTranscribing(false);
+      setHoldMs(0);
     }
   }, [goNext]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -162,15 +181,20 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     if (pttHeld || pttTranscribing) return;
     // Keep pointer captured so slip events stay bound to this element
     try { (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    e.preventDefault(); // prevent default touch behaviour
     stopSpeaking();
     setPttHeld(true);
+    setHoldMs(0);
     if (slipTimerRef.current) { clearTimeout(slipTimerRef.current); slipTimerRef.current = null; }
+    if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
+    holdTimerRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
     try {
       const rec = await createAudioRecorder();
       recorderRef.current = rec;
       await rec.start();
     } catch {
       setPttHeld(false);
+      if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
     }
   };
 
@@ -353,6 +377,8 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
                       onPointerDown={handlePttDown}
                       onPointerLeave={handlePttLeave}
                       onPointerEnter={handlePttReturn}
+                      onPointerCancel={() => { if (pttHeld) commitPtt(); }}
+                      onContextMenu={e => e.preventDefault()}
                       style={{
                         flex: 1,
                         padding: '14px',
@@ -368,13 +394,16 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
                         color: pttHeld ? current.iconColor : 'var(--text-muted)',
                         transition: 'all 150ms',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                        touchAction: 'none',
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
                       }}
                     >
                       {pttTranscribing
                         ? <><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)', animation: 'pulse 0.8s infinite' }} /> Listening...</>
                         : pttHeld
-                        ? <><MicOff size={13} /> Release when done</>
-                        : <><Mic size={13} /> Hold to say "understood"</>
+                        ? <><Mic size={13} style={{ color: current.iconColor }} /> ● REC {(holdMs / 1000).toFixed(1)}s — release when done</>
+                        : <><Mic size={13} /> Hold and say "understood"</>
                       }
                     </button>
                   </div>
@@ -395,6 +424,22 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
                   <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textAlign: 'center', margin: '0 0 10px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
                     {current.confirmPrompt}
                   </p>
+
+                  {/* Fallback Continue button — appears after a failed voice attempt */}
+                  {voiceFailed && (
+                    <button
+                      onClick={goNext}
+                      style={{
+                        width: '100%', padding: '12px', fontFamily: 'monospace', fontSize: 10,
+                        textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer',
+                        background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.35)',
+                        color: '#4ade80', marginBottom: 6,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      }}
+                    >
+                      ✓ Continue →
+                    </button>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

@@ -5,7 +5,7 @@
  *  - MediaRecorder runs continuously in 60-second rolling chunks
  *  - Each chunk → Whisper transcription (language auto-detected)
  *  - Accumulates full rolling transcript in memory
- *  - On stop() → generate-meeting-notes edge fn (GPT-4o) → structured notes
+ *  - On stop() → generate-meeting-notes edge fn (GPT-5.5) → structured notes
  *  - Saves to meeting_recordings table + feeds key participants into memory_graph
  *
  * Usage:
@@ -229,7 +229,7 @@ export function createMeetingRecorder(
     const durationS = Math.round((Date.now() - startedAt) / 1000);
     const fullTranscript = transcriptParts.join('\n\n');
 
-    // Generate notes via edge fn (GPT-4o)
+    // Generate notes via edge fn (GPT-5.5)
     let notes: MeetingNotes;
     try {
       notes = await generateNotes(fullTranscript, title);

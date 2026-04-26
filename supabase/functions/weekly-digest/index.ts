@@ -1,5 +1,5 @@
 // supabase/functions/weekly-digest/index.ts
-// Edge Function: Secure GPT-4o weekly digest generation
+// Edge Function: Secure GPT-5.5 weekly digest generation
 // Replaces client-side OpenAI call in UserAnalytics.tsx
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -44,7 +44,7 @@ Return plain text only.`;
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: 'gpt-4o', temperature: 0.5, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: 'gpt-5.5', temperature: 0.5, messages: [{ role: 'user', content: prompt }] }),
     });
 
     if (!res.ok) {

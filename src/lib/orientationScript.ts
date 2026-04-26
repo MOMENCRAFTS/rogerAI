@@ -10,11 +10,11 @@
 
 import {
   Radio, Brain, CheckSquare, Car, TrendingUp,
-  Calendar, Users, Mic, FileText, Zap, Moon,
+  Calendar, Users, Mic, FileText, Zap, Moon, BookOpen,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export const ORIENTATION_VERSION = 1;
+export const ORIENTATION_VERSION = 2;
 
 export interface OrientationChapter {
   id: string;
@@ -50,12 +50,31 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Hold PTT for at least 0.5 seconds before speaking for best recognition.',
   },
 
-  // ── 02 ── Memory ───────────────────────────────────────────────────────────
+  // ── 02 ── PTT Mastery ───────────────────────────────────────────────────────
+  {
+    id: 'ptt-mastery',
+    icon: Radio,
+    iconColor: '#f59e0b',
+    chapterLabel: 'Chapter 02',
+    headline: 'Master the PTT Button.',
+    body: 'The PTT button has three gestures. Tap once to stop Roger mid-sentence. Double-tap to replay his last message. Press and hold to record your voice command. One button, three powers.',
+    rogerSpeech: (name) =>
+      `${name ? `${name}, ` : ''}let me teach you the PTT gestures. If I\'m speaking and you want me to stop \u2014 just tap the button once, quick. Need me to repeat what I just said? Double-tap \u2014 two quick taps \u2014 and I\'ll replay my last message. And to give me a command, press and hold the button, speak, then release. Three gestures, one button: tap to stop, double-tap to replay, hold to talk. Say \"understood\" when ready. Over.`,
+    confirmPrompt: 'Say "understood" or tap Continue.',
+    keyExamples: [
+      'TAP \u2014 Stop Roger mid-sentence',
+      'DOUBLE-TAP \u2014 Replay last message',
+      'HOLD \u2014 Record your voice command',
+    ],
+    tip: 'Double-tap also works when Roger is idle \u2014 replay his last response any time.',
+  },
+
+  // ── 03 ── Memory ─────────────────────────────────────────────────────────
   {
     id: 'memory',
     icon: Brain,
     iconColor: '#8b5cf6',
-    chapterLabel: 'Chapter 02',
+    chapterLabel: 'Chapter 03',
     headline: 'I Remember Everything.',
     body: 'Every conversation I have with you builds a private memory graph — facts about people, places, preferences, and context. The more you use me, the smarter I get about you. High-confidence facts are stored immediately. Lower-confidence ones are held as drafts until confirmed a second time.',
     rogerSpeech: (name) =>
@@ -70,12 +89,12 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Roger grades every fact by confidence. Draft facts (50–74%) become permanent after a second mention.',
   },
 
-  // ── 03 ── Tasks & Reminders ────────────────────────────────────────────────
+  // ── 04 ── Tasks & Reminders ────────────────────────────────────────────
   {
     id: 'tasks',
     icon: CheckSquare,
     iconColor: '#22c55e',
-    chapterLabel: 'Chapter 03',
+    chapterLabel: 'Chapter 04',
     headline: 'I Manage Your Workload.',
     body: 'Tasks and reminders are my core engine. Create them by voice, and I\'ll track deadlines, surface overdue items proactively, and even suggest new tasks based on what you tell me. I can set geo-triggered reminders that fire when you arrive at a location.',
     rogerSpeech: () =>
@@ -90,12 +109,12 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'I auto-extract tasks from your natural speech — if you mention a deadline, I\'ll propose a task automatically.',
   },
 
-  // ── 04 ── Drive & Commute ──────────────────────────────────────────────────
+  // ── 05 ── Drive & Commute ──────────────────────────────────────────────
   {
     id: 'commute',
     icon: Car,
     iconColor: '#f97316',
-    chapterLabel: 'Chapter 04',
+    chapterLabel: 'Chapter 05',
     headline: 'I Own Your Drive.',
     body: 'Drive Mode activates when your speed exceeds 20 km/h. I switch to a hands-free, audio-only interface and brief you on your schedule, weather, and hazards before you leave. The Radar tab shows community-reported speed cameras and road incidents in real time.',
     rogerSpeech: () =>
@@ -110,12 +129,12 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Say "I\'m leaving now" to trigger your full departure brief and switch to drive mode.',
   },
 
-  // ── 05 ── Intelligence & Briefings ────────────────────────────────────────
+  // ── 06 ── Intelligence & Briefings ────────────────────────────────────────
   {
     id: 'intel',
     icon: TrendingUp,
     iconColor: '#06b6d4',
-    chapterLabel: 'Chapter 05',
+    chapterLabel: 'Chapter 06',
     headline: 'I Brief You on the World.',
     body: 'Live stock quotes, flight tracking, market briefs, and breaking news — all on demand via PTT. Ask me about any stock ticker, any flight number, or for a full market overview. I surface relevant news based on your memory context.',
     rogerSpeech: () =>
@@ -130,12 +149,32 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'I resolve company names to tickers automatically — say "Apple" not "AAPL" if you prefer.',
   },
 
-  // ── 06 ── Calendar ─────────────────────────────────────────────────────────
+  // ── 07 ── Knowledge Mode ────────────────────────────────────────────────────
+  {
+    id: 'knowledge',
+    icon: BookOpen,
+    iconColor: '#6366f1',
+    chapterLabel: 'Chapter 07',
+    headline: 'I Help You Learn.',
+    body: 'Ask me about any topic and I\'ll brief you. Say "tell me more" to go deeper — after two rounds, I\'ll offer a full deep dive with sub-topics. Your accumulated knowledge is saved to your Personal Encyclopedia in the Memory tab.',
+    rogerSpeech: (name) =>
+      `${name ? `${name}, ` : ''}I\'m not just a task manager — I\'m your personal research aide. Ask me anything: "Roger, tell me about Modena city" or "Roger, explain quantum computing." I\'ll give you a concise overview. If you want more, say "tell me more" and I\'ll elaborate with new information. After two elaborations, I\'ll offer you a full deep dive with specific sub-topics to explore. Every knowledge session auto-saves to your Personal Encyclopedia — find it under the Knowledge filter in your Memory tab. Your own private briefing library, built by conversation. Say "understood" to continue. Over.`,
+    confirmPrompt: 'Say "understood" or tap Continue.',
+    keyExamples: [
+      '"Roger, tell me about blockchain"',
+      '"Tell me more" — go deeper',
+      '"Tell me about the history" — explore sub-topic',
+      '"Save to encyclopedia" — compile your session',
+    ],
+    tip: 'Knowledge entries auto-save as you explore. The encyclopedia grows passively — no action needed.',
+  },
+
+  // ── 08 ── Calendar ───────────────────────────────────────────────────────
   {
     id: 'calendar',
     icon: Calendar,
     iconColor: '#ec4899',
-    chapterLabel: 'Chapter 06',
+    chapterLabel: 'Chapter 08',
     headline: 'I Own Your Calendar.',
     body: 'Connect your Google Calendar and I\'ll read, book, and cancel meetings by voice. I surface your schedule each morning and alert you when a meeting is approaching. High-stakes bookings go through a confirmation gate — I\'ll read the details back before writing to your calendar.',
     rogerSpeech: () =>
@@ -150,12 +189,12 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Link Google Calendar in Settings → Integrations. I\'ll never book without confirming first.',
   },
 
-  // ── 07 ── Tune In ──────────────────────────────────────────────────────────
+  // ── 09 ── Tune In ────────────────────────────────────────────────────────
   {
     id: 'network',
     icon: Users,
     iconColor: '#6366f1',
-    chapterLabel: 'Chapter 07',
+    chapterLabel: 'Chapter 09',
     headline: 'Tune In — Your Private Radio.',
     body: 'Tune In is a private, AI-monitored voice channel between two Roger users. Every user has a unique 7-character callsign. Connect by name (if saved) or callsign. I monitor the session, take notes, flag key moments, and deliver a full debrief when you end the call.',
     rogerSpeech: () =>
@@ -170,12 +209,12 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Your callsign is in Settings. Share it for others to reach you even when you\'re not in the app.',
   },
 
-  // ── 08 ── Ambient Listening ────────────────────────────────────────────────
+  // ── 10 ── Ambient Listening ────────────────────────────────────────────
   {
     id: 'ambient',
     icon: Mic,
     iconColor: '#a855f7',
-    chapterLabel: 'Chapter 08',
+    chapterLabel: 'Chapter 10',
     headline: 'I Listen When You Ask.',
     body: 'Ambient Listening mode analyses your surroundings in 30-second chunks. I detect speech in any language, identify music via ACRCloud fingerprinting, and classify ambient noise. This is on-demand only — I never listen without your explicit command.',
     rogerSpeech: () =>
@@ -190,12 +229,12 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Music detection requires ACRCloud API keys set in your Supabase project secrets.',
   },
 
-  // ── 09 ── Meeting Recorder ─────────────────────────────────────────────────
+  // ── 11 ── Meeting Recorder ─────────────────────────────────────────────
   {
     id: 'meeting',
     icon: FileText,
     iconColor: '#ef4444',
-    chapterLabel: 'Chapter 09',
+    chapterLabel: 'Chapter 11',
     headline: 'I Record Your Meetings.',
     body: 'Start a meeting recorder and I\'ll transcribe everything in 60-second rolling chunks. When you end the session, I generate structured notes: executive summary, action items with owners and due dates, key decisions made, and a list of participants. Everything is saved to your Meeting Archive.',
     rogerSpeech: () =>
@@ -210,14 +249,14 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
     tip: 'Participant names mentioned during the meeting are automatically added to your memory vault as draft contacts.',
   },
 
-  // ── 10 ── Engage ───────────────────────────────────────────────────────────
+  // ── 12 ── Engage ─────────────────────────────────────────────────────────
   {
     id: 'engage',
     icon: Zap,
     iconColor: '#d4a044',
-    chapterLabel: 'Chapter 10',
+    chapterLabel: 'Chapter 12',
     headline: 'You\'re Ready. Let\'s Go.',
-    body: 'That\'s the full briefing. You now know how to use Roger across all 10 capability domains. Start with the PTT button — just press, speak, and release. The more you use me, the better I understand you. You can replay this orientation any time from Settings.',
+    body: 'That\'s the full briefing. You now know how to use Roger across all 12 capability domains. Start with the PTT button — just press, speak, and release. The more you use me, the better I understand you. You can replay this orientation any time from Settings.',
     rogerSpeech: (name) =>
       `${name ? `${name}, ` : ''}that\'s your full briefing. You now have a Chief of Staff that handles your memory, tasks, calendar, commute, intelligence, communications, and meetings — all by voice. My top three tips: one, use me daily so my memory builds context. Two, speak naturally — don\'t use command syntax, just talk to me like a trusted aide. Three, the more specific you are, the more precisely I can act. If you ever need a refresher, say "Roger, replay orientation" or find it in Settings. I\'m standing by. Say "I\'m ready" or tap Engage to enter. Over.`,
     confirmPrompt: 'Say "I\'m ready" — or tap Engage to enter.',

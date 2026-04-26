@@ -217,7 +217,7 @@ export default function PTTTestLab() {
     setMessages(prev => [...prev, userMsg]);
 
     if (liveAIMode) {
-      // ── LIVE GPT-4o PATH ──
+      // ── LIVE GPT-5.5 PATH ──
       setPipeline(buildPipeline());
       const startMs = Date.now();
 
@@ -431,7 +431,7 @@ export default function PTTTestLab() {
           return;
         }
 
-        // ── ONLINE PATH: Whisper → GPT-4o ──
+        // ── ONLINE PATH: Whisper → GPT-5.5 ──
         try {
           // Step 0+1 (PTT capture + transcribing) animate
           [0, 1].forEach(idx => {
@@ -574,7 +574,7 @@ export default function PTTTestLab() {
                 style={{ borderColor: active ? (mode === 'live' ? 'var(--green)' : 'var(--amber)') : 'var(--border-subtle)', background: active ? (mode === 'live' ? 'var(--green-dim)' : 'rgba(212,160,68,0.12)') : 'transparent', color: active ? (mode === 'live' ? 'var(--green)' : 'var(--amber)') : 'var(--text-muted)' }}
               >
                 {mode === 'live' && <Sparkles size={9} />}
-                {mode === 'live' ? 'LIVE AI · GPT-4o' : 'SCRIPTED'}
+                {mode === 'live' ? 'LIVE AI · GPT-5.5' : 'SCRIPTED'}
               </button>
             );
           })}
@@ -720,7 +720,7 @@ export default function PTTTestLab() {
                     <span className="font-mono text-nano uppercase tracking-wider" style={{ color: msg.role === 'user' ? 'var(--amber)' : msg.type === 'error' ? 'var(--rust)' : msg.type === 'clarification' ? 'var(--amber)' : 'var(--green)' }}>
                       {msg.role === 'user' ? (msg.voiceInput ? '🎙 VOICE TX' : 'USER TX') : msg.type === 'clarification' ? 'ROGER — INTERCEPT' : msg.type === 'error' ? 'ROGER — FAIL' : 'ROGER AI'}
                     </span>
-                    {msg.liveAI && <span className="font-mono text-micro border px-1" style={{ borderColor: 'var(--green-border)', color: 'var(--green)' }}>GPT-4o</span>}
+                    {msg.liveAI && <span className="font-mono text-micro border px-1" style={{ borderColor: 'var(--green-border)', color: 'var(--green)' }}>GPT-5.5</span>}
                     {msg.txId && <span className="font-mono text-micro ml-auto" style={{ color: 'var(--text-muted)' }}>{msg.txId}</span>}
                   </div>
                   {/* Text */}
@@ -762,7 +762,7 @@ export default function PTTTestLab() {
                 <div className="border px-3 py-2 flex items-center gap-2" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }}>
                   <Activity size={11} className="led-pulse" style={{ color: isSpeakingState ? 'var(--green)' : 'var(--amber)' }} />
                   <span className="font-mono text-nano" style={{ color: isSpeakingState ? 'var(--green)' : 'var(--amber)' }}>
-                    {isTranscribing ? 'TRANSCRIBING…' : isProcessing ? (liveAIMode ? 'ROGER AI THINKING (GPT-4o)…' : 'ROGER PROCESSING…') : '🔊 ROGER SPEAKING…'}
+                    {isTranscribing ? 'TRANSCRIBING…' : isProcessing ? (liveAIMode ? 'ROGER AI THINKING (GPT-5.5)…' : 'ROGER PROCESSING…') : '🔊 ROGER SPEAKING…'}
                   </span>
                   {isSpeakingState && (
                     <button onClick={handleStopSpeaking} className="ml-2 border px-1.5 py-0.5 font-mono text-micro" style={{ borderColor: 'var(--rust-border)', color: 'var(--rust)' }}>
@@ -806,7 +806,7 @@ export default function PTTTestLab() {
               <span className="font-mono text-micro uppercase tracking-widest" style={{ color: isRecording ? 'var(--amber)' : isSpeakingState ? 'var(--green)' : 'var(--text-muted)' }}>
                 {isRecording ? `🎙 LISTENING… ${(holdMs / 1000).toFixed(1)}s`
                   : isTranscribing ? 'TRANSCRIBING…'
-                  : isProcessing ? (liveAIMode ? 'GPT-4o PROCESSING…' : 'PROCESSING…')
+                  : isProcessing ? (liveAIMode ? 'GPT-5.5 PROCESSING…' : 'PROCESSING…')
                   : isSpeakingState ? '🔊 ROGER SPEAKING'
                   : liveAIMode && VOICE_SUPPORTED ? 'HOLD TO SPEAK'
                   : 'HOLD TO TRANSMIT'}
@@ -820,7 +820,7 @@ export default function PTTTestLab() {
                 type="text" value={manualInput}
                 onChange={e => setManualInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleManualSend()}
-                placeholder={liveAIMode && VOICE_SUPPORTED ? 'Or type instead of speaking…' : liveAIMode ? 'Type any command — GPT-4o will process it…' : 'Manual text input…'}
+                placeholder={liveAIMode && VOICE_SUPPORTED ? 'Or type instead of speaking…' : liveAIMode ? 'Type any command — GPT-5.5 will process it…' : 'Manual text input…'}
                 disabled={isProcessing || isRecording || isTranscribing || isSpeakingState}
                 className="flex-1 border px-3 py-1.5 font-mono text-nano"
                 style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-cell)', color: 'var(--text-primary)' }}
@@ -896,13 +896,13 @@ export default function PTTTestLab() {
               <div className="flex items-center gap-1.5">
                 {liveAIMode ? <Sparkles size={10} style={{ color: 'var(--green)' }} /> : <FlaskConical size={10} style={{ color: 'var(--amber)' }} />}
                 <span className="font-mono text-nano font-semibold" style={{ color: liveAIMode ? 'var(--green)' : 'var(--amber)' }}>
-                  {liveAIMode ? 'LIVE AI — GPT-4o' : 'SCRIPTED MODE'}
+                  {liveAIMode ? 'LIVE AI — GPT-5.5' : 'SCRIPTED MODE'}
                 </span>
               </div>
               <p className="font-mono text-micro" style={{ color: 'var(--text-muted)' }}>
                 {liveAIMode
-                  ? VOICE_SUPPORTED ? 'Hold PTT → speak naturally → GPT-4o processes → Roger responds with voice. Full PTT loop.'
-                    : 'Type input → GPT-4o processes → Roger responds with voice.'
+                  ? VOICE_SUPPORTED ? 'Hold PTT → speak naturally → GPT-5.5 processes → Roger responds with voice. Full PTT loop.'
+                    : 'Type input → GPT-5.5 processes → Roger responds with voice.'
                   : 'Fixed scripted scenarios. Roger responds with voice via TTS.'}
               </p>
             </div>

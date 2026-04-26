@@ -1,5 +1,5 @@
-﻿// ─── Roger AI — OpenAI Integration ──────────────────────────────────────────
-// Calls GPT-4o to process a PTT transcript and return structured AI output.
+// ─── Roger AI — OpenAI Integration ──────────────────────────────────────────
+// Calls GPT-5.5 to process a PTT transcript and return structured AI output.
 // Now supports: open-ended intents, conversation history, AI-driven priority
 // classification, response guarantee, and language detection.
 
@@ -22,7 +22,10 @@ export interface RogerAIResponse {
   clarification_question?: string | null;
   reasoning: string;
   insight?: string | null;
-  proposed_tasks?: { text: string; priority: number }[]; // NEW — auto-generated task proposals
+  proposed_tasks?: { text: string; priority: number }[];
+  intent_options?: { intent: string; label: string }[] | null;
+  is_knowledge_query?: boolean;
+  subtopics?: { label: string; emoji: string }[] | null;
 }
 
 export type PriorityAction =
@@ -424,7 +427,66 @@ END_MEETING
   outcome: always "success"
 
 
+═══════════════════════════════════════
+AMBIGUITY RESOLUTION PRIORITY
+═══════════════════════════════════════
+Before setting outcome="clarification", ALWAYS attempt silent resolution:
 
+1. CONVERSATION HISTORY: Check the last 6 turns for recently mentioned names,
+   places, projects, or topics that match the ambiguous reference.
+2. MEMORY CONTEXT: Check memory_graph facts for matching subjects/objects.
+3. PRONOUN MAP: "him/her" → most recent PERSON entity. "it/that" → most recent
+   TOPIC/PROJECT. "there" → most recent LOCATION.
+4. TIME REFERENCES: "next week" = Monday of next week. "tomorrow" = next calendar day.
+   "later" = +2 hours. These are NOT ambiguous — resolve them silently.
+
+ONLY set outcome="clarification" if:
+- No resolution candidate exists in history OR memory
+- Multiple equally-likely candidates exist (true ambiguity)
+- The missing information is CRITICAL to the action (e.g., no recipient for a message)
+
+When you DO resolve silently, note it in the "reasoning" field:
+"Resolved 'him' → 'Ahmad' from conversation turn 3."
+
+═══════════════════════════════════════
+INTENT DISAMBIGUATION
+═══════════════════════════════════════
+When the ENTITY is clear but the INTENT is ambiguous (e.g. "something with Ahmad"):
+- Return outcome="clarification"
+- Include "intent_options": an array of 2-3 choices the user can pick from
+- Each option: { "intent": "CREATE_REMINDER", "label": "Set a reminder" }
+- Roger's response should present choices naturally:
+  "Got it — Ahmad. Want me to book a meeting, set a reminder, or create a task? Over."
+- If the user's NEXT response matches one of the options, lock to that intent.
+
+═══════════════════════════════════════
+KNOWLEDGE MODE — PROGRESSIVE LEARNING
+═══════════════════════════════════════
+Roger supports multi-turn knowledge exploration. The client sends
+"deep_dive_depth" in context (0 = initial query, 1+ = elaboration rounds).
+
+ELABORATE_TOPIC (depth 0-1)
+  Trigger: "tell me more", "go deeper", "more details", "expand on that",
+           "elaborate", "what else", "keep going" — after a QUERY/EXPLAIN response
+  Response: 150-250 words. Cover NEW aspects not mentioned in previous coverage.
+  Do NOT repeat information already given (previous coverage is in context).
+  Set is_knowledge_query: true.
+
+DEEP_DIVE (depth 2+)
+  Trigger: Same as ELABORATE_TOPIC but at depth 2+
+  Response: 250-300 words with clear structured sections.
+  Include "subtopics" field: 3-5 specific angles the user can explore next.
+  Each subtopic: { "label": "History & Architecture", "emoji": "🏛️" }
+  Set is_knowledge_query: true.
+
+SUBTOPIC_EXPLORE
+  Trigger: User picks a specific sub-topic from a DEEP_DIVE response
+  Response: 200-300 words laser-focused on that aspect.
+  Include updated subtopics for further branching.
+  Set is_knowledge_query: true.
+
+For ALL knowledge intents (QUERY_*, EXPLAIN_*, ELABORATE_TOPIC, DEEP_DIVE,
+SUBTOPIC_EXPLORE), set "is_knowledge_query": true. Otherwise false.
 
 {
   "intent": "EXPLAIN_CONCEPT",
@@ -441,7 +503,10 @@ END_MEETING
   "proposed_tasks": [
     { "text": "Review portfolio inflation exposure", "priority": 6 },
     { "text": "Check CPI data on next release", "priority": 5 }
-  ]
+  ],
+  "intent_options": null,
+  "is_knowledge_query": true,
+  "subtopics": null
 }`;
 
 // Prompt B — Proactive Surface Script (also embedded in generate-surface-script Edge Function)
@@ -472,7 +537,7 @@ reschedule_hint should contain any time reference they mentioned (e.g. "tomorrow
 export async function callGPT<T>(
   systemPrompt: string,
   userContent: string,
-  model: 'gpt-4o' | 'gpt-4o-mini' = 'gpt-4o',
+  model: 'gpt-5.5' | 'gpt-5.4-mini' = 'gpt-5.5',
   jsonMode = true,
   timeoutMs = 10000
 ): Promise<T> {
@@ -518,7 +583,7 @@ export async function callGPT<T>(
 /**
  * Build user memory context string from DB.
  * Fetches conversation history + memory graph facts in parallel.
- * Returns a formatted context block for GPT-4o injection.
+ * Returns a formatted context block for GPT-5.5 injection.
  */
 async function buildUserContext(userId: string): Promise<string> {
   try {
@@ -555,7 +620,7 @@ async function buildUserContext(userId: string): Promise<string> {
 
 /**
  * Process a PTT voice transmission.
- * Injects persistent DB memory context (conversation_history + memory_graph) into GPT-4o.
+ * Injects persistent DB memory context (conversation_history + memory_graph) into GPT-5.5.
  * Falls back gracefully if DB is unavailable.
  */
 export async function processTransmission(
@@ -563,7 +628,19 @@ export async function processTransmission(
   history: ConversationTurn[] = [],
   detectedLanguage?: string,
   userId?: string,
-  locationContext?: string
+  locationContext?: string,
+  clarificationContext?: {
+    original_transcript: string;
+    original_intent: string;
+    clarification_question: string;
+    missing_entities: string[];
+    attempt: number;
+  } | null,
+  deepDiveContext?: {
+    topic: string;
+    depth: number;
+    coverageSummary: string;
+  } | null
 ): Promise<RogerAIResponse> {
   const langHint = detectedLanguage && detectedLanguage !== 'en'
     ? `Language detected: ${detectedLanguage}. `
@@ -596,6 +673,8 @@ export async function processTransmission(
         locationContext,
         memoryContext,
         langHint,
+        clarificationContext: clarificationContext ?? null,
+        deepDiveContext: deepDiveContext ?? null,
       }),
     });
 
@@ -674,7 +753,7 @@ export async function classifyPriorityAction(userResponse: string): Promise<{
 
 /**
  * Fire-and-forget implicit memory extraction after every PTT turn.
- * Routed through extract-memory-facts Edge Function (gpt-4o-mini, server-side).
+ * Routed through extract-memory-facts Edge Function (gpt-5.4-mini, server-side).
  *
  * v2 — two-pass noise filter:
  *   facts[].is_draft = false  → confidence ≥ 75 → stored as candidate (is_confirmed: false)
@@ -759,4 +838,43 @@ export async function extractMemoryFacts(
   } catch {
     // Silent — never interrupt PTT flow
   }
+}
+
+/**
+ * Compile deep dive conversation turns into a structured encyclopedia article.
+ * Used when the user has explored a topic in 4+ rounds and wants to save.
+ */
+export async function compileEncyclopediaArticle(
+  topic: string,
+  conversationTurns: string[]
+): Promise<{
+  summary: string;
+  full_article: string;
+  sections: { title: string; content: string }[];
+  tags: string[];
+  emoji: string;
+}> {
+  const prompt = `You are a knowledge compiler. The user explored the topic "${topic}" across multiple conversation turns with an AI assistant.
+
+Compile the content below into a clean, structured encyclopedia article.
+
+CONVERSATION TURNS:
+${conversationTurns.map((t, i) => `--- Turn ${i + 1} ---\n${t}`).join('\n\n')}
+
+Return JSON:
+{
+  "summary": "1-2 sentence overview (max 80 words)",
+  "full_article": "Complete compiled article (300-600 words, clean prose, no conversation artifacts)",
+  "sections": [{ "title": "Section Name", "content": "Section text" }],
+  "tags": ["tag1", "tag2", "tag3"],
+  "emoji": "single emoji representing the topic"
+}`;
+
+  return callGPT<{
+    summary: string;
+    full_article: string;
+    sections: { title: string; content: string }[];
+    tags: string[];
+    emoji: string;
+  }>(prompt, `Compile knowledge about: ${topic}`);
 }

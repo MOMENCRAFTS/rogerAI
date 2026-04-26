@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Car, Mic, Crown, Moon } from 'lucide-react';
+import { Home, Bell, CheckSquare, BookOpen, Settings, RotateCcw, Trash2, AlertTriangle, BarChart3, MapPin, BookMarked, Car, Mic, Crown, Moon, Lightbulb } from 'lucide-react';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../lib/useLocation';
@@ -17,6 +17,7 @@ import CommuteRadar  from './CommuteRadar';
 import MeetingRecorderView from './MeetingRecorderView';
 import SubscriptionView  from './SubscriptionView';
 import SalahView        from './SalahView';
+import SmartHomeView    from './SmartHomeView';
 import PermissionGate from '../../components/PermissionGate';
 import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasOrientationBeenSeen, markOrientationSeen } from '../../lib/api';
 import { ORIENTATION_VERSION } from '../../lib/orientationScript';
@@ -25,7 +26,7 @@ import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
 
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
 
 interface UserAppProps {
@@ -45,6 +46,7 @@ const TABS: { key: UserTab; label: string; Icon: typeof Home }[] = [
   { key: 'commute',   label: 'DRIVE',    Icon: Car },
   { key: 'upgrade',   label: 'UPGRADE',  Icon: Crown },
   { key: 'salah',     label: 'SALAH',    Icon: Moon },
+  { key: 'smarthome', label: 'IOT',      Icon: Lightbulb },
   { key: 'settings',  label: 'SETTINGS', Icon: Settings },
 ];
 
@@ -302,6 +304,11 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         {islamicMode && mountedTabs.has('salah') && (
           <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'salah' ? 'block' : 'none' }}>
             <SalahView userId={userId} location={location} />
+          </div>
+        )}
+        {mountedTabs.has('smarthome') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'smarthome' ? 'block' : 'none' }}>
+            <SmartHomeView userId={userId} />
           </div>
         )}
         {mountedTabs.has('settings') && (

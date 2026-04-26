@@ -89,6 +89,8 @@ export type DbUserPreferences = {
   gcal_access_token:  string        | null;
   gcal_refresh_token: string        | null;
   gcal_token_expiry:  string        | null;
+  // ── Tuya Smart Home ─────────────────────────
+  tuya_uid:           string        | null;
   // ── Tour ────────────────────────────────────
   tour_seen:          boolean;
   tour_version:       number        | null;
@@ -668,6 +670,7 @@ export async function fullUserReset(userId: string): Promise<void> {
     supabase.from('memory_insights').delete().eq('user_id', userId),
     supabase.from('memories').delete().eq('user_id', userId),
     supabase.from('surface_queue').delete().eq('user_id', userId),
+    supabase.from('user_encyclopedia').delete().eq('user_id', userId),
     // Tasks & Reminders
     supabase.from('reminders').delete().eq('user_id', userId),
     supabase.from('tasks').delete().eq('user_id', userId),
@@ -719,6 +722,7 @@ export async function fullUserReset(userId: string): Promise<void> {
     gcal_access_token: null,
     gcal_refresh_token: null,
     gcal_token_expiry: null,
+    tuya_uid: null,
     home_address: null,
     home_lat: null,
     home_lng: null,
@@ -1466,4 +1470,63 @@ export function subscribeToHealthChecks(onChange: () => void) {
     .channel('health-checks-live')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'system_health_checks' }, onChange)
     .subscribe();
+}
+
+// ─── Personal Encyclopedia ────────────────────────────────────────────────────
+
+export type DbEncyclopediaEntry = {
+  id: string;
+  user_id: string;
+  topic: string;
+  emoji: string;
+  summary: string;
+  full_article: string;
+  sections: { title: string; content: string }[];
+  tags: string[];
+  source_turns: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchEncyclopedia(userId: string): Promise<DbEncyclopediaEntry[]> {
+  const { data, error } = await supabase
+    .from('user_encyclopedia')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function upsertEncyclopediaEntry(entry: {
+  user_id: string;
+  topic: string;
+  emoji?: string;
+  summary: string;
+  full_article: string;
+  sections?: { title: string; content: string }[];
+  tags?: string[];
+  source_turns?: number;
+}): Promise<void> {
+  const { error } = await supabase.from('user_encyclopedia').upsert({
+    ...entry,
+    sections: entry.sections ?? [],
+    tags: entry.tags ?? [],
+    source_turns: entry.source_turns ?? 1,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id,lower(topic)' });
+  // Fallback: if unique-index upsert fails, try insert
+  if (error) {
+    await supabase.from('user_encyclopedia').insert({
+      ...entry,
+      sections: entry.sections ?? [],
+      tags: entry.tags ?? [],
+      source_turns: entry.source_turns ?? 1,
+    });
+  }
+}
+
+export async function deleteEncyclopediaEntry(id: string): Promise<void> {
+  const { error } = await supabase.from('user_encyclopedia').delete().eq('id', id);
+  if (error) throw error;
 }

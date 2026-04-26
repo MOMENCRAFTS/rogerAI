@@ -90,7 +90,7 @@ export function quoteToSpeech(q: StockQuote): string {
   return `${q.ticker} is trading at $${q.price} — ${dir} ${Math.abs(q.changePct).toFixed(2)}% today ${arrow}. Day range: $${q.low}–$${q.high}. Over.`;
 }
 
-/** Format a quote for GPT-4o context injection. */
+/** Format a quote for GPT-5.5 context injection. */
 export function quoteToContext(q: StockQuote): string {
   const dir = q.changePct >= 0 ? '+' : '';
   return `${q.ticker}: $${q.price} (${dir}${q.changePct.toFixed(2)}% today) | H: $${q.high} L: $${q.low}`;

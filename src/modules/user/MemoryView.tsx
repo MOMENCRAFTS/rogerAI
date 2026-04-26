@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, StickyNote, Mic, Brain, Check, Trash2, Search, X, MapPin, Pin } from 'lucide-react';
+import { BookOpen, StickyNote, Mic, Brain, Check, Trash2, Search, X, MapPin, Pin, GraduationCap, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   fetchMemories, fetchMemoryGraph, confirmMemoryFact, deleteMemoryFact,
-  type DbMemory, type DbMemoryFact,
+  fetchEncyclopedia, deleteEncyclopediaEntry,
+  type DbMemory, type DbMemoryFact, type DbEncyclopediaEntry,
 } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 
-type MainTab = 'vault' | 'roger_knows';
+type MainTab = 'vault' | 'roger_knows' | 'knowledge';
 type VaultFilter = 'all' | 'note' | 'book' | 'observation' | 'capture';
 
 const TYPE_ICONS: Record<DbMemory['type'], typeof BookOpen> = {
@@ -40,6 +41,11 @@ export default function MemoryView({ userId }: { userId: string }) {
   const [factsLoading, setFactsLoading] = useState(true);
   const [factFilter, setFactFilter]   = useState<string>('all');
 
+  // Encyclopedia state
+  const [entries, setEntries]           = useState<DbEncyclopediaEntry[]>([]);
+  const [entriesLoading, setEntriesLoading] = useState(true);
+  const [expandedEntry, setExpandedEntry]   = useState<string | null>(null);
+
   const loadVault = useCallback(() => {
     setVaultLoading(true);
     fetchMemories(userId).then(d => { setMemories(d); setVaultLoading(false); }).catch(() => setVaultLoading(false));
@@ -50,14 +56,20 @@ export default function MemoryView({ userId }: { userId: string }) {
     fetchMemoryGraph(userId).then(d => { setFacts(d); setFactsLoading(false); }).catch(() => setFactsLoading(false));
   }, [userId]);
 
+  const loadEncyclopedia = useCallback(() => {
+    setEntriesLoading(true);
+    fetchEncyclopedia(userId).then(d => { setEntries(d); setEntriesLoading(false); }).catch(() => setEntriesLoading(false));
+  }, [userId]);
+
   useEffect(() => { if (mainTab === 'vault') loadVault(); }, [mainTab, loadVault]);
   useEffect(() => { if (mainTab === 'roger_knows') loadFacts(); }, [mainTab, loadFacts]);
+  useEffect(() => { if (mainTab === 'knowledge') loadEncyclopedia(); }, [mainTab, loadEncyclopedia]);
 
   useEffect(() => {
-    const handler = () => { loadVault(); loadFacts(); };
+    const handler = () => { loadVault(); loadFacts(); loadEncyclopedia(); };
     window.addEventListener('roger:refresh', handler);
     return () => window.removeEventListener('roger:refresh', handler);
-  }, [loadVault, loadFacts]);
+  }, [loadVault, loadFacts, loadEncyclopedia]);
 
   // Load pinned set from localStorage
   useEffect(() => {
@@ -90,6 +102,11 @@ export default function MemoryView({ userId }: { userId: string }) {
   const handleDeleteFact = async (id: string) => {
     await deleteMemoryFact(id).catch(() => {});
     setFacts(prev => prev.filter(f => f.id !== id));
+  };
+
+  const handleDeleteEntry = async (id: string) => {
+    await deleteEncyclopediaEntry(id).catch(() => {});
+    setEntries(prev => prev.filter(e => e.id !== id));
   };
 
   const VAULT_FILTERS: VaultFilter[] = ['all', 'note', 'book', 'observation', 'capture'];
@@ -127,6 +144,7 @@ export default function MemoryView({ userId }: { userId: string }) {
         {[
           { key: 'vault' as MainTab, icon: BookOpen, label: 'Memory Vault' },
           { key: 'roger_knows' as MainTab, icon: Brain, label: 'Roger Knows' },
+          { key: 'knowledge' as MainTab, icon: GraduationCap, label: 'Knowledge' },
         ].map(({ key, icon: Icon, label }) => (
           <button key={key} onClick={() => setMainTab(key)} style={{
             flex: 1, padding: '12px 8px', background: 'transparent', border: 'none', cursor: 'pointer',
@@ -310,6 +328,93 @@ export default function MemoryView({ userId }: { userId: string }) {
                         <Trash2 size={11} />
                       </button>
                     </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* ── KNOWLEDGE / ENCYCLOPEDIA TAB ── */}
+        {mainTab === 'knowledge' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <GraduationCap size={14} style={{ color: '#6366f1' }} />
+              <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>Personal Encyclopedia</span>
+              <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>{entries.length} ARTICLES</span>
+            </div>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: 1.6 }}>
+              Topics you've explored with Roger. Compiled from deep dive conversations.
+            </p>
+
+            {entriesLoading && <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)' }}>Loading...</p>}
+            {!entriesLoading && entries.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '48px 0', opacity: 0.4 }}>
+                <GraduationCap size={28} style={{ color: 'var(--text-muted)', marginBottom: 8 }} />
+                <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>No articles yet — ask Roger about any topic</p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {entries.map(entry => {
+                const isOpen = expandedEntry === entry.id;
+                return (
+                  <div key={entry.id} style={{ border: '1px solid rgba(99,102,241,0.2)', background: isOpen ? 'rgba(99,102,241,0.04)' : 'var(--bg-elevated)', transition: 'background 150ms' }}>
+                    {/* Header */}
+                    <button
+                      onClick={() => setExpandedEntry(isOpen ? null : entry.id)}
+                      style={{ width: '100%', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                    >
+                      <span style={{ fontSize: 18 }}>{entry.emoji}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 2 }}>{entry.topic}</div>
+                        <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.summary}</div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 8, color: '#6366f1' }}>{entry.source_turns} turns</span>
+                        {isOpen ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />}
+                      </div>
+                    </button>
+
+                    {/* Expanded content */}
+                    {isOpen && (
+                      <div style={{ padding: '0 14px 14px' }}>
+                        {/* Tags */}
+                        {entry.tags && entry.tags.length > 0 && (
+                          <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+                            {entry.tags.map(tag => (
+                              <span key={tag} style={{ padding: '2px 8px', fontFamily: 'monospace', fontSize: 8, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8', textTransform: 'uppercase' }}>{tag}</span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Sections */}
+                        {entry.sections && entry.sections.length > 0 && entry.sections.map((sec, i) => (
+                          <div key={i} style={{ marginBottom: 12 }}>
+                            <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>{sec.title}</div>
+                            <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{sec.content}</p>
+                          </div>
+                        ))}
+
+                        {/* Full article fallback if no sections */}
+                        {(!entry.sections || entry.sections.length === 0) && (
+                          <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{entry.full_article}</p>
+                        )}
+
+                        {/* Footer */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)' }}>
+                            Updated {new Date(entry.updated_at).toLocaleDateString()}
+                          </span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id); }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontFamily: 'monospace', fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', cursor: 'pointer' }}
+                          >
+                            <Trash2 size={9} /> Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

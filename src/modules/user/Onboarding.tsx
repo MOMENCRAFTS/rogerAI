@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Radio } from 'lucide-react';
 import {
   generateNodeScript, applyOnboardingAnswer, parseReviewIntent, NEXT_NODE, TOTAL_NODES, NODE_INDEX, NODE_LABELS,
@@ -380,28 +380,55 @@ export default function Onboarding({ userId, onComplete }: Props) {
 
       {/* PTT */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, zIndex: 1 }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 9, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.2em', transition: 'color 200ms', textAlign: 'center' }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 200ms', textAlign: 'center', minHeight: 14 }}>
           {stateLabel}
         </span>
-        <button
-          onPointerDown={handleDown}
-          onPointerUp={handleUp}
-          onPointerLeave={handleUp}
-          disabled={phase === 'speaking' || phase === 'processing' || phase === 'done'}
-          aria-label="Hold to answer"
-          style={{
-            width: 96, height: 96, borderRadius: '50%',
-            border: `3px solid ${btnColor}`,
-            background: phase === 'recording' ? 'rgba(212,160,68,0.12)' : 'transparent',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: phase === 'waiting' ? 'pointer' : 'default',
-            transition: 'all 200ms',
-            boxShadow: phase === 'recording' ? '0 0 32px rgba(212,160,68,0.3)' : 'none',
-            opacity: (phase === 'speaking' || phase === 'processing' || phase === 'done') ? 0.35 : 1,
-          }}
-        >
-          <Radio size={34} style={{ color: btnColor, transition: 'color 200ms' }} />
-        </button>
+
+        {/* Sonar rings + button */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 165, height: 165 }}>
+          {/* Sonar rings during recording */}
+          {phase === 'recording' && (
+            <>
+              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out infinite' }} />
+              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 0.5s infinite' }} />
+              <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0, animation: 'sonar 1.6s ease-out 1.0s infinite' }} />
+            </>
+          )}
+          {/* Speaking pulse */}
+          {phase === 'speaking' && (
+            <div style={{ position: 'absolute', width: 148, height: 148, borderRadius: '50%', background: `${btnColor}18`, animation: 'pulse 1.2s ease-in-out infinite' }} />
+          )}
+          <button
+            onPointerDown={handleDown}
+            onPointerUp={handleUp}
+            onPointerLeave={handleUp}
+            onPointerCancel={handleUp}
+            onContextMenu={e => e.preventDefault()}
+            disabled={phase === 'speaking' || phase === 'processing' || phase === 'done'}
+            aria-label="Hold to answer"
+            style={{
+              width: 120, height: 120, borderRadius: '50%',
+              border: `2.5px solid ${btnColor}`,
+              background: phase === 'recording'
+                ? `radial-gradient(circle, ${btnColor}30 0%, ${btnColor}10 100%)`
+                : phase === 'speaking' ? `${btnColor}14`
+                : 'rgba(255,255,255,0.04)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: phase === 'waiting' ? 'pointer' : 'default',
+              transition: 'border-color 250ms, background 250ms',
+              boxShadow: phase === 'recording'
+                ? `0 0 48px ${btnColor}66, 0 0 16px ${btnColor}33, inset 0 0 20px ${btnColor}1a`
+                : phase === 'speaking' ? `0 0 28px ${btnColor}44`
+                : `0 0 20px ${btnColor}18`,
+              opacity: (phase === 'speaking' || phase === 'processing' || phase === 'done') ? 0.35 : 1,
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              touchAction: 'none',
+            }}
+          >
+            <Radio size={38} style={{ color: btnColor, transition: 'color 250ms' }} />
+          </button>
+        </div>
 
         {/* Skip */}
         {(phase === 'waiting' || phase === 'speaking') && node !== 'complete' && node !== 'welcome' && !isReview && (
@@ -419,6 +446,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
         @keyframes ping { 0%,100% { transform:scale(1); opacity:.4; } 50% { transform:scale(1.2); opacity:.8; } }
         @keyframes pulse { 0%,100% { opacity:.5; } 50% { opacity:1; } }
         @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+        @keyframes sonar { 0% { transform:scale(0.7); opacity:0.8; } 100% { transform:scale(1.6); opacity:0; } }
       `}</style>
     </div>
   );

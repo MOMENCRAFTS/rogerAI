@@ -80,8 +80,8 @@ export default function Sandbox() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { label: 'MODEL A', options: ['GPT-4o', 'GPT-3.5', 'Claude-3.5'] },
-                { label: 'MODEL B', options: ['GPT-3.5', 'GPT-4o', 'Claude-3.5'] },
+                { label: 'MODEL A', options: ['GPT-5.5', 'GPT-5.4-mini', 'Claude-3.5'] },
+                { label: 'MODEL B', options: ['GPT-5.4-mini', 'GPT-5.5', 'Claude-3.5'] },
               ].map(m => (
                 <div key={m.label}>
                   <label className="font-mono text-micro uppercase mb-1 block" style={{ color: 'var(--text-muted)' }}>{m.label}</label>

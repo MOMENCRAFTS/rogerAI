@@ -113,7 +113,7 @@ async function handlePTT(req: Request) {
 
   const memoryContext = `=== USER MEMORY ===\nKey facts: ${factsSummary || 'None yet.'}\n`;
 
-  // ── Step 3: GPT-4o processing ─────────────────────────────────────
+  // ── Step 3: GPT-5.5 processing ─────────────────────────────────────
   const SYSTEM_PROMPT = `You are Roger, an AI Chief of Staff. The user speaks to you via a physical PTT radio device.
 Respond in radio style. For action intents (CREATE_*, SET_*, UPDATE_*): ≤35 words, end "Over."
 For query intents: 60-120 words, end with an offer. Always return valid JSON.
@@ -126,7 +126,7 @@ Response format: {"intent":"SHORT_SNAKE_CASE","roger_response":"...","confidence
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5.5',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: SYSTEM_PROMPT + '\n\n' + memoryContext },
@@ -136,7 +136,7 @@ Response format: {"intent":"SHORT_SNAKE_CASE","roger_response":"...","confidence
     });
     aiResult = JSON.parse(completion.choices[0].message.content ?? '{}');
   } catch (e) {
-    console.error('[device-relay] GPT-4o error:', e);
+    console.error('[device-relay] GPT-5.5 error:', e);
   }
 
   const rogerResponse = aiResult.roger_response || 'Unable to process. Over.';

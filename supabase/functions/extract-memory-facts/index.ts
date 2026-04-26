@@ -1,6 +1,6 @@
 // supabase/functions/extract-memory-facts/index.ts
 // Fire-and-forget implicit memory extraction from each PTT turn.
-// Uses gpt-4o-mini for cost efficiency.
+// Uses gpt-5.4-mini for cost efficiency.
 //
 // v2 — two-pass noise filter:
 //   - confidence >= 75  → confirmed candidate (is_draft: false)
@@ -80,7 +80,7 @@ serve(async (req: Request) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         response_format: { type: 'json_object' },
         temperature: 0.2, // tighter for classification tasks
         messages: [

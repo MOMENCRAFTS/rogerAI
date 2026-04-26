@@ -164,7 +164,7 @@ export default function PatternLab() {
         {!loading && tab === 'insights' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', margin: '0 0 8px' }}>
-              Pattern observations extracted by GPT-4o-mini
+              Pattern observations extracted by GPT-5.4-mini
             </p>
             {insights.map(i => (
               <div key={i.id} style={{ padding: '12px 14px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', borderLeft: '3px solid #10b981' }}>

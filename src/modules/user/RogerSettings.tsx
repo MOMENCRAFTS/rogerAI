@@ -673,6 +673,31 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             Create a Notion Integration at notion.so/my-integrations · Share your database with the integration
           </p>
         </div>
+
+        {/* Tuya Smart Home */}
+        <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).tuya_uid ? 'rgba(96,165,250,0.3)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).tuya_uid ? 'rgba(96,165,250,0.04)' : 'var(--bg-elevated)', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>🏠</span>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Tuya Smart Home</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: (prefs as Record<string, unknown>).tuya_uid ? '#60a5fa' : 'var(--text-muted)', margin: 0 }}>
+                {(prefs as Record<string, unknown>).tuya_uid ? '● Connected — say "turn off the garage" or "run goodnight scene"' : 'Control SmartLife devices — garage doors, switches, lights, AC'}
+              </p>
+            </div>
+          </div>
+          <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 5 }}>Tuya / SmartLife Account UID</label>
+          <input
+            type="text"
+            placeholder="Paste your UID from SmartLife → Profile → Account"
+            value={(prefs as Record<string, unknown>).tuya_uid as string ?? ''}
+            onChange={e => setPrefs(p => ({ ...p, tuya_uid: e.target.value } as typeof p))}
+            onBlur={e => { if (e.target.value) upsertUserPreferences(userId, { tuya_uid: e.target.value } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {}); }}
+            style={{ width: '100%', padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
+          />
+          <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(96,165,250,0.5)', margin: '6px 0 0', lineHeight: 1.4 }}>
+            Open SmartLife app → Profile → Account and Security → copy your Account UID
+          </p>
+        </div>
       </div>
 
       {/* Info */}

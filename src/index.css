@@ -63,6 +63,16 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     position: relative;
+    /* Prevent text selection / copy across the app */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Allow selection inside form fields */
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   /* CRT Scanline Overlay — subtle 2% texture across entire viewport */

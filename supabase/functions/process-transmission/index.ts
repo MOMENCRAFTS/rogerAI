@@ -1,5 +1,5 @@
 // supabase/functions/process-transmission/index.ts
-// Secure server-side GPT-4o proxy for Roger AI PTT processing.
+// Secure server-side GPT-5.5 proxy for Roger AI PTT processing.
 // Full COMMAND_PROMPT is embedded here — API key never leaves Supabase.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -104,6 +104,86 @@ TUNE_IN_DECLINE: "decline", "not now" (only when request is pending)
 TUNE_IN_END: "end session", "over and out", "signing off"
 SAVE_CONTACT: "save as [name]", "call them [name]"
 
+═══════════════════════════════════════
+SMART HOME CONTROL (Tuya / SmartLife IoT)
+═══════════════════════════════════════
+SMART_HOME_CONTROL: "turn off the lights", "open the garage", "set AC to 24",
+  "dim the bedroom", "close the curtains", "turn on the fan"
+  → Entity: { "text": "<device name>", "type": "SMART_DEVICE" }
+  → Entity: { "text": "<value>", "type": "DEVICE_VALUE" } (if setting a value)
+  → Confirm tersely: "Garage door opened. Over." / "AC set to 24°. Over."
+
+SMART_HOME_QUERY: "is the AC on?", "what's the bedroom temperature?",
+  "are the lights off?", "is the garage closed?"
+  → Entity: { "text": "<device name>", "type": "SMART_DEVICE" }
+  → Report status naturally: "The AC is running at 22 degrees."
+
+SMART_HOME_SCENE: "activate goodnight scene", "run movie mode",
+  "trigger leaving home", "execute morning routine"
+  → Entity: { "text": "<scene name>", "type": "SCENE_NAME" }
+  → Confirm: "Goodnight scene activated. Over."
+
+═══════════════════════════════════════
+AMBIGUITY RESOLUTION PRIORITY
+═══════════════════════════════════════
+Before setting outcome="clarification", ALWAYS attempt silent resolution:
+
+1. CONVERSATION HISTORY: Check the last 6 turns for recently mentioned names,
+   places, projects, or topics that match the ambiguous reference.
+2. MEMORY CONTEXT: Check memory_graph facts for matching subjects/objects.
+3. PRONOUN MAP: "him/her" → most recent PERSON entity. "it/that" → most recent
+   TOPIC/PROJECT. "there" → most recent LOCATION.
+4. TIME REFERENCES: "next week" = Monday of next week. "tomorrow" = next calendar day.
+   "later" = +2 hours. These are NOT ambiguous — resolve them silently.
+
+ONLY set outcome="clarification" if:
+- No resolution candidate exists in history OR memory
+- Multiple equally-likely candidates exist (true ambiguity)
+- The missing information is CRITICAL to the action (e.g., no recipient for a message)
+
+When you DO resolve silently, note it in the "reasoning" field:
+"Resolved 'him' → 'Ahmad' from conversation turn 3."
+
+═══════════════════════════════════════
+INTENT DISAMBIGUATION
+═══════════════════════════════════════
+When the ENTITY is clear but the INTENT is ambiguous (e.g. "something with Ahmad"):
+- Return outcome="clarification"
+- Include "intent_options": an array of 2-3 choices the user can pick from
+- Each option: { "intent": "CREATE_REMINDER", "label": "Set a reminder" }
+- Roger's response should present choices naturally:
+  "Got it — Ahmad. Want me to book a meeting, set a reminder, or create a task? Over."
+- If the user's NEXT response matches one of the options, lock to that intent.
+
+═══════════════════════════════════════
+KNOWLEDGE MODE — PROGRESSIVE LEARNING
+═══════════════════════════════════════
+Roger supports multi-turn knowledge exploration. The client sends
+"deep_dive_depth" in context (0 = initial query, 1+ = elaboration rounds).
+
+ELABORATE_TOPIC (depth 0-1)
+  Trigger: "tell me more", "go deeper", "more details", "expand on that",
+           "elaborate", "what else", "keep going" — after a QUERY/EXPLAIN response
+  Response: 150-250 words. Cover NEW aspects not mentioned in previous coverage.
+  Do NOT repeat information already given (previous coverage is in context).
+  Set is_knowledge_query: true.
+
+DEEP_DIVE (depth 2+)
+  Trigger: Same as ELABORATE_TOPIC but at depth 2+
+  Response: 250-300 words with clear structured sections.
+  Include "subtopics" field: 3-5 specific angles the user can explore next.
+  Each subtopic: { "label": "History & Architecture", "emoji": "🏛️" }
+  Set is_knowledge_query: true.
+
+SUBTOPIC_EXPLORE
+  Trigger: User picks a specific sub-topic from a DEEP_DIVE response
+  Response: 200-300 words laser-focused on that aspect.
+  Include updated subtopics for further branching.
+  Set is_knowledge_query: true.
+
+For ALL knowledge intents (QUERY_*, EXPLAIN_*, ELABORATE_TOPIC, DEEP_DIVE,
+SUBTOPIC_EXPLORE), set "is_knowledge_query": true. Otherwise false.
+
 Return ONLY valid JSON matching this schema:
 {
   "intent": "string",
@@ -115,7 +195,10 @@ Return ONLY valid JSON matching this schema:
   "clarification_question": null | "string",
   "reasoning": "string",
   "insight": null | "string",
-  "proposed_tasks": [{ "text": "string", "priority": 1-10 }]
+  "proposed_tasks": [{ "text": "string", "priority": 1-10 }],
+  "intent_options": null | [{ "intent": "string", "label": "string" }],
+  "is_knowledge_query": true | false,
+  "subtopics": null | [{ "label": "string", "emoji": "string" }]
 }`;
 
 serve(async (req: Request) => {
@@ -129,6 +212,8 @@ serve(async (req: Request) => {
       locationContext,
       memoryContext,
       langHint,
+      clarificationContext,
+      deepDiveContext,
     } = await req.json() as {
       transcript: string;
       history: { role: string; content: string }[];
@@ -136,6 +221,18 @@ serve(async (req: Request) => {
       locationContext?: string;
       memoryContext?: string;
       langHint?: string;
+      clarificationContext?: {
+        original_transcript: string;
+        original_intent: string;
+        clarification_question: string;
+        missing_entities: string[];
+        attempt: number;
+      } | null;
+      deepDiveContext?: {
+        topic: string;
+        depth: number;
+        coverageSummary: string;
+      } | null;
     };
 
     if (!transcript) {
@@ -163,6 +260,51 @@ serve(async (req: Request) => {
     // Recent session history
     messages.push(...history.slice(-12));
 
+    // Deep dive knowledge context — prevents repetition across elaboration rounds
+    if (deepDiveContext) {
+      messages.push({
+        role: 'system',
+        content: [
+          '=== DEEP DIVE CONTEXT ===',
+          `Topic: ${deepDiveContext.topic}`,
+          `Depth: ${deepDiveContext.depth} (0=initial, 1=elaborate, 2+=deep dive)`,
+          `Previous coverage: ${deepDiveContext.coverageSummary}`,
+          'Instruction: Cover NEW aspects only. Do NOT repeat what was already covered.',
+          deepDiveContext.depth >= 2 ? 'Include "subtopics" field with 3-5 exploration angles.' : '',
+        ].join('\n'),
+      });
+    }
+
+    // Clarification resolution context — injected BEFORE user message
+    if (clarificationContext) {
+      messages.push({
+        role: 'system',
+        content: [
+          '═══════════════════════════════════════',
+          'CLARIFICATION RESOLUTION MODE (ACTIVE)',
+          '═══════════════════════════════════════',
+          'Roger just asked the user a clarification question. The user\'s next message',
+          'is a DIRECT ANSWER to that question — NOT a new command.',
+          '',
+          `ORIGINAL TRANSCRIPT: "${clarificationContext.original_transcript}"`,
+          `ORIGINAL INTENT: ${clarificationContext.original_intent}`,
+          `ROGER ASKED: "${clarificationContext.clarification_question}"`,
+          `MISSING INFORMATION: ${clarificationContext.missing_entities.join(', ') || 'unspecified'}`,
+          `ATTEMPT: ${clarificationContext.attempt} of 2`,
+          '',
+          'RULES:',
+          `1. Treat the user's message as an ANSWER to the question above`,
+          `2. Use the ORIGINAL INTENT (${clarificationContext.original_intent}) — do NOT reclassify`,
+          '3. Merge the resolved information into the original context',
+          '4. Return outcome="success" if the answer resolves the ambiguity',
+          '5. Return outcome="clarification" ONLY if the answer itself is still ambiguous',
+          '6. confidence should reflect the MERGED result, not the answer alone',
+          '7. Entities array should include BOTH original entities AND newly resolved ones',
+          '8. roger_response should confirm the FULL action with resolved info',
+        ].join('\n'),
+      });
+    }
+
     // Final user message
     messages.push({
       role: 'user',
@@ -173,7 +315,7 @@ serve(async (req: Request) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-5.5',
         response_format: { type: 'json_object' },
         temperature: 0.3,
         messages,

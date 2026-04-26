@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Radio, MapPin } from 'lucide-react';
+import { Radio, MapPin, Square } from 'lucide-react';
 import MorningBriefing from './MorningBriefing';
 import SpotifyMiniPlayer from './SpotifyMiniPlayer';
 import { useLocation, type UserLocation } from '../../lib/useLocation';
@@ -14,7 +14,7 @@ import {
   preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError,
 } from '../../lib/sfx';
 
-import { processTransmission, extractMemoryFacts, generateSurfaceScript, type ConversationTurn } from '../../lib/openai';
+import { processTransmission, extractMemoryFacts, generateSurfaceScript, compileEncyclopediaArticle, type ConversationTurn } from '../../lib/openai';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
 import { fetchNews, type NewsArticle } from '../../lib/news';
@@ -28,12 +28,21 @@ import { createAmbientSession, type AmbientSessionResult, type AmbientChunkResul
 import { createMeetingRecorder, type MeetingResult, type MeetingChunk } from '../../lib/meetingRecorder';
 import { logClarification } from '../../lib/clarificationLogger';
 import {
+  type ClarificationContext,
+  type IntentOption,
+  createClarificationContext,
+  isClarificationExpired,
+  isClarificationExhausted,
+  CLARIFICATION_EXPIRY_MS,
+} from '../../lib/clarificationContext';
+import {
   insertReminder, insertTask, insertMemory,
   fetchSurfaceQueue, updateSurfaceItem,
   subscribeToRelayMessages, deferRelayMessage, markRelayRead,
   insertConversationTurn, upsertEntityMention,
   fetchFrequentEntities, markEntitySurfaced, insertSurfaceItem,
   fetchReminders, fetchTasks, fetchMemoryGraph,
+  upsertEncyclopediaEntry,
   type DbSurfaceItem, type DbRelayMessage,
 } from '../../lib/api';
 import { useArrivalDebrief } from '../../lib/useArrivalDebrief';
@@ -55,7 +64,7 @@ interface PendingAction {
   execute: () => void;    // the actual DB write
 }
 
-interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; }
+interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; isKnowledge?: boolean; subtopics?: { label: string; emoji: string }[]; deepDiveDepth?: number; }
 
 type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'settings';
 
@@ -83,7 +92,20 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   // ── Confirmation gate ─────────────────────────────────────────────────────
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   // ── Name confirm ──────────────────────────────────────────────────────────
+  // ── Deep Dive Knowledge state ─────────────────────────────────────────────
+  const [deepDiveState, setDeepDiveState] = useState<{
+    topic: string;
+    depth: number;
+    coverageSummary: string;
+    turns: string[];       // raw turns for encyclopedia compilation
+  } | null>(null);
+  const deepDiveRef = useRef(deepDiveState);
+  deepDiveRef.current = deepDiveState;
   const [pendingNameConfirm, setPendingNameConfirm] = useState<{ name: string; factId?: string } | null>(null);
+  // ── Clarification resolution state (L1) ────────────────────────────────────
+  const [pendingClarification, setPendingClarification] = useState<ClarificationContext | null>(null);
+  const [intentOptions, setIntentOptions] = useState<IntentOption[] | null>(null);
+  const clarificationExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Ambient Listening state ───────────────────────────────────────────────
   const [ambientActive, setAmbientActive]           = useState(false);
@@ -110,6 +132,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Stores a chip prompt waiting to be processed through the PTT pipeline
   const chipPromptRef = useRef<string | null>(null);
+  // ── PTT Gesture refs ─────────────────────────────────────────────────────
+  const lastRogerMsgRef   = useRef<string>('');       // last Roger response for replay
+  const lastTapTimeRef    = useRef<number>(0);         // timestamp of last short tap
+  const tapCountRef       = useRef<number>(0);          // consecutive short taps for triple-tap confirm
+  const pttWasSpeakingRef = useRef<boolean>(false);    // tracks if PTT down happened during speaking
 
   // Arrival debrief — geo-triggered spoken brief on arriving at work/home
   useArrivalDebrief(userId, location ?? null, (text) => {
@@ -434,14 +461,37 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     setProactiveMode(speed >= 5.56 ? 'drive' : 'normal');
   }, [(locationProp ?? hookLocation)?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Replay last Roger message ─────────────────────────────────────────────
+  const replayLastMessage = useCallback(() => {
+    const msg = lastRogerMsgRef.current;
+    if (!msg) return;
+    hapticPTTDown();
+    setPttState('speaking');
+    setIsSpeaking(true);
+    speakResponse(msg)
+      .catch(() => { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); })
+      .finally(() => { setIsSpeaking(false); setPttState('responded'); });
+  }, []);
+
   // ── PTT Down ──────────────────────────────────────────────────────────────
   const handlePTTDown = useCallback(async () => {
     resetIdleTimer();
     // ── Proactive intercept: if Roger has a pending message, consume PTT ────
     if (handleProactivePTT()) return;
 
-    if (pttState === 'speaking') { stopSpeaking(); setIsSpeaking(false); }
-    else if (pttState !== 'idle' && pttState !== 'responded' && pttState !== 'awaiting_answer') return;
+    // ── While speaking: stop Roger, do NOT start recording yet ──────────────
+    if (pttState === 'speaking') {
+      pttWasSpeakingRef.current = true;
+      stopSpeaking(); setIsSpeaking(false);
+      setPttState('responded');
+      // Start hold timer so we can detect long-press vs short tap on PTT Up
+      setHoldMs(0);
+      holdRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
+      return;
+    }
+
+    pttWasSpeakingRef.current = false;
+    if (pttState !== 'idle' && pttState !== 'responded' && pttState !== 'awaiting_answer') return;
     if (awaitRef.current) clearTimeout(awaitRef.current);
     stopSpeaking(); setIsSpeaking(false);
     hapticPTTDown();
@@ -468,15 +518,45 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     (async () => {
       try {
         setPttState('processing');
-        const result = await processTransmission(prompt, history, userId, undefined);
+        const ddCtx = deepDiveRef.current;
+        const result = await processTransmission(prompt, history, userId, undefined, undefined, null,
+          ddCtx ? { topic: ddCtx.topic, depth: ddCtx.depth, coverageSummary: ddCtx.coverageSummary } : null
+        );
         setHistory(prev => [...prev, { role: 'assistant', content: result.roger_response }]);
+        const isKnowledge = result.is_knowledge_query ?? false;
+        const currentDepth = ddCtx?.depth ?? 0;
+        // Track deep dive state for knowledge responses
+        if (isKnowledge && !ddCtx) {
+          // First knowledge response — initialize state from topic entity
+          const topicEntity = result.entities?.find(e => e.type === 'TOPIC');
+          setDeepDiveState({
+            topic: topicEntity?.text || prompt.slice(0, 60),
+            depth: 0,
+            coverageSummary: result.roger_response.slice(0, 200),
+            turns: [result.roger_response],
+          });
+        } else if (isKnowledge && ddCtx) {
+          // Existing deep dive — accumulate
+          setDeepDiveState(prev => prev ? {
+            ...prev,
+            coverageSummary: prev.coverageSummary + '\n' + result.roger_response.slice(0, 200),
+            turns: [...prev.turns, result.roger_response],
+          } : null);
+        } else if (!isKnowledge) {
+          // Non-knowledge intent breaks the deep dive
+          setDeepDiveState(null);
+        }
         setMessages(prev => [...prev, {
           id: `r-chip-${Date.now()}`, role: 'roger',
           text: result.roger_response,
           ts: Date.now(), intent: result.intent, outcome: result.outcome,
+          isKnowledge,
+          subtopics: result.subtopics ?? undefined,
+          deepDiveDepth: isKnowledge ? currentDepth : undefined,
         }]);
         hapticRogerSpeaking();
         sfxRogerIn();
+        lastRogerMsgRef.current = result.roger_response;
         setPttState('speaking'); setIsSpeaking(true);
         try { await speakResponse(result.roger_response); }
         catch { try { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(result.roger_response); window.speechSynthesis.speak(u); await new Promise<void>(res => { u.onend = () => res(); }); } catch { /* silent */ } }
@@ -494,8 +574,70 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
   // ── PTT Up ────────────────────────────────────────────────────────────────
   const handlePTTUp = useCallback(async () => {
-    if (pttState !== 'recording') return;
     if (holdRef.current) clearInterval(holdRef.current);
+
+    // ── Short tap that interrupted speaking → handle stop / double-tap replay ──
+    if (pttWasSpeakingRef.current) {
+      pttWasSpeakingRef.current = false;
+      if (holdMs >= 300) {
+        // Long press while speaking → stop + start recording
+        resetIdleTimer();
+        hapticPTTDown(); sfxPTTDown();
+        setPttState('recording'); setHoldMs(0);
+        holdRef.current = setInterval(() => setHoldMs(h => h + 100), 100);
+        if (MEDIA_RECORDER_SUPPORTED) {
+          const recorder = await createAudioRecorder();
+          (recorderRef as React.MutableRefObject<typeof recorder | null>).current = recorder;
+          const granted = await recorder.start();
+          if (!granted) { (recorderRef as React.MutableRefObject<typeof recorder | null>).current = null; }
+        }
+        return;
+      }
+      // Short tap while speaking → Roger already stopped in PTT Down
+      // Check for multi-tap gestures
+      const now = Date.now();
+      if (now - lastTapTimeRef.current < 400) {
+        tapCountRef.current += 1;
+        if (tapCountRef.current >= 3 && pendingAction) {
+          // Triple-tap: confirm and execute pending action
+          tapCountRef.current = 0; lastTapTimeRef.current = 0;
+          confirmPendingAction();
+        } else if (tapCountRef.current >= 2 && !pendingAction) {
+          tapCountRef.current = 0; lastTapTimeRef.current = 0;
+          replayLastMessage();
+        } else {
+          lastTapTimeRef.current = now;
+        }
+      } else {
+        tapCountRef.current = 1;
+        lastTapTimeRef.current = now;
+      }
+      return;
+    }
+
+    if (pttState !== 'recording') {
+      // ── Idle multi-tap: double=replay, triple=confirm pending ──────────────
+      if (holdMs < 300) {
+        const now = Date.now();
+        if (now - lastTapTimeRef.current < 400) {
+          tapCountRef.current += 1;
+          if (tapCountRef.current >= 3 && pendingAction) {
+            tapCountRef.current = 0; lastTapTimeRef.current = 0;
+            confirmPendingAction();
+          } else if (tapCountRef.current >= 2 && !pendingAction && lastRogerMsgRef.current) {
+            tapCountRef.current = 0; lastTapTimeRef.current = 0;
+            replayLastMessage();
+          } else {
+            lastTapTimeRef.current = now;
+          }
+        } else {
+          tapCountRef.current = 1;
+          lastTapTimeRef.current = now;
+        }
+      }
+      return;
+    }
+
     resetIdleTimer();
     hapticPTTUp();
     sfxPTTUp();
@@ -536,6 +678,27 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
     // User message
     setMessages(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', text: transcript, ts: Date.now() }]);
+
+    // ── Verbal confirmation gate: intercept yes/no before GPT processing ────
+    if (pendingAction) {
+      const norm = transcript.toLowerCase().trim();
+      const CONFIRM_WORDS = /^(yes|yeah|yep|yup|confirm|do it|go ahead|go|execute|approved|affirmative|roger|proceed|ok|okay|sure|absolutely|correct|right)$/i;
+      const CANCEL_WORDS  = /^(no|nah|nope|cancel|stop|don't|abort|negative|nevermind|never mind|scratch that|forget it|disregard)$/i;
+      if (CONFIRM_WORDS.test(norm) || CONFIRM_WORDS.test(norm.replace(/[.,!?]/g, ''))) {
+        confirmPendingAction();
+        setPttState('responded');
+        return;
+      }
+      if (CANCEL_WORDS.test(norm) || CANCEL_WORDS.test(norm.replace(/[.,!?]/g, ''))) {
+        cancelPendingAction();
+        setPttState('idle');
+        return;
+      }
+      // If the user said something else entirely, cancel the pending action
+      // and process the new command normally (they changed their mind)
+      cancelPendingAction();
+    }
+
     setPttState('processing');
 
     try {
@@ -565,11 +728,41 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       return;
     }
 
-    // Build location context string for GPT-4o injection
+    // Build location context string for GPT-5.5 injection
       const locationContext = location
         ? `${location.city ? `${location.city}, ` : ''}${location.country ?? ''} (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`.trim()
         : undefined;
-      const result = await processTransmission(transcript, history, undefined, userId, locationContext);
+
+      // ── L1: Check for pending clarification context ────────────────────────
+      let activeClariCtx = pendingClarification;
+      if (activeClariCtx && isClarificationExpired(activeClariCtx)) {
+        // Context expired — treat as fresh transmission
+        activeClariCtx = null;
+        setPendingClarification(null);
+        setIntentOptions(null);
+      }
+      if (activeClariCtx && isClarificationExhausted(activeClariCtx)) {
+        // Max retries exceeded — abandon
+        const abandonMsg = 'Transmission unclear. Let\'s start over. What do you need? Over.';
+        setMessages(prev => [...prev, { id: `r-abandon-${Date.now()}`, role: 'roger', text: abandonMsg, ts: Date.now(), intent: 'ABANDON_CLARIFICATION', outcome: 'error' }]);
+        speakResponse(abandonMsg).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(abandonMsg)); });
+        setPendingClarification(null);
+        setIntentOptions(null);
+        setClarifQuestion('');
+        setPttState('responded');
+        return;
+      }
+
+      const result = await processTransmission(
+        transcript, history, undefined, userId, locationContext,
+        activeClariCtx ? {
+          original_transcript: activeClariCtx.original_transcript,
+          original_intent: activeClariCtx.original_intent,
+          clarification_question: activeClariCtx.clarification_question,
+          missing_entities: activeClariCtx.missing_entities,
+          attempt: activeClariCtx.attempt,
+        } : null
+      );
 
       // Append history
       setHistory(prev => [...prev.slice(-10),
@@ -611,6 +804,84 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             }
           },
         });
+      } else if (result.intent === 'SMART_HOME_CONTROL') {
+        // ── Smart Home: confirmation gate before device control ──────────
+        const deviceEntity = result.entities?.find(e => e.type === 'SMART_DEVICE');
+        const valueEntity  = result.entities?.find(e => e.type === 'DEVICE_VALUE');
+        const deviceLabel  = deviceEntity?.text ?? 'device';
+        const confirmLabel = `Smart home: ${result.roger_response.replace(/ Over\.$/, '')}. Execute? Over.`;
+        setPendingAction({
+          type: 'task' as const,
+          label: confirmLabel,
+          execute: () => {
+            import('../../lib/tuya').then(async ({ listTuyaDevices, matchDevice, inferCommand, controlDevice }) => {
+              try {
+                const prefs = await import('../../lib/api').then(m => m.fetchUserPreferences(userId));
+                const uid = (prefs as Record<string, unknown> | null)?.tuya_uid as string | undefined;
+                if (!uid) { speakResponse('Tuya not connected. Set up in Settings. Over.').catch(() => {}); return; }
+                const devices = await listTuyaDevices(uid);
+                const matched = matchDevice(deviceLabel, devices);
+                if (!matched) { speakResponse(`Could not find "${deviceLabel}" in your devices. Over.`).catch(() => {}); return; }
+                const cmd = inferCommand(result.intent, matched.category, valueEntity ? (isNaN(Number(valueEntity.text)) ? valueEntity.text : Number(valueEntity.text)) : undefined);
+                if (!cmd) { speakResponse('Unable to determine command. Over.').catch(() => {}); return; }
+                await controlDevice(matched.id, [cmd]);
+                const ack = `Done. ${matched.name} ${cmd.value === true ? 'on' : cmd.value === false ? 'off' : 'updated'}. Over.`;
+                speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+              } catch (err) {
+                const msg = `Smart home error: ${err instanceof Error ? err.message : 'unknown'}. Over.`;
+                speakResponse(msg).catch(() => {});
+              }
+            });
+          },
+        });
+      } else if (result.intent === 'SMART_HOME_SCENE') {
+        // ── Smart Home: confirmation gate before scene trigger ──────────
+        const sceneEntity = result.entities?.find(e => e.type === 'SCENE_NAME');
+        const sceneName   = sceneEntity?.text ?? 'scene';
+        const confirmLabel = `Run scene "${sceneName}"? Over.`;
+        setPendingAction({
+          type: 'task' as const,
+          label: confirmLabel,
+          execute: () => {
+            import('../../lib/tuya').then(async ({ listTuyaDevices, listTuyaScenes, matchScene, triggerTuyaScene }) => {
+              try {
+                const prefs = await import('../../lib/api').then(m => m.fetchUserPreferences(userId));
+                const uid = (prefs as Record<string, unknown> | null)?.tuya_uid as string | undefined;
+                if (!uid) { speakResponse('Tuya not connected. Set up in Settings. Over.').catch(() => {}); return; }
+                const devices = await listTuyaDevices(uid);
+                if (devices.length === 0) { speakResponse('No homes found. Over.').catch(() => {}); return; }
+                const homeId = String(devices[0].home_id);
+                const scenes = await listTuyaScenes(homeId);
+                const matched = matchScene(sceneName, scenes);
+                if (!matched) { speakResponse(`Could not find scene "${sceneName}". Over.`).catch(() => {}); return; }
+                await triggerTuyaScene(homeId, matched.scene_id);
+                const ack = `Scene "${matched.name}" triggered. Over.`;
+                speakResponse(ack).catch(() => { window.speechSynthesis.speak(new SpeechSynthesisUtterance(ack)); });
+              } catch (err) {
+                const msg = `Scene error: ${err instanceof Error ? err.message : 'unknown'}. Over.`;
+                speakResponse(msg).catch(() => {});
+              }
+            });
+          },
+        });
+      } else if (result.intent === 'SMART_HOME_QUERY') {
+        // ── Smart Home query: read-only, no confirmation needed ──────────
+        const deviceEntity = result.entities?.find(e => e.type === 'SMART_DEVICE');
+        if (deviceEntity) {
+          import('../../lib/tuya').then(async ({ listTuyaDevices, matchDevice, getDeviceStatus }) => {
+            try {
+              const prefs = await import('../../lib/api').then(m => m.fetchUserPreferences(userId));
+              const uid = (prefs as Record<string, unknown> | null)?.tuya_uid as string | undefined;
+              if (!uid) return;
+              const devices = await listTuyaDevices(uid);
+              const matched = matchDevice(deviceEntity.text, devices);
+              if (!matched) return;
+              const status = await getDeviceStatus(matched.id);
+              // Roger's GPT response already includes a natural status line, so this is supplementary
+              console.log('[SmartHome] Device status:', matched.name, status);
+            } catch { /* silent — GPT response already covers the query */ }
+          });
+        }
       } else if (result.intent === 'BOOK_MEETING') {
         // BOOK_MEETING confirmation is handled inside the BOOK_MEETING block below — skip here
       } else if (!result.intent.startsWith('QUERY_') &&
@@ -621,6 +892,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                  !result.intent.startsWith('BRIEFING_') &&
                  !result.intent.startsWith('WATCHLIST_') &&
                  !result.intent.startsWith('IDENTIFY_') &&
+                 !result.intent.startsWith('SMART_HOME_') &&
                  !result.intent.endsWith('_QUERY') &&
                  result.intent !== 'CONVERSE' &&
                  result.intent !== 'COMMUTE_QUERY' &&
@@ -733,13 +1005,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           setPttState('responded');
           return;
         } catch {
-          // Fall through to GPT-4o response if news fetch fails
+          // Fall through to GPT-5.5 response if news fetch fails
         }
       }
 
       // COMMUTE_QUERY — Real Google Maps ETA
       if (result.intent === 'COMMUTE_QUERY' && location) {
-        // Extract destination from GPT-4o entities (LOCATION type) or raw transcript
+        // Extract destination from GPT-5.5 entities (LOCATION type) or raw transcript
         const destEntity = result.entities?.find(e => e.type === 'LOCATION' || e.type === 'PLACE');
         const destination = destEntity?.text ?? transcript.replace(/how long|to get|to reach|commute|drive|to/gi, '').trim();
         if (destination) {
@@ -1453,10 +1725,34 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
       // Roger response message
       const insight = (result as {insight?: string}).insight;
+      const isKnowledge = result.is_knowledge_query ?? false;
+      const ddCtx = deepDiveRef.current;
+      const currentDepth = ddCtx?.depth ?? 0;
+      // Track deep dive state for voice-triggered knowledge queries
+      if (isKnowledge && !ddCtx) {
+        const topicEntity = result.entities?.find(e => e.type === 'TOPIC');
+        setDeepDiveState({
+          topic: topicEntity?.text || transcript.slice(0, 60),
+          depth: 0,
+          coverageSummary: result.roger_response.slice(0, 200),
+          turns: [result.roger_response],
+        });
+      } else if (isKnowledge && ddCtx) {
+        setDeepDiveState(prev => prev ? {
+          ...prev,
+          coverageSummary: prev.coverageSummary + '\n' + result.roger_response.slice(0, 200),
+          turns: [...prev.turns, result.roger_response],
+        } : null);
+      } else if (!isKnowledge) {
+        setDeepDiveState(null);
+      }
       setMessages(prev => [...prev, {
         id: `r-${Date.now()}`, role: 'roger',
         text: result.roger_response + (insight ? `\n\n💡 ${insight}` : ''),
         ts: Date.now(), intent: result.intent, outcome: result.outcome,
+        isKnowledge,
+        subtopics: result.subtopics ?? undefined,
+        deepDiveDepth: isKnowledge ? currentDepth : undefined,
       }]);
 
       hapticResponseReceived();
@@ -1464,6 +1760,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // TTS
       hapticRogerSpeaking();
       sfxRogerIn();
+      lastRogerMsgRef.current = result.roger_response;
       setPttState('speaking'); setIsSpeaking(true);
       try { await speakResponse(result.roger_response); }
       catch { try { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(result.roger_response); window.speechSynthesis.speak(u); await new Promise<void>(res => { u.onend = () => res(); }); } catch { /* silent */ } }
@@ -1474,6 +1771,21 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         setPttState('awaiting_answer');
         // Store the question Roger asked for the overlay
         setClarifQuestion(result.roger_response);
+
+        // ── L1: Store clarification context for next PTT cycle ─────────────
+        const ctx = createClarificationContext(transcript, result, pendingClarification);
+        setPendingClarification(ctx);
+
+        // ── L3: Store intent disambiguation options if present ─────────────
+        setIntentOptions(result.intent_options ?? null);
+
+        // Auto-expire clarification context
+        if (clarificationExpiryRef.current) clearTimeout(clarificationExpiryRef.current);
+        clarificationExpiryRef.current = setTimeout(() => {
+          setPendingClarification(null);
+          setIntentOptions(null);
+        }, CLARIFICATION_EXPIRY_MS);
+
         // Log clarification to DB so admin can see it
         const txStart = Date.now();
         logClarification({
@@ -1502,6 +1814,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         // Auto-PTT after 800ms so user can answer hands-free
         awaitRef.current = setTimeout(() => handlePTTDown(), 800);
       } else {
+        // ── L1: Clear clarification context on successful resolution ────────
+        if (pendingClarification) {
+          setPendingClarification(null);
+          setIntentOptions(null);
+          if (clarificationExpiryRef.current) clearTimeout(clarificationExpiryRef.current);
+        }
         setClarifQuestion('');
         setPttState('responded');
       }
@@ -1579,9 +1897,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           📡 {rogerMode.toUpperCase()}
         </span>
         {location && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: 9, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-            <MapPin size={9} /> {locationLabel}
-          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: 9, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+              <MapPin size={9} /> {locationLabel}
+            </span>
+            <span style={{ fontFamily: 'monospace', fontSize: 7, color: 'rgba(255,255,255,0.18)', letterSpacing: '0.06em' }}>
+              {location.latitude.toFixed(4)}°{location.latitude >= 0 ? 'N' : 'S'}, {location.longitude.toFixed(4)}°{location.longitude >= 0 ? 'E' : 'W'}
+            </span>
+          </div>
         )}
       </div>
 
@@ -2004,6 +2327,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700 }}>
               ⚡ ROGER NEEDS CLARIFICATION
+              {pendingClarification && pendingClarification.attempt > 1
+                ? ` (ATTEMPT ${pendingClarification.attempt}/${2})`
+                : ''}
             </span>
             {/* Countdown circle */}
             <div style={{ position: 'relative', width: 28, height: 28 }}>
@@ -2024,6 +2350,41 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.55 }}>
             {clarifQuestion.split('\n')[0]}
           </p>
+
+          {/* ── L3: Intent Disambiguation Chips ── */}
+          {intentOptions && intentOptions.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+              {intentOptions.map((opt) => (
+                <button
+                  key={opt.intent}
+                  onClick={() => {
+                    // Inject the chosen intent as a chip prompt
+                    chipPromptRef.current = opt.label;
+                    if (clarifTimerRef.current) clearInterval(clarifTimerRef.current);
+                    setClarifQuestion('');
+                    setIntentOptions(null);
+                    // Clear clarification context since user chose explicitly
+                    setPendingClarification(null);
+                    if (clarificationExpiryRef.current) clearTimeout(clarificationExpiryRef.current);
+                    setMessages(prev => [...prev, { id: `u-choice-${Date.now()}`, role: 'user', text: opt.label, ts: Date.now() }]);
+                    setPttState('processing');
+                  }}
+                  style={{
+                    padding: '6px 12px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
+                    letterSpacing: '0.1em', cursor: 'pointer',
+                    background: 'rgba(212,160,68,0.12)', border: '1px solid rgba(212,160,68,0.4)',
+                    color: 'var(--amber)', borderRadius: 1,
+                    transition: 'background 0.15s',
+                  }}
+                  onPointerEnter={(e) => (e.currentTarget.style.background = 'rgba(212,160,68,0.25)')}
+                  onPointerLeave={(e) => (e.currentTarget.style.background = 'rgba(212,160,68,0.12)')}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onPointerDown={handlePTTDown}
@@ -2035,7 +2396,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               🎙 ANSWER NOW
             </button>
             <button
-              onClick={() => { if (clarifTimerRef.current) clearInterval(clarifTimerRef.current); setClarifQuestion(''); setPttState('idle'); }}
+              onClick={() => {
+                if (clarifTimerRef.current) clearInterval(clarifTimerRef.current);
+                setClarifQuestion('');
+                setPendingClarification(null);
+                setIntentOptions(null);
+                if (clarificationExpiryRef.current) clearTimeout(clarificationExpiryRef.current);
+                setPttState('idle');
+              }}
               style={{
                 padding: '7px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
                 letterSpacing: '0.12em', cursor: 'pointer',
@@ -2063,6 +2431,23 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               </button>
             ))}
           </div>
+        </div>
+      )}
+      {/* ── Learning Mode Banner ── */}
+      {deepDiveState && deepDiveState.depth >= 3 && (
+        <div style={{
+          margin: '8px 16px 0', padding: '8px 14px',
+          background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#818cf8', animation: 'pulse 1.5s ease-in-out infinite' }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.12em', flex: 1 }}>
+            📚 LEARNING MODE — {deepDiveState.topic}
+          </span>
+          <button
+            onClick={() => setDeepDiveState(null)}
+            style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-subtle)', padding: '2px 8px', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+          >EXIT</button>
         </div>
       )}
 
@@ -2128,6 +2513,153 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                     )}
                   </a>
                 ))}
+              </div>
+            )}
+
+            {/* ── Knowledge Mode — progressive UI ── */}
+            {msg.role === 'roger' && msg.isKnowledge && pttState !== 'recording' && pttState !== 'processing' && (
+              <div style={{ maxWidth: '88%', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+
+                {/* Depth 0-1: Tell Me More button */}
+                {(msg.deepDiveDepth === undefined || msg.deepDiveDepth < 2) && (
+                  <button
+                    onClick={() => {
+                      if (pttState !== 'idle' && pttState !== 'responded') return;
+                      const topic = deepDiveState?.topic || msg.text.slice(0, 60);
+                      const newDepth = (deepDiveState?.depth ?? 0) + 1;
+                      setDeepDiveState(prev => ({
+                        topic, depth: newDepth,
+                        coverageSummary: (prev?.coverageSummary ?? '') + '\n' + msg.text.slice(0, 200),
+                        turns: [...(prev?.turns ?? []), msg.text],
+                      }));
+                      const synth: Message = { id: `dd-${Date.now()}`, role: 'user', text: `Tell me more about ${topic}`, ts: Date.now() };
+                      setMessages(prev => [...prev, synth]);
+                      setHistory(prev => [...prev, { role: 'user', content: `Tell me more about ${topic}` }]);
+                      chipPromptRef.current = `Tell me more about ${topic}`;
+                      setPttState('processing');
+                    }}
+                    style={{ padding: '6px 14px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.3)', color: '#818cf8', transition: 'all 150ms', alignSelf: 'flex-start' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.20)'; e.currentTarget.style.borderColor = '#818cf8'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.10)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)'; }}
+                  >
+                    📖 Tell Me More
+                  </button>
+                )}
+
+                {/* Depth 2: Deep Dive Gate */}
+                {msg.deepDiveDepth === 2 && (
+                  <div style={{ padding: '10px 14px', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.25)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#818cf8', lineHeight: 1.4 }}>
+                      🔍 This is getting thorough. Want a full deep dive with sub-topics?
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => {
+                          if (pttState !== 'idle' && pttState !== 'responded') return;
+                          const topic = deepDiveState?.topic || '';
+                          setDeepDiveState(prev => prev ? { ...prev, depth: 3 } : null);
+                          const synth: Message = { id: `dd-${Date.now()}`, role: 'user', text: `Yes, deep dive on ${topic}`, ts: Date.now() };
+                          setMessages(prev => [...prev, synth]);
+                          setHistory(prev => [...prev, { role: 'user', content: `Give me a full deep dive on ${topic} with sub-topics to explore` }]);
+                          chipPromptRef.current = `Give me a full deep dive on ${topic} with sub-topics to explore`;
+                          setPttState('processing');
+                        }}
+                        style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.4)', color: '#818cf8' }}
+                      >🔍 Yes, Deep Dive</button>
+                      <button
+                        onClick={() => setDeepDiveState(null)}
+                        style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}
+                      >✓ That's Enough</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Depth 3+: Keep Going + Sub-topic chips */}
+                {msg.deepDiveDepth !== undefined && msg.deepDiveDepth >= 3 && (
+                  <>
+                    {/* Compile gate at depth 4+ */}
+                    {msg.deepDiveDepth >= 4 && (
+                      <div style={{ padding: '10px 14px', background: 'rgba(20,184,166,0.06)', border: '1px solid rgba(20,184,166,0.25)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#14b8a6', lineHeight: 1.4 }}>
+                          📚 That's a thorough briefing. Save to your Personal Encyclopedia?
+                        </span>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            onClick={async () => {
+                              if (!deepDiveState) return;
+                              const turns = deepDiveState.turns;
+                              try {
+                                const compiled = await compileEncyclopediaArticle(deepDiveState.topic, turns);
+                                await upsertEncyclopediaEntry({
+                                  user_id: userId,
+                                  topic: deepDiveState.topic,
+                                  emoji: compiled.emoji,
+                                  summary: compiled.summary,
+                                  full_article: compiled.full_article,
+                                  sections: compiled.sections,
+                                  tags: compiled.tags,
+                                  source_turns: turns.length,
+                                });
+                                const confirmMsg = `Compiled and saved to your encyclopedia. ${compiled.sections.length} sections, ${compiled.tags.length} tags. Over.`;
+                                setMessages(prev => [...prev, { id: `enc-${Date.now()}`, role: 'roger', text: `📚 Saved "${deepDiveState.topic}" to your Personal Encyclopedia.`, ts: Date.now(), intent: 'ENCYCLOPEDIA_SAVE' }]);
+                                speakResponse(confirmMsg).catch(() => {});
+                              } catch {
+                                speakResponse('Had trouble compiling that. Try again later. Over.').catch(() => {});
+                              }
+                              setDeepDiveState(null);
+                            }}
+                            style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(20,184,166,0.12)', border: '1px solid rgba(20,184,166,0.4)', color: '#14b8a6' }}
+                          >📚 Save to Encyclopedia</button>
+                          <button
+                            onClick={() => setDeepDiveState(null)}
+                            style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}
+                          >✕ Skip</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Keep Going button */}
+                    <button
+                      onClick={() => {
+                        if (pttState !== 'idle' && pttState !== 'responded') return;
+                        const topic = deepDiveState?.topic || '';
+                        setDeepDiveState(prev => prev ? { ...prev, depth: prev.depth + 1, coverageSummary: prev.coverageSummary + '\n' + msg.text.slice(0, 200), turns: [...prev.turns, msg.text] } : null);
+                        const synth: Message = { id: `dd-${Date.now()}`, role: 'user', text: `Keep going on ${topic}`, ts: Date.now() };
+                        setMessages(prev => [...prev, synth]);
+                        setHistory(prev => [...prev, { role: 'user', content: `Tell me more about ${topic}` }]);
+                        chipPromptRef.current = `Tell me more about ${topic}`;
+                        setPttState('processing');
+                      }}
+                      style={{ padding: '6px 14px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.3)', color: '#818cf8', transition: 'all 150ms', alignSelf: 'flex-start' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.20)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.10)'; }}
+                    >🔍 Keep Going</button>
+
+                    {/* Sub-topic chips */}
+                    {msg.subtopics && msg.subtopics.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+                        {msg.subtopics.map((sub, i) => (
+                          <button key={i}
+                            onClick={() => {
+                              if (pttState !== 'idle' && pttState !== 'responded') return;
+                              const topic = deepDiveState?.topic || '';
+                              setDeepDiveState(prev => prev ? { ...prev, depth: prev.depth + 1, coverageSummary: prev.coverageSummary + '\n' + msg.text.slice(0, 200), turns: [...prev.turns, msg.text] } : null);
+                              const prompt = `Tell me about ${sub.emoji} ${sub.label} regarding ${topic}`;
+                              const synth: Message = { id: `sub-${Date.now()}`, role: 'user', text: prompt, ts: Date.now() };
+                              setMessages(prev => [...prev, synth]);
+                              setHistory(prev => [...prev, { role: 'user', content: prompt }]);
+                              chipPromptRef.current = prompt;
+                              setPttState('processing');
+                            }}
+                            style={{ flexShrink: 0, padding: '4px 10px', fontFamily: 'monospace', fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.06em', border: '1px solid rgba(99,102,241,0.25)', background: 'rgba(99,102,241,0.06)', color: '#a5b4fc', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 150ms' }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = '#818cf8'; e.currentTarget.style.color = '#818cf8'; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)'; e.currentTarget.style.color = '#a5b4fc'; }}
+                          >{sub.emoji} {sub.label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -2196,8 +2728,32 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           {stateLabel}
         </span>
 
-        {/* Sonar rings + button */}
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 165, height: 165 }}>
+        {/* Sonar rings + button — touch target is the full outer area */}
+        <div
+          onPointerDown={handlePTTDown}
+          onPointerUp={handlePTTUp}
+          onPointerLeave={handlePTTUp}
+          onPointerCancel={handlePTTUp}
+          onContextMenu={e => e.preventDefault()}
+          role="button"
+          aria-label={isSpeaking ? 'Interrupt Roger' : 'Push to talk'}
+          style={{
+            position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 165, height: 165,
+            padding: 20,            /* invisible touch padding — total hit area ~205px */
+            margin: -20,            /* negative margin so padding doesn't shift layout */
+            cursor: 'pointer',
+            touchAction: 'none',
+            userSelect: 'none', WebkitUserSelect: 'none',
+          }}
+        >
+          {/* Idle breathing glow — subtle hero animation */}
+          {(pttState === 'idle' || pttState === 'responded' || pttState === 'awaiting_answer') && (
+            <>
+              <div style={{ position: 'absolute', width: 140, height: 140, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0.15, animation: 'pttBreathe 3s ease-in-out infinite' }} />
+              <div style={{ position: 'absolute', width: 155, height: 155, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0.08, animation: 'pttBreathe 3s ease-in-out 1.5s infinite' }} />
+            </>
+          )}
           {/* Sonar rings */}
           {pttState === 'recording' && (
             <>
@@ -2210,13 +2766,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           {(pttState === 'speaking') && (
             <div style={{ position: 'absolute', width: 148, height: 148, borderRadius: '50%', background: `${btnColor}18`, animation: 'pulse 1.2s ease-in-out infinite' }} />
           )}
-          <button
-            onPointerDown={handlePTTDown}
-            onPointerUp={handlePTTUp}
-            onPointerLeave={handlePTTUp}
-            onPointerCancel={handlePTTUp}
-            onContextMenu={e => e.preventDefault()}
-            aria-label={isSpeaking ? 'Interrupt Roger' : 'Push to talk'}
+          <div
             style={{
               width: 120, height: 120, borderRadius: '50%',
               border: `2.5px solid ${btnColor}`,
@@ -2225,17 +2775,17 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 : pttState === 'speaking' ? `${btnColor}14`
                 : 'rgba(255,255,255,0.04)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', transition: 'border-color 250ms, background 250ms',
+              transition: 'border-color 250ms, background 250ms',
               boxShadow: pttState === 'recording'
                 ? `0 0 48px ${btnColor}66, 0 0 16px ${btnColor}33, inset 0 0 20px ${btnColor}1a`
                 : pttState === 'speaking' ? `0 0 28px ${btnColor}44`
                 : `0 0 20px ${btnColor}18`,
-              userSelect: 'none', WebkitUserSelect: 'none',
-              touchAction: 'none',
+              animation: (pttState === 'idle' || pttState === 'responded') ? 'pttGlow 3s ease-in-out infinite' : 'none',
+              pointerEvents: 'none',  /* visual only — parent handles events */
             }}
           >
-            <Radio size={38} style={{ color: btnColor, transition: 'color 250ms' }} />
-          </button>
+            {pttState === 'speaking' ? <Square size={28} style={{ color: btnColor, transition: 'color 250ms' }} /> : <Radio size={38} style={{ color: btnColor, transition: 'color 250ms' }} />}
+          </div>
         </div>
 
         {/* Speaking waveform bars */}
@@ -2253,6 +2803,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         @keyframes sonar {
           0%   { transform: scale(0.7); opacity: 0.8; }
           100% { transform: scale(1.6); opacity: 0; }
+        }
+        @keyframes pttBreathe {
+          0%, 100% { transform: scale(1); opacity: 0.08; }
+          50%      { transform: scale(1.08); opacity: 0.2; }
+        }
+        @keyframes pttGlow {
+          0%, 100% { box-shadow: 0 0 20px ${btnColor}18; }
+          50%      { box-shadow: 0 0 32px ${btnColor}30, 0 0 12px ${btnColor}20; }
         }
       `}</style>
     </div>

@@ -3,7 +3,7 @@
  *
  * Watches navigator.onLine and the 'online' browser event.
  * When connectivity returns, drains the offline recording queue by sending
- * each blob through Whisper → GPT-4o → Supabase, one item at a time.
+ * each blob through Whisper → GPT-5.5 → Supabase, one item at a time.
  *
  * Usage:
  *   const stop = startNetworkMonitor({ onStatusChange, onItemProcessed, onQueueDrained });
@@ -105,7 +105,7 @@ async function processQueuedItem(
       return;
     }
 
-    // Step 2: GPT-4o intent + response
+    // Step 2: GPT-5.5 intent + response
     const aiResult = await processTransmission(transcript);
 
     // Step 3: Persist to Supabase

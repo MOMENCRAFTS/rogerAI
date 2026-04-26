@@ -1,6 +1,6 @@
 // supabase/functions/classify-priority/index.ts
 // AI-driven classification of user response to a proactively surfaced item.
-// Uses gpt-4o-mini for speed and cost.
+// Uses gpt-5.4-mini for speed and cost.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
@@ -41,7 +41,7 @@ serve(async (req: Request) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         response_format: { type: 'json_object' },
         temperature: 0.3,
         messages: [

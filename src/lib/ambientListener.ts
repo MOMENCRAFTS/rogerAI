@@ -3,7 +3,7 @@
  *
  * Architecture:
  *  - MediaRecorder runs continuously in 30-second rolling chunks
- *  - Each chunk → Whisper transcription → analyse-ambient edge fn (GPT-4o-mini)
+ *  - Each chunk → Whisper transcription → analyse-ambient edge fn (GPT-5.4-mini)
  *  - If music is dominant → audio chunk forwarded to identify-music edge fn (ACRCloud)
  *  - Emits events via callbacks throughout the session lifecycle
  *

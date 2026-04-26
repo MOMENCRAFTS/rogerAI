@@ -104,7 +104,7 @@ export async function deleteCalendarEvent(userId: string, titleOrId: string): Pr
 
 // ─── Context Injection ─────────────────────────────────────────────────────────
 
-/** Format events list for GPT-4o injection into morning brief or PTT context. */
+/** Format events list for GPT-5.5 injection into morning brief or PTT context. */
 export function eventsToContext(events: CalendarEvent[]): string {
   if (!events.length) return 'No calendar events today.';
   const lines = events.map(e => {

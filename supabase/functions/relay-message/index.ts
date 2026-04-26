@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 3. Optionally summarize long messages via GPT-4o-mini ────────────────
+    // ── 3. Optionally summarize long messages via GPT-5.4-mini ────────────────
     let rogerSummary: string | null = null;
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     if (OPENAI_API_KEY && transcript.length > 120) {
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
             'Authorization': `Bearer ${OPENAI_API_KEY}`,
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: 'gpt-5.4-mini',
             response_format: { type: 'json_object' },
             temperature: 0.2,
             messages: [

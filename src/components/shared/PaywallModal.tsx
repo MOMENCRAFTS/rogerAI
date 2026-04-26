@@ -17,7 +17,7 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = { free: 'Free', pro: 'Roge
 const PLAN_PRICES: Record<SubscriptionPlan, string> = { free: '$0', pro: '$9.99/mo', command: '$29.99/mo' };
 
 const FEATURE_PERKS: Record<GatedFeature, string[]> = {
-  unlimited_ptt:       ['Unlimited voice transmissions', 'GPT-4o full quality', 'Priority AI queue'],
+  unlimited_ptt:       ['Unlimited voice transmissions', 'GPT-5.5 full quality', 'Priority AI queue'],
   ambient_listener:    ['Unlimited ambient sessions', 'Auto meeting notes', 'Voice-to-memory capture'],
   meeting_recorder:    ['Unlimited recordings up to 3h', 'Action items & summaries', 'Transcript archive'],
   proactive_engine:    ['30-min intelligent check-ins', 'Deadline surfacing', 'Context-aware nudges'],

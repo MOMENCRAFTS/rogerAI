@@ -36,7 +36,7 @@ serve(async (req: Request) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-5.5',
         temperature: 0.3,
         messages: [
           { role: 'system', content: SURFACE_PROMPT },

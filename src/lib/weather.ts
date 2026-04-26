@@ -3,7 +3,7 @@
  *
  * Uses the Open-Meteo API (free, no API key required).
  * Fetches current conditions for a lat/lng and returns a
- * structured WeatherData object ready for GPT-4o injection and UI display.
+ * structured WeatherData object ready for GPT-5.5 injection and UI display.
  */
 
 export interface WeatherData {
@@ -119,7 +119,7 @@ export async function fetchWeather(lat: number, lng: number, city?: string): Pro
 
 
 /**
- * Formats weather data into a concise string for GPT-4o context injection.
+ * Formats weather data into a concise string for GPT-5.5 context injection.
  */
 export function weatherToContextString(w: WeatherData): string {
   return `${w.icon} ${w.tempC}°C, ${w.description}, Humidity ${w.humidity}%, Wind ${w.windKph} kph${w.city ? ` · ${w.city}` : ''}`;

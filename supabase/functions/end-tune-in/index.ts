@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     const durationMs = new Date(endedAt).getTime() - new Date(session.session_start).getTime();
     const durationMin = Math.round(durationMs / 60000);
 
-    // GPT-4o post-session analysis
+    // GPT-5.5 post-session analysis
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     let rogerNotes = 'Session transcript unavailable for analysis.';
     let proposedTasks: { text: string; priority: number }[] = [];
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
           body: JSON.stringify({
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             response_format: { type: 'json_object' },
             temperature: 0.2,
             messages: [
