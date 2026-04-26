@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Zap, RefreshCw, Power, Lightbulb, ThermometerSun, Play, Wifi, WifiOff, Home, ChevronRight, Settings2 } from 'lucide-react';
-import { listTuyaDevices, getDeviceStatus, controlDevice, listTuyaScenes, triggerTuyaScene, TUYA_CATEGORY_LABELS, type TuyaDevice, type TuyaScene } from '../../lib/tuya';
+import { Zap, RefreshCw, Power, Play, Wifi, WifiOff, Home, ChevronRight } from 'lucide-react';
+import { listTuyaDevices, controlDevice, listTuyaScenes, triggerTuyaScene, TUYA_CATEGORY_LABELS, type TuyaDevice, type TuyaScene } from '../../lib/tuya';
 import { fetchUserPreferences } from '../../lib/api';
 
 type ViewMode = 'devices' | 'scenes';

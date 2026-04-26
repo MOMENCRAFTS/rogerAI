@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronLeft, Volume2, VolumeX, Mic, MicOff } from 'lucide-react';
+import { ChevronLeft, Volume2, VolumeX, Mic } from 'lucide-react';
 import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION, ISLAMIC_CHAPTER } from '../../lib/orientationScript';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { createAudioRecorder } from '../../lib/audioRecorder';
@@ -18,7 +18,9 @@ import { transcribeAudio } from '../../lib/whisper';
 
 // Keywords that mean "I understand, move on"
 // Kept broad because Whisper often returns creative transcriptions of short utterances
-const CONFIRM_KEYWORDS = [
+// @ts-ignore — kept as reference list; acceptance logic uses length check instead
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _CONFIRM_KEYWORDS = [
   'understood', 'understand', 'got it', 'continue', 'roger', 'okay', 'ok',
   'next', 'proceed', 'ready', 'yes', 'affirmative', 'copy', 'yep', 'yup',
   'sure', 'right', 'alright', 'fine', 'good', 'cool', 'aye',
