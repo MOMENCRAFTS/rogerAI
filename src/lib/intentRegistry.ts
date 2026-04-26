@@ -264,7 +264,7 @@ function registerCoreHandlers(r: IntentRegistryImpl): void {
       await insertReminder({
         user_id: ctx.userId, text: ctx.transcript, entities: ctx.result.entities ?? null,
         due_at: null, status: 'pending', source_tx_id: null, is_admin_test: ctx.isTest,
-        due_location: loc, due_location_lat: null, due_location_lng: null,
+        due_location: loc ?? null, due_location_lat: null, due_location_lng: null,
         due_radius_m: 300, geo_triggered: false,
       });
       window.dispatchEvent(new CustomEvent('roger:refresh'));
@@ -1092,7 +1092,7 @@ function registerRemainingHandlers(r: IntentRegistryImpl): void {
         await insertReminder({
           user_id: ctx.userId, text: ctx.transcript, entities: ctx.result.entities ?? null,
           due_at: null, status: 'pending', source_tx_id: null, is_admin_test: ctx.isTest,
-          due_location: ctx.entity('LOCATION'), due_location_lat: null, due_location_lng: null,
+          due_location: ctx.entity('LOCATION') ?? null, due_location_lat: null, due_location_lng: null,
           due_radius_m: 300, geo_triggered: false,
         });
         await ctx.speak('Errand added. Over.');
