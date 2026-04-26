@@ -19,6 +19,7 @@ import SubscriptionView  from './SubscriptionView';
 import SalahView        from './SalahView';
 import SmartHomeView    from './SmartHomeView';
 import PermissionGate from '../../components/PermissionGate';
+import LegalDisclaimer, { hasAcceptedLegal } from '../../components/LegalDisclaimer';
 import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasOrientationBeenSeen, markOrientationSeen } from '../../lib/api';
 import { ORIENTATION_VERSION } from '../../lib/orientationScript';
 import type { OnboardingAnswers } from '../../lib/onboarding';
@@ -76,6 +77,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   // Must be checked at component mount time (not lazily) so the gate renders
   // before onboarding and primes the Android audio pipeline on first tap.
   const [permsGranted, setPermsGranted] = useState<boolean>(hasGrantedPermissions);
+  const [legalAccepted, setLegalAccepted] = useState<boolean>(hasAcceptedLegal());
 
   const refreshBadges = () => {
     fetchReminders(userId, 'pending').then(r => setReminderCount(r.length)).catch(() => {});
@@ -153,6 +155,11 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         </span>
       </div>
     );
+  }
+
+  // ── Legal Disclaimer Gate (very first launch) ───────────────────────────
+  if (!legalAccepted) {
+    return <LegalDisclaimer onAccept={() => setLegalAccepted(true)} />;
   }
 
   // ── Permission Gate (first launch only) ──────────────────────────────────
