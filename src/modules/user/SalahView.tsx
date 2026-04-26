@@ -33,7 +33,7 @@ const EMERALD_DIM = 'rgba(16,185,129,0.08)';
 const EMERALD_MID = 'rgba(16,185,129,0.18)';
 
 export default function SalahView({ location }: Props) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [times, setTimes]           = useState<PrayerTimes | null>(null);
   const [verse, setVerse]           = useState<VerseOfDay | null>(null);
   const [loading, setLoading]       = useState(true);

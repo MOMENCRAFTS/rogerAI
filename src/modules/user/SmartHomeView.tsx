@@ -7,7 +7,7 @@ import { useI18n } from '../../context/I18nContext';
 type ViewMode = 'devices' | 'scenes';
 
 export default function SmartHomeView({ userId }: { userId: string }) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [devices, setDevices]     = useState<TuyaDevice[]>([]);
   const [scenes, setScenes]       = useState<TuyaScene[]>([]);
   const [loading, setLoading]     = useState(true);

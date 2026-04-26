@@ -38,7 +38,7 @@ const FACT_COLORS: Record<string, string> = {
 };
 
 export default function UserAnalytics({ userId }: { userId: string }) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [digestState, setDigestState] = useState<'idle' | 'loading' | 'speaking' | 'done'>('idle');

@@ -7,7 +7,7 @@ import { create } from 'zustand';
 import type { NewsArticle } from './news';
 import type { ClarificationContext, IntentOption } from './clarificationContext';
 import type { AmbientChunkResult } from './ambientListener';
-import type { ConversationTurn, RogerAIResponse } from './openai';
+import type { ConversationTurn } from './openai';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

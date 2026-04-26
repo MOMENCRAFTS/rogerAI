@@ -26,7 +26,7 @@ const typeColor = (t: DbMemory['type']) =>
   t === 'book' ? 'var(--amber)' : t === 'observation' ? '#a78bfa' : 'var(--green)';
 
 export default function MemoryView({ userId }: { userId: string }) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [mainTab, setMainTab]         = useState<MainTab>('vault');
 
   // Vault state

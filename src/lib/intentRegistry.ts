@@ -110,7 +110,7 @@ export function buildIntentContext(params: {
     ...params,
     entity: (type: string) => {
       const e = params.result.entities?.find(ent => ent.type === type);
-      return e?.text ?? null;
+      return e?.text ?? undefined;
     },
     entities: (type: string) => {
       return (params.result.entities ?? []).filter(ent => ent.type === type);

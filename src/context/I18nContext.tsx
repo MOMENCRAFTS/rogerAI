@@ -14,7 +14,6 @@ import {
   getSavedLocale, saveLocale, clearLocale,
   loadDictionary, setCurrentDictionary,
   t as _t, isRTL as _isRTL,
-  getCurrentLocale,
 } from '../lib/i18n';
 
 interface I18nContextValue {

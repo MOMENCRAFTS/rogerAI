@@ -15,7 +15,7 @@ interface NewReminder {
 const EMPTY_NEW: NewReminder = { text: '', due_date: '', due_time: '', due_location: '' };
 
 export default function RemindersView({ userId }: { userId: string }) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [reminders, setReminders] = useState<DbReminder[]>([]);
   const [filter, setFilter]       = useState<Filter>('all');
   const [loading, setLoading]     = useState(true);

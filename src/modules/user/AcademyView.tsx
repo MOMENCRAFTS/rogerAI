@@ -58,7 +58,7 @@ interface Props {
 }
 
 export default function AcademyView({ userId }: Props) {
-  const { t, locale } = useI18n();
+  const { t: _t, locale } = useI18n();
 
   // State
   const [targetLocale, setTargetLocale] = useState<Locale>('fr-fr');

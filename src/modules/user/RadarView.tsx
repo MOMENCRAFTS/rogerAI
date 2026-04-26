@@ -74,7 +74,7 @@ function HazardPin({ h, onClick }: { h: HazardEvent; onClick: () => void }) {
 }
 
 export default function RadarView({ userId, location }: Props) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const userLat = location?.latitude  ?? null;
   const userLng = location?.longitude ?? null;
 

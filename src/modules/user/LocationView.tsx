@@ -20,7 +20,7 @@ interface LocationViewProps {
 }
 
 export default function LocationView({ userId, location }: LocationViewProps) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [weather, setWeather]       = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [geoReminders, setGeoReminders] = useState<DbReminder[]>([]);

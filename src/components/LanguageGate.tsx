@@ -317,7 +317,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
       )}
 
       {/* ═══ NODE 1 CONFIRM: Roger speaking ═══ */}
-      {step === 'node1_confirm' && base && (
+      {step === 'node1_speak' && base && (
         <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:24,animation:'gsi .3s ease-out' }}>
           <div style={{ position:'relative',width:80,height:80 }}>
             <div style={{ position:'absolute',inset:0,borderRadius:'50%',border:'2px solid rgba(212,160,68,.3)',animation:'gso 1.5s ease-out infinite' }} />

@@ -13,7 +13,7 @@ interface JournalEntry {
 }
 
 export default function JournalView({ userId }: { userId: string }) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [entries, setEntries]     = useState<JournalEntry[]>([]);
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState('');

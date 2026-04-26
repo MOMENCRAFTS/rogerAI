@@ -44,7 +44,7 @@ function formatDate(iso: string) {
 }
 
 export default function MeetingRecorderView({ userId }: Props) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const [meetings, setMeetings]     = useState<MeetingRecord[]>([]);
   const [loading, setLoading]       = useState(true);
   const [expanded, setExpanded]     = useState<string | null>(null);

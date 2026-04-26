@@ -111,7 +111,7 @@ function UsageMeter({ label, used, max, color }: { label: string; used: number; 
 }
 
 export default function SubscriptionView({ userId }: Props) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
   const {
     plan, status, isPro, isTrialing, trialDaysLeft,
     pttUsedToday, startTrial, loading,

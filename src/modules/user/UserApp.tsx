@@ -60,7 +60,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   const [taskCount, setTaskCount]   = useState(0);
   const sessionId = useRef(crypto.randomUUID());
   const { location } = useLocation(userId);
-  const { locale, t, isRTL, ready, setLocale } = useI18n();
+  const { locale, t, isRTL: _isRTL, ready, setLocale } = useI18n();
   const [islamicMode, setIslamicMode] = useState(false);
   const [permsGranted, setPermsGranted] = useState<boolean>(hasGrantedPermissions);
   const [legalAccepted, setLegalAccepted] = useState<boolean>(hasAcceptedLegal());
