@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 interface SplashScreenProps {
@@ -239,6 +239,10 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
           0%,100% { filter: drop-shadow(0 0 18px rgba(56,189,248,0.55)) drop-shadow(0 0 40px rgba(168,85,247,0.35)); }
           50%      { filter: drop-shadow(0 0 32px rgba(56,189,248,0.85)) drop-shadow(0 0 70px rgba(168,85,247,0.65)); }
         }
+        @keyframes brand-fade-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0);   }
+        }
       `}</style>
 
       {/* ── Root container — click/tap anywhere to skip ── */}
@@ -321,27 +325,36 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
 
 
 
-        {/* ══ LAYER 7 — Momen Pharaon branding (bottom centre) ══ */}
+        {/* ══ LAYER 55 — Momen Pharaon branding (bottom centre, ABOVE post-fx) ══ */}
         <div style={{
-          position: 'absolute', bottom: 28, left: '50%',
+          position: 'absolute', bottom: 32, left: '50%',
           transform: 'translateX(-50%)',
-          zIndex: 7,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+          zIndex: 55,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
           pointerEvents: 'none',
+          animation: 'brand-fade-in 1.8s ease 0.6s both',
         }}>
+          {/* Decorative separator line */}
+          <div style={{
+            width: 48, height: 1,
+            background: `linear-gradient(90deg, transparent, ${primaryHex}66, transparent)`,
+            marginBottom: 2,
+          }} />
           <p style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 8, letterSpacing: '0.22em',
-            color: `${primaryHex}77`, textTransform: 'uppercase', margin: 0,
+            fontSize: 11, fontWeight: 600, letterSpacing: '0.22em',
+            color: `${primaryHex}cc`, textTransform: 'uppercase', margin: 0,
+            textShadow: `0 0 12px ${primaryHex}55, 0 0 24px ${primaryHex}22`,
           }}>
             Crafted by Momen Pharaon
           </p>
           <p style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 7, letterSpacing: '0.18em',
-            color: `${primaryHex}3a`, textTransform: 'uppercase', margin: 0,
+            fontSize: 9, fontWeight: 500, letterSpacing: '0.24em',
+            color: `${primaryHex}88`, textTransform: 'uppercase', margin: 0,
+            textShadow: `0 0 8px ${primaryHex}33`,
           }}>
-            MomenCrafts ✦ 2026
+            MomenCrafts Co ✦ 2026
           </p>
         </div>
 
