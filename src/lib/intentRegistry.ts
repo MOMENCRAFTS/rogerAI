@@ -534,7 +534,8 @@ function registerCalendarHandlers(r: IntentRegistryImpl): void {
       const contactName = ctx.entity('PERSON') ?? '';
       if (!contactName) return;
       const contacts = await fetchDeviceContacts();
-      const match = resolveContactByName(contactName, contacts);
+      const matches = resolveContactByName(contactName, contacts);
+      const match = matches[0];
       if (!match) { await ctx.speak(`Could not find ${contactName} in your contacts. Over.`); return; }
       const phone = getPhoneNumber(match);
       if (!phone) { await ctx.speak(`${match.displayName ?? contactName} has no phone number. Over.`); return; }
@@ -557,7 +558,8 @@ function registerCalendarHandlers(r: IntentRegistryImpl): void {
       const msgBody = ctx.entity('MESSAGE_BODY') ?? ctx.entity('MESSAGE') ?? ctx.transcript;
       if (!contactName) return;
       const contacts = await fetchDeviceContacts();
-      const match = resolveContactByName(contactName, contacts);
+      const matches = resolveContactByName(contactName, contacts);
+      const match = matches[0];
       if (!match) { await ctx.speak(`Could not find ${contactName}. Over.`); return; }
       const phone = getPhoneNumber(match);
       if (!phone) { await ctx.speak(`${match.displayName ?? contactName} has no phone number. Over.`); return; }
@@ -956,10 +958,10 @@ function registerTuneInHandlers(r: IntentRegistryImpl): void {
     intent: ['SESSION_RECALL', 'SESSION_QUERY'],
     requiredServices: ['supabase'],
     async execute(ctx) {
-      const { fetchSessionArchive, searchSessionArchive, insertSurfaceItem } = await import('./api');
+      const { fetchSessionArchive, searchSessions, insertSurfaceItem } = await import('./api');
       const keyword = ctx.entity('KEYWORD') ?? ctx.entity('TOPIC');
       const results = keyword
-        ? await searchSessionArchive(ctx.userId, keyword)
+        ? await searchSessions(ctx.userId, keyword)
         : await fetchSessionArchive(ctx.userId);
 
       if (results.length === 0) {
@@ -999,12 +1001,13 @@ function registerRemainingHandlers(r: IntentRegistryImpl): void {
       const { upsertMemoryFact } = await import('./api');
       await upsertMemoryFact({
         user_id: ctx.userId,
-        type: ctx.result.intent === 'BOOK_UPDATE' ? 'book' : 'capture',
+        fact_type: ctx.result.intent === 'BOOK_UPDATE' ? 'preference' : 'preference',
         subject: ctx.entity('PERSON') ?? ctx.entity('TOPIC') ?? 'note',
         predicate: 'captured',
         object: ctx.transcript,
         confidence: ctx.result.confidence ?? 80,
-        tags: [ctx.result.intent],
+        source_tx: ctx.result.intent,
+        is_confirmed: false,
         is_draft: true,
       });
     },
@@ -1030,13 +1033,13 @@ function registerRemainingHandlers(r: IntentRegistryImpl): void {
     intent: 'NEWS_BRIEF',
     requiredServices: ['news'],
     async execute(ctx) {
-      const { fetchTopHeadlines } = await import('./news');
-      const articles = await fetchTopHeadlines(ctx.entity('TOPIC'));
-      if (!articles.length) {
+      const { fetchNews } = await import('./news');
+      const topic = ctx.entity('TOPIC') ?? ctx.transcript;
+      const brief = await fetchNews(topic).catch(() => null);
+      if (!brief || !brief.articles.length) {
         await ctx.speak('No news available right now. Over.'); return;
       }
-      const top3 = articles.slice(0, 3);
-      const newsText = top3.map((a, i) => `${i + 1}. ${a.title}`).join('. ') + '. Over.';
+      const newsText = brief.spokenBrief + ' Over.';
       await ctx.speak(newsText);
     },
   });
