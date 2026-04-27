@@ -7,7 +7,7 @@
  */
 
 import { getAuthToken } from './getAuthToken';
-import { getCurrentLocale, getBaseLanguage, type Locale } from './i18n';
+import { getBaseLanguage, type Locale } from './i18n';
 import { DIALECT_CONFIG } from './translations/dialects';
 import { ORIENTATION_VERSION, type OrientationChapter } from './orientationScript';
 

@@ -11,7 +11,7 @@
  */
 
 import {
-  Radio, Brain, Car,
+  Radio, Brain,
   Calendar, Users, Zap, Moon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';

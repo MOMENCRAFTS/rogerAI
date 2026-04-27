@@ -8,8 +8,6 @@ import {
   getWelcomeScript, PHASE_LABELS, MAX_TOTAL_TURNS,
   type OnboardingPhase, type OnboardingAnswers,
 } from '../../lib/onboarding';
-import { getOnboardingNameHint } from '../../lib/whisperHint';
-import { getCurrentLocale, getBaseLanguage } from '../../lib/i18n';
 import { speakResponse, stopSpeaking, unlockAudio } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
 import { createAudioRecorder } from '../../lib/audioRecorder';
@@ -246,9 +244,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
         console.warn('[Onboarding PTT] Blob too small, skipping transcription');
         hapticError(); sfxError(); setPhase('waiting'); return;
       }
-      // Pass locale-aware name hint so Whisper can transcribe names accurately
-      const nameHint = !answers.name ? getOnboardingNameHint(getBaseLanguage(getCurrentLocale())) : undefined;
-      const { transcript } = await transcribeAudio(blob, nameHint);
+      const { transcript } = await transcribeAudio(blob);
       console.log('[Onboarding PTT] Transcript:', transcript);
       if (!transcript || transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '').length < 2) {
         hapticError(); sfxError(); setPhase('waiting'); return;

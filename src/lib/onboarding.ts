@@ -65,7 +65,7 @@ function buildLanguageDirective(): string {
 }
 
 // ── Utility: which fields are still missing? ────────────────────────────────
-function getMissingFields(answers: OnboardingAnswers): string[] {
+export function getMissingFields(answers: OnboardingAnswers): string[] {
   const missing: string[] = [];
   if (!answers.name) missing.push('name');
   if (!answers.role) missing.push('role');
