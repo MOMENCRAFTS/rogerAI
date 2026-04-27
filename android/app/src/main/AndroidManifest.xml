@@ -46,6 +46,7 @@
             android:label="@string/widget_prayer_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.rogerai.app.PRAYER_WIDGET_UPDATE" />
             </intent-filter>
             <meta-data android:name="android.appwidget.provider"
                 android:resource="@xml/prayer_widget_info" />
