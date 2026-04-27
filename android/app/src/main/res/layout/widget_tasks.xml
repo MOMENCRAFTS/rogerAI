@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RogerAI Tasks & Reminders Widget Layout (4×1)
+     Compact amber bar with badge counts -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@drawable/widget_bg_amber"
+    android:gravity="center_vertical"
+    android:id="@+id/widget_tasks_root">
+
+    <!-- Left amber accent bar -->
+    <View
+        android:layout_width="3dp"
+        android:layout_height="match_parent"
+        android:background="@drawable/widget_accent_bar" />
+
+    <!-- R brand badge -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="R"
+        android:textColor="#d4a044"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp" />
+
+    <!-- Task badge -->
+    <FrameLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="4dp">
+
+        <TextView
+            android:id="@+id/tasks_count"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:background="@drawable/widget_badge_amber"
+            android:gravity="center"
+            android:text="3"
+            android:textColor="#141817"
+            android:textSize="9sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold" />
+    </FrameLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="TASKS"
+        android:textColor="#9a9785"
+        android:textSize="9sp"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.1"
+        android:layout_marginEnd="12dp" />
+
+    <!-- Reminder badge -->
+    <FrameLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="4dp">
+
+        <TextView
+            android:id="@+id/reminders_count"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:background="@drawable/widget_badge_rust"
+            android:gravity="center"
+            android:text="2"
+            android:textColor="#ffffff"
+            android:textSize="9sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold" />
+    </FrameLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="REMINDERS"
+        android:textColor="#9a9785"
+        android:textSize="9sp"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.1" />
+
+    <!-- Spacer -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Next due item preview -->
+    <TextView
+        android:id="@+id/tasks_next_due"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⏱ Buy milk — in 2h"
+        android:textColor="#e8e5d8"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:layout_marginEnd="12dp" />
+</LinearLayout>

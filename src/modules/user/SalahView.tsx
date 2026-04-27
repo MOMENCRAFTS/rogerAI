@@ -15,6 +15,7 @@ import type { UserLocation } from '../../lib/useLocation';
 import {
   fetchPrayerTimes, getNextPrayer, getCurrentPrayer, getQiblaDirection,
   bearingToCardinal, fetchVerseOfDay, formatCountdown, PRAYER_METHODS,
+  getCurrentPrayerRemaining,
   type PrayerTimes, type VerseOfDay,
 } from '../../lib/islamicApi';
 import { HijriBanner, HadithCard, DuaCard, AsmaUlHusnaCard, VerseAudioButton } from './SalahExtras';
@@ -244,6 +245,85 @@ export default function SalahView({ location }: Props) {
             </p>
           </div>
         )}
+
+        {/* ── 1b. Current Prayer — Time Remaining Indicator ───────────── */}
+        {(() => {
+          const remaining = times ? getCurrentPrayerRemaining(times) : null;
+          if (!remaining) return null;
+          const { name: curName, secondsLeft } = remaining;
+          // Color coding by urgency
+          const isUrgent  = secondsLeft <= 900;   // ≤ 15 min
+          const isWarning = secondsLeft <= 1800;  // ≤ 30 min
+          const barColor  = isUrgent ? '#ef4444' : isWarning ? '#f59e0b' : EMERALD;
+          const bgColor   = isUrgent ? 'rgba(239,68,68,0.08)' : isWarning ? 'rgba(245,158,11,0.08)' : EMERALD_DIM;
+          const borderClr = isUrgent ? 'rgba(239,68,68,0.30)' : isWarning ? 'rgba(245,158,11,0.25)' : `${EMERALD}25`;
+          // Progress: fraction of a 6-hour max window
+          const maxWindow = 6 * 3600;
+          const pct = Math.min(1, secondsLeft / maxWindow) * 100;
+
+          return (
+            <div id="prayer-time-remaining" style={{
+              marginBottom: 16,
+              background: bgColor,
+              border: `1px solid ${borderClr}`,
+              padding: '10px 14px',
+              display: 'flex', alignItems: 'center', gap: 10,
+              transition: 'all 400ms ease',
+            }}>
+              {/* Hourglass icon */}
+              <span style={{ fontSize: 14, opacity: isUrgent ? 1 : 0.7 }}>
+                {isUrgent ? '🔴' : isWarning ? '🟡' : '⏳'}
+              </span>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+                  <span style={{
+                    fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
+                    color: barColor, textTransform: 'uppercase', letterSpacing: '0.06em',
+                  }}>
+                    {curName}
+                  </span>
+                  <span style={{
+                    fontFamily: 'monospace', fontSize: 10,
+                    color: isUrgent ? '#fca5a5' : isWarning ? '#fcd34d' : 'var(--text-muted)',
+                  }}>
+                    ends in <strong>{formatCountdown(secondsLeft)}</strong>
+                  </span>
+                  {isUrgent && (
+                    <span style={{
+                      fontFamily: 'monospace', fontSize: 8, color: '#ef4444',
+                      textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700,
+                      animation: 'pulse-text 1.5s ease-in-out infinite',
+                    }}>
+                      Don't miss it!
+                    </span>
+                  )}
+                  {!isUrgent && isWarning && (
+                    <span style={{
+                      fontFamily: 'monospace', fontSize: 8, color: '#f59e0b',
+                      textTransform: 'uppercase', letterSpacing: '0.12em',
+                    }}>
+                      Ending soon
+                    </span>
+                  )}
+                </div>
+
+                {/* Progress bar */}
+                <div style={{
+                  width: '100%', height: 3,
+                  background: 'rgba(255,255,255,0.06)',
+                  borderRadius: 2, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    width: `${pct}%`, height: '100%',
+                    background: barColor, borderRadius: 2,
+                    transition: 'width 1s linear, background 400ms',
+                  }} />
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── 2. Prayer Times Grid ────────────────────────────────────────── */}
         <SectionHeader icon={Moon} label="Today's Prayer Times" />
@@ -488,6 +568,7 @@ export default function SalahView({ location }: Props) {
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse-text { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
     </div>
   );

@@ -257,7 +257,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   useAlarmEngine(userId);
 
   // ── Islamic Mode: proactive prayer alerts ─────────────────────────────────
-  // Fires a TTS alert 10 minutes before each of the 5 daily prayers.
+  // Fires TTS alerts:
+  //   • 10 min before each prayer STARTS
+  //   • 30 min before each prayer window ENDS  (gentle reminder)
+  //   • 15 min before each prayer window ENDS  (urgent reminder)
   // Only activates if the user has islamic_mode === true in their preferences.
   useEffect(() => {
     let cancelled = false;
@@ -280,7 +283,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         // Fetch today's prayer times based on stable GPS or Riyadh fallback
         const lat = stableLat || 24.71;
         const lng = stableLng || 46.78;
-        const { fetchPrayerTimes: fpt, bearingToCardinal: btc, getQiblaDirection: gqd } =
+        const { fetchPrayerTimes: fpt, bearingToCardinal: btc, getQiblaDirection: gqd, getPrayerEndTimes: gpet } =
           await import('../../lib/islamicApi');
         const times = await fpt(lat, lng).catch(() => null);
         if (!times || cancelled) return;
@@ -290,26 +293,84 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const nowSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
         const qibla = gqd(lat, lng);
         const direction = btc(qibla);
+        const endTimes = gpet(times);
+
+        // Helper: log alert to DB
+        const logAlert = (prayerName: string, alertType: string) => {
+          import('../../lib/supabase').then(({ supabase: sb }) => {
+            Promise.resolve(sb.from('islamic_alerts_log').insert({
+              user_id: userId,
+              prayer_name: prayerName,
+              alert_type: alertType,
+            })).catch(() => {});
+          }).catch(() => {});
+        };
+
+        // Helper: schedule a timer
+        const schedule = (delaySecs: number, msg: string, prayerName: string, alertType: string) => {
+          const delayMs = delaySecs * 1000;
+          if (delayMs > 0) {
+            const id = setTimeout(() => {
+              if (cancelled || (rogerMode as string) === 'quiet') return;
+              speakResponse(msg).catch(() => {
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+              });
+              logAlert(prayerName, alertType);
+            }, delayMs);
+            timerIds.push(id);
+          }
+        };
 
         PRAYER_NAMES.forEach(name => {
           const [h, min] = (times[name] as string).split(':').map(Number);
           const prayerSecs = h * 3600 + min * 60;
-          const alertSecs  = prayerSecs - 600; // 10 min before
-          const delayMs    = (alertSecs - nowSecs) * 1000;
+          const endSecs = endTimes[name];
 
-          if (delayMs > 0) {
-            const id = setTimeout(() => {
-              if (cancelled || (rogerMode as string) === 'quiet') return;
-              const msg = `Roger. ${name} prayer begins in 10 minutes. Qibla is to your ${direction}. Over.`;
-              speakResponse(msg).catch(() => {
-                window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
-              });
-              // Log to DB (fire-and-forget)
-              import('../../lib/supabase').then(({ supabase: sb }) => {
-                Promise.resolve(sb.from('islamic_alerts_log').insert({ user_id: userId, prayer_name: name })).catch(() => {});
-              }).catch(() => {});
-            }, delayMs);
-            timerIds.push(id);
+          // ── 1. Alert 10 min BEFORE prayer starts ──
+          const startAlertSecs = prayerSecs - 600;
+          schedule(
+            startAlertSecs - nowSecs,
+            `Roger. ${name} prayer begins in 10 minutes. Qibla is to your ${direction}. Over.`,
+            name,
+            'start',
+          );
+
+          // ── 2. Alert 30 min BEFORE prayer window ends ──
+          // Only fire if the prayer window is > 30 minutes long
+          const windowDuration = endSecs - prayerSecs;
+          const end30Secs = endSecs - 1800; // 30 min before end
+
+          if (windowDuration > 1800) {
+            // For Isha that wraps past midnight, adjust nowSecs comparison
+            let adjustedNow = nowSecs;
+            if (name === 'Isha' && end30Secs > 86400 && nowSecs < prayerSecs) {
+              adjustedNow = nowSecs + 86400;
+            }
+            const delay30 = end30Secs - (name === 'Isha' && end30Secs > 86400 ? adjustedNow : nowSecs);
+            schedule(
+              delay30,
+              `Roger. ${name} prayer window closes in 30 minutes. Qibla is to your ${direction}. Over.`,
+              name,
+              'ending_30',
+            );
+          }
+
+          // ── 3. Alert 15 min BEFORE prayer window ends ──
+          // Only fire if the prayer window is > 15 minutes long
+          const end15Secs = endSecs - 900; // 15 min before end
+
+          if (windowDuration > 900) {
+            let adjustedNow = nowSecs;
+            if (name === 'Isha' && end15Secs > 86400 && nowSecs < prayerSecs) {
+              adjustedNow = nowSecs + 86400;
+            }
+            const delay15 = end15Secs - (name === 'Isha' && end15Secs > 86400 ? adjustedNow : nowSecs);
+            schedule(
+              delay15,
+              `Attention. Only 15 minutes left for ${name} prayer. Qibla is to your ${direction}. Don't miss it. Over.`,
+              name,
+              'ending_15',
+            );
           }
         });
       } catch { /* silent — Islamic alerts are best-effort */ }

@@ -231,6 +231,9 @@ const en: TranslationDict = {
   'salah.hijri_date': 'Hijri Date',
   'salah.listen': 'Listen',
   'salah.read_full': 'Read full hadith',
+  'salah.ending_in': '{prayer} ends in {time}',
+  'salah.ending_soon': 'Ending soon!',
+  'salah.ending_urgent': 'Don\u0027t miss it!',
 
   // ══════════════════════════════════════════════════════════════
   // SMART HOME (SmartHomeView.tsx)

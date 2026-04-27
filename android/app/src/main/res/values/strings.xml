@@ -4,4 +4,12 @@
     <string name="title_activity_main">Roger AI</string>
     <string name="package_name">com.rogerai.app</string>
     <string name="custom_url_scheme">com.rogerai.app</string>
+
+    <!-- Widget labels (shown in widget picker) -->
+    <string name="widget_prayer_label">Prayer Times</string>
+    <string name="widget_prayer_desc">Next prayer countdown, all 5 prayer times, Qibla direction, and Hijri date</string>
+    <string name="widget_ptt_label">Talk to Roger</string>
+    <string name="widget_ptt_desc">Quick launch — tap to talk to Roger AI</string>
+    <string name="widget_tasks_label">Tasks &amp; Reminders</string>
+    <string name="widget_tasks_desc">Active task and reminder counts with next due item</string>
 </resources>

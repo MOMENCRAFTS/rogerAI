@@ -31,6 +31,7 @@ import type { OnboardingAnswers } from '../../lib/onboarding';
 import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
+import { syncWidgetConfig } from '../../lib/widgetBridge';
 
 type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
@@ -70,8 +71,27 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   // ── All hooks MUST be above this line (React Rules of Hooks) ──────────────
 
   const refreshBadges = () => {
-    fetchReminders(userId, 'pending').then(r => setReminderCount(r.length)).catch(() => {});
-    fetchTasks(userId, 'open').then(t => setTaskCount(t.length)).catch(() => {});
+    Promise.all([
+      fetchReminders(userId, 'pending').catch(() => []),
+      fetchTasks(userId, 'open').catch(() => []),
+    ]).then(([reminders, tasks]) => {
+      setReminderCount(reminders.length);
+      setTaskCount(tasks.length);
+      // Find next due item for widget
+      const allDue = [
+        ...reminders.filter(r => r.due_at).map(r => ({ text: r.text, due: new Date(r.due_at!).getTime() })),
+        ...tasks.filter(t => t.due_at).map(t => ({ text: t.text, due: new Date(t.due_at!).getTime() })),
+      ].sort((a, b) => a.due - b.due);
+      const nextDue = allDue.find(d => d.due > Date.now());
+      // Sync to Android widgets
+      syncWidgetConfig({
+        userId,
+        taskCount: tasks.length,
+        reminderCount: reminders.length,
+        nextDueText: nextDue?.text ?? '',
+        nextDueMs: nextDue?.due ?? 0,
+      });
+    });
   };
 
   useEffect(() => { refreshBadges(); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -104,7 +124,15 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       setHapticsEnabled(prefs.haptic_enabled ?? true);
       setSfxEnabled(prefs.sfx_enabled ?? true);
       setSfxVolume(Number(localStorage.getItem('sfxVolume') ?? 0.35));
-      setIslamicMode(!!(prefs as unknown as Record<string, unknown>).islamic_mode);
+      const isIslamic = !!(prefs as unknown as Record<string, unknown>).islamic_mode;
+      setIslamicMode(isIslamic);
+      // Sync user config to Android widgets
+      syncWidgetConfig({
+        userId,
+        islamicMode: isIslamic,
+        latitude: location?.latitude ?? 24.71,
+        longitude: location?.longitude ?? 46.78,
+      });
     }).catch(() => {});
   };
 

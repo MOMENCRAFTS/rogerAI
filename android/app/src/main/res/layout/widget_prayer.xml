@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RogerAI Prayer Times Widget Layout (4×2)
+     Neo-retro military grade · Emerald-on-dark Islamic theme -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg_prayer"
+    android:padding="12dp"
+    android:id="@+id/widget_prayer_root">
+
+    <!-- ── Hero: Next Prayer ── -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <!-- Left: text block -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_centerVertical="true"
+            android:layout_alignParentStart="true">
+
+            <TextView
+                android:id="@+id/prayer_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="◈ NEXT PRAYER"
+                android:textColor="#8010b981"
+                android:textSize="8sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.22"
+                android:textAllCaps="true" />
+
+            <TextView
+                android:id="@+id/prayer_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Maghrib"
+                android:textColor="#e8e5d8"
+                android:textSize="20sp"
+                android:fontFamily="monospace"
+                android:textStyle="bold"
+                android:letterSpacing="0.04"
+                android:layout_marginTop="2dp" />
+
+            <TextView
+                android:id="@+id/prayer_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="17:32"
+                android:textColor="#10b981"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.06" />
+
+            <TextView
+                android:id="@+id/prayer_countdown"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="in 47m"
+                android:textColor="#6b6a5e"
+                android:textSize="11sp"
+                android:fontFamily="monospace" />
+        </LinearLayout>
+
+        <!-- Right: countdown ring indicator -->
+        <FrameLayout
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="4dp">
+
+            <!-- Outer ring -->
+            <ImageView
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:src="@drawable/widget_ptt_glow"
+                android:layout_gravity="center"
+                android:alpha="0.3" />
+
+            <!-- Crescent moon -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="☽"
+                android:textSize="18sp"
+                android:textColor="#10b981"
+                android:layout_gravity="center" />
+        </FrameLayout>
+    </RelativeLayout>
+
+    <!-- ── Divider ── -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@drawable/widget_divider"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp" />
+
+    <!-- ── Prayer Times Grid (2 rows × 3 columns) ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Row 1: Fajr, Dhuhr, Asr -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <LinearLayout
+                android:id="@+id/prayer_cell_fajr"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="FAJR"
+                    android:textColor="#6010b981"
+                    android:textSize="7sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.15" />
+                <TextView
+                    android:id="@+id/prayer_val_fajr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="04:12"
+                    android:textColor="#9a9785"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/prayer_cell_dhuhr"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="DHUHR"
+                    android:textColor="#6010b981"
+                    android:textSize="7sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.15" />
+                <TextView
+                    android:id="@+id/prayer_val_dhuhr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="12:15"
+                    android:textColor="#9a9785"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/prayer_cell_asr"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ASR"
+                    android:textColor="#6010b981"
+                    android:textSize="7sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.15" />
+                <TextView
+                    android:id="@+id/prayer_val_asr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="15:28"
+                    android:textColor="#9a9785"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Row 2: Maghrib, Isha, Qibla -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <LinearLayout
+                android:id="@+id/prayer_cell_maghrib"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="MAGHRIB"
+                    android:textColor="#6010b981"
+                    android:textSize="7sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.15" />
+                <TextView
+                    android:id="@+id/prayer_val_maghrib"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="17:32"
+                    android:textColor="#9a9785"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/prayer_cell_isha"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ISHA"
+                    android:textColor="#6010b981"
+                    android:textSize="7sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.15" />
+                <TextView
+                    android:id="@+id/prayer_val_isha"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="19:05"
+                    android:textColor="#9a9785"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <!-- Qibla + Hijri -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:padding="4dp">
+                <TextView
+                    android:id="@+id/prayer_qibla"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="↗ 144° SE"
+                    android:textColor="#10b981"
+                    android:textSize="8sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1" />
+                <TextView
+                    android:id="@+id/prayer_hijri"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="4 Shawwal 1447"
+                    android:textColor="#4a6b6a5e"
+                    android:textSize="7sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

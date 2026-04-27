@@ -192,6 +192,46 @@ export function getCurrentPrayer(times: PrayerTimes): string | null {
   return null;
 }
 
+// ── Prayer Window End Times ───────────────────────────────────────────────────
+
+/**
+ * Returns the ending time (in seconds since midnight) for each prayer.
+ * Each prayer ends when the next one begins.
+ * Isha wraps to next-day Fajr (returned as seconds > 86400).
+ */
+export function getPrayerEndTimes(times: PrayerTimes): Record<string, number> {
+  const toSecs = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 3600 + m * 60;
+  };
+  return {
+    Fajr:    toSecs(times.Sunrise),          // Fajr ends at Sunrise
+    Dhuhr:   toSecs(times.Asr),              // Dhuhr ends at Asr
+    Asr:     toSecs(times.Maghrib),          // Asr ends at Maghrib
+    Maghrib: toSecs(times.Isha),             // Maghrib ends at Isha
+    Isha:    86400 + toSecs(times.Fajr),     // Isha ends at next-day Fajr
+  };
+}
+
+/**
+ * Returns seconds remaining in the current prayer's window, or null
+ * if no prayer is currently active. Used by SalahView for the
+ * "ends in X" countdown and the prayer-ending voice alerts in UserHome.
+ */
+export function getCurrentPrayerRemaining(times: PrayerTimes): { name: string; secondsLeft: number } | null {
+  const current = getCurrentPrayer(times);
+  if (!current) return null;
+  const ends = getPrayerEndTimes(times);
+  const now  = new Date();
+  let nowSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  // If current is Isha and we're past midnight, add 86400 to nowSecs
+  if (current === 'Isha' && nowSecs < ends.Isha - 86400) {
+    nowSecs += 86400;
+  }
+  const left = ends[current] - nowSecs;
+  return left > 0 ? { name: current, secondsLeft: left } : null;
+}
+
 // ── Qibla Direction ───────────────────────────────────────────────────────────
 
 const KAABA_LAT =  21.4225;

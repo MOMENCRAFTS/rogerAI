@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RogerAI PTT Widget — Outer glow ring -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#00000000" />
+    <stroke android:width="3dp" android:color="#33d4a044" />
+    <size android:width="96dp" android:height="96dp" />
+</shape>

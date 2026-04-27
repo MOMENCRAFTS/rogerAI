@@ -37,6 +37,42 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- ─── Home Screen Widgets ──────────────────────────── -->
+
+        <!-- Prayer Times Widget (4×2) — Islamic Mode -->
+        <receiver android:name=".PrayerWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_prayer_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/prayer_widget_info" />
+        </receiver>
+
+        <!-- PTT Quick Launch Widget (2×2) -->
+        <receiver android:name=".PttWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_ptt_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/ptt_widget_info" />
+        </receiver>
+
+        <!-- Tasks & Reminders Widget (4×1) -->
+        <receiver android:name=".TasksWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_tasks_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/tasks_widget_info" />
+        </receiver>
+
     </application>
 
     <!-- ─── Network ─────────────────────────────────────── -->

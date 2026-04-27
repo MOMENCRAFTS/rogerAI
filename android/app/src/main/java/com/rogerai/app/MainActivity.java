@@ -14,6 +14,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Register the PTT Button plugin before super.onCreate
         registerPlugin(PttButtonPlugin.class);
+        // Register the Widget Config Bridge plugin for home screen widgets
+        registerPlugin(WidgetConfigBridge.class);
         super.onCreate(savedInstanceState);
 
         // ── Audio unlock: must be applied in onCreate(), BEFORE any web content loads.
