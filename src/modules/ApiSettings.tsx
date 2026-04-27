@@ -173,7 +173,7 @@ function ApiRow({ api }: { api: ApiConfig }) {
           color: lsValue ? '#a78bfa' : 'var(--green)',
           background: lsValue ? 'rgba(139,92,246,0.08)' : 'rgba(74,222,128,0.06)',
         }}>
-          {lsValue ? '🔑 OVERRIDE' : envValue ? '📄 .ENV' : '⚠️ MISSING'}
+          {lsValue ? 'OVERRIDE' : envValue ? '.ENV' : 'MISSING'}
         </span>
         {statusIcon}
       </div>
@@ -267,7 +267,7 @@ function ApiRow({ api }: { api: ApiConfig }) {
 
         {/* Docs link */}
         <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>
-          📎 Docs: {api.docs}
+          Docs: {api.docs}
         </div>
       </div>
     </div>

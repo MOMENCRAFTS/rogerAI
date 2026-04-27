@@ -172,7 +172,7 @@ Generate the ${timeOfDay} briefing.`;
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>
-                  💧{weather.humidity}%
+                  {weather.humidity}%
                 </span>
                 <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 2 }}>
                   <Wind size={9} /> {weather.windKph}kph

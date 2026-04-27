@@ -178,7 +178,7 @@ export default function RadarView({ userId, location }: Props) {
           {/* Mute badge */}
           {muteZone && (
             <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(168,72,50,0.15)', border: '1px solid var(--rust-border)', padding: '2px 8px', fontFamily: 'monospace', fontSize: 8, color: '#a84832', textTransform: 'uppercase' }}>
-              🔇 MUTED
+              MUTED
             </div>
           )}
         </div>
@@ -251,12 +251,12 @@ export default function RadarView({ userId, location }: Props) {
         <button
           onClick={() => { setShowReport(true); setReported(false); }}
           style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(212,160,68,0.12)', border: '1px solid var(--amber)', color: 'var(--amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          📡 REPORT HAZARD
+          REPORT HAZARD
         </button>
         <button
           onClick={() => setMuteZone(m => !m)}
           style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: muteZone ? 'rgba(168,72,50,0.12)' : 'transparent', border: `1px solid ${muteZone ? 'var(--rust-border)' : 'var(--border-subtle)'}`, color: muteZone ? '#a84832' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          {muteZone ? '🔇 MUTED' : '🔊 MUTE ZONE'}
+          {muteZone ? 'MUTED' : 'MUTE ZONE'}
         </button>
       </div>
 
@@ -266,7 +266,7 @@ export default function RadarView({ userId, location }: Props) {
           <div style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderBottom: 'none', padding: '20px 20px 28px' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.18em', flex: 1 }}>
-                📡 CONFIRM HAZARD REPORT
+                CONFIRM HAZARD REPORT
               </span>
               <button onClick={() => setShowReport(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                 <X size={14} />
@@ -294,7 +294,7 @@ export default function RadarView({ userId, location }: Props) {
 
                 {location && (
                   <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginBottom: 12, padding: '6px 10px', background: 'var(--bg-recessed)', border: '1px solid var(--border-dim)' }}>
-                    📍 {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+                    {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
                     {' · '}POSITION CONFIRMED
                   </div>
                 )}
@@ -339,7 +339,7 @@ export default function RadarView({ userId, location }: Props) {
           </div>
           <div style={{ position: 'absolute', top: 12, right: 12 }}>
             <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'rgba(212,160,68,0.6)', textTransform: 'uppercase' }}>
-              🔊 VOICE ALERT SENT
+              VOICE ALERT SENT
             </span>
           </div>
         </div>

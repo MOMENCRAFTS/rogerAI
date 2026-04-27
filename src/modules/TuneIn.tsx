@@ -254,7 +254,7 @@ export default function TuneIn() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>
-                📻 INCOMING TUNE-IN REQUEST
+                INCOMING TUNE-IN REQUEST
               </span>
               <span style={{ fontFamily: 'monospace', fontSize: 11, color: countdown < 30 ? '#ef4444' : 'var(--text-muted)', fontWeight: 700 }}>
                 {fmtTime(countdown)}
@@ -324,7 +324,7 @@ export default function TuneIn() {
         {(state === 'idle' || state === 'requesting') && (
           <div style={{ padding: '16px 18px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
             <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.18em', marginBottom: 12 }}>
-              📡 DIAL A CALLSIGN
+              DIAL A CALLSIGN
             </div>
 
             <div style={{ marginBottom: 8 }}>
@@ -377,7 +377,7 @@ export default function TuneIn() {
         {status && (
           <div style={{ padding: '10px 14px', background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)' }}>
             <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>
-              📡 {status}
+              {status}
             </span>
           </div>
         )}

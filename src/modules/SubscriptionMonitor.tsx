@@ -269,7 +269,7 @@ export default function SubscriptionMonitor() {
                 {row.email ?? row.user_id.slice(0, 12) + '…'}
               </p>
               {row.admin_note && (
-                <p style={{ fontSize: 8, color: 'var(--amber)', margin: '2px 0 0', opacity: 0.7 }}>📝 {row.admin_note}</p>
+                <p style={{ fontSize: 8, color: 'var(--amber)', margin: '2px 0 0', opacity: 0.7 }}>{row.admin_note}</p>
               )}
             </div>
 

@@ -136,7 +136,7 @@ function SessionCard({
                 fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase',
                 letterSpacing: '0.18em', color: '#6366f1', marginBottom: 8,
               }}>
-                📋 ROGER'S DEBRIEF
+                ROGER'S DEBRIEF
               </div>
               <p style={{
                 fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)',

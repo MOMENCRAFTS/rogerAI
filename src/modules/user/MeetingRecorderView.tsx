@@ -89,7 +89,7 @@ export default function MeetingRecorderView({ userId }: Props) {
         borderRadius: 4, padding: '10px 14px', marginBottom: 20,
         fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.05em',
       }}>
-        📡 Say <span style={{ color: 'var(--amber)' }}>"Roger, record meeting"</span> to start ·
+        Say <span style={{ color: 'var(--amber)' }}>"Roger, record meeting"</span> to start ·
         <span style={{ color: 'var(--amber)' }}> "End meeting"</span> to stop and generate notes
       </div>
 
@@ -130,7 +130,7 @@ export default function MeetingRecorderView({ userId }: Props) {
                   {m.title || 'Untitled Meeting'}
                 </div>
                 <div style={{ fontSize: 9, color: 'var(--text-muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  <span>📅 {formatDate(m.started_at)}</span>
+                  <span>{formatDate(m.started_at)}</span>
                   <span><Clock size={9} style={{ verticalAlign: 'middle' }} /> {formatDuration(m.duration_s)}</span>
                   {participants.length > 0 && <span><Users size={9} style={{ verticalAlign: 'middle' }} /> {participants.length} participant{participants.length !== 1 ? 's' : ''}</span>}
                   {actionItems.length > 0 && <span>✅ {actionItems.length} action item{actionItems.length !== 1 ? 's' : ''}</span>}

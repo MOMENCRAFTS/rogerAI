@@ -131,7 +131,7 @@ export default function ProactiveMonitor() {
                 transition: 'all 0.15s',
               }}>
                 <span style={{ fontSize: 16 }}>
-                  {m.key === 'normal' ? '📡' : m.key === 'drive' ? '🚗' : '🔇'}
+                  {m.key === 'normal' ? '' : m.key === 'drive' ? '' : ''}
                 </span>
                 <span>{m.label}</span>
                 <span style={{ fontSize: 7, color: mode === m.key ? m.color : 'var(--text-muted)', opacity: 0.7, textAlign: 'center', lineHeight: 1.3 }}>{m.desc}</span>
@@ -144,11 +144,11 @@ export default function ProactiveMonitor() {
         <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', padding: '14px 16px' }}>
           <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>INTERACTION MODEL</div>
           {[
-            { icon: '📡', action: 'Roger queues message', result: 'Haptic + radio ping fires' },
-            { icon: '🎙️', action: '1× PTT press',         result: 'Roger speaks the message' },
-            { icon: '🎙️🎙️', action: '2× PTT within 1s',   result: 'Snooze for 5 minutes' },
-            { icon: '⏱️', action: '30s no response',       result: 'Auto-snooze' },
-            { icon: '🚗', action: 'Drive mode active',     result: 'Auto-speaks after 3s' },
+            { icon: '▸', action: 'Roger queues message', result: 'Haptic + radio ping fires' },
+            { icon: '▸', action: '1× PTT press',         result: 'Roger speaks the message' },
+            { icon: '▸▸', action: '2× PTT within 1s',   result: 'Snooze for 5 minutes' },
+            { icon: '▸', action: '30s no response',       result: 'Auto-snooze' },
+            { icon: '▸', action: 'Drive mode active',     result: 'Auto-speaks after 3s' },
           ].map(r => (
             <div key={r.action} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--border-dim)' }}>
               <span style={{ fontSize: 14, minWidth: 28 }}>{r.icon}</span>

@@ -12,7 +12,7 @@ import {
 
 // Country code → flag emoji
 const flagEmoji = (cc: string): string => {
-  if (!cc || cc.length !== 2) return '🌐';
+  if (!cc || cc.length !== 2) return '';
   const code = cc.toUpperCase();
   return String.fromCodePoint(...[...code].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
 };

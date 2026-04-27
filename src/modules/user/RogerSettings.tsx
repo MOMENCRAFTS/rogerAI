@@ -880,7 +880,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* Tuya Smart Home */}
         <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).tuya_uid ? 'rgba(96,165,250,0.3)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).tuya_uid ? 'rgba(96,165,250,0.04)' : 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>🏠</span>
+            <span style={{ fontSize: 18, flexShrink: 0 }}></span>
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Tuya Smart Home</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: (prefs as Record<string, unknown>).tuya_uid ? '#60a5fa' : 'var(--text-muted)', margin: 0 }}>

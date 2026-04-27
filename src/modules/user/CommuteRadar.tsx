@@ -82,7 +82,7 @@ export default function CommuteRadar({ userId, location = null }: Props) {
         {/* Bottom strip */}
         {errands.length > 0 && (
           <div style={{ padding: '8px 16px', borderTop: '1px solid rgba(212,160,68,0.15)', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            📋 {errands[0].item}{errands.length > 1 ? ` +${errands.length - 1} more` : ''}
+            {errands[0].item}{errands.length > 1 ? ` +${errands.length - 1} more` : ''}
           </div>
         )}
       </div>
@@ -102,7 +102,7 @@ export default function CommuteRadar({ userId, location = null }: Props) {
           </div>
         </div>
         <button onClick={speakBrief} style={{ padding: '4px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', cursor: 'pointer', background: 'rgba(212,160,68,0.1)', border: '1px solid var(--amber)', color: 'var(--amber)' }}>
-          🚦 BRIEF
+          BRIEF
         </button>
       </div>
 
@@ -116,7 +116,7 @@ export default function CommuteRadar({ userId, location = null }: Props) {
             color: innerTab === t ? 'var(--amber)' : 'var(--text-muted)',
             borderBottom: `2px solid ${innerTab === t ? 'var(--amber)' : 'transparent'}`,
           }}>
-            {t === 'radar' ? '◎ RADAR' : '🗺 ROUTE'}
+            {t === 'radar' ? '◎ RADAR' : 'ROUTE'}
           </button>
         ))}
       </div>
@@ -144,8 +144,8 @@ function RouteTab({ profile, eta, errands }: { profile: DbCommuteProfile | null;
         <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>
           <Navigation size={10} style={{ display: 'inline', marginRight: 6 }} />ROUTE INTEL
         </div>
-        {profile?.home_address && <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>🏠 {profile.home_address}</div>}
-        {profile?.work_address && <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginBottom: 10 }}>🏢 {profile.work_address}</div>}
+        {profile?.home_address && <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>{profile.home_address}</div>}
+        {profile?.work_address && <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginBottom: 10 }}>{profile.work_address}</div>}
         {eta
           ? <div style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700, color: 'var(--amber)' }}>{eta.duration} <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{eta.distance}</span></div>
           : <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>{profile?.work_address ? 'Calculating ETA...' : 'No route set — say "My work is at [address]"'}</div>
@@ -156,7 +156,7 @@ function RouteTab({ profile, eta, errands }: { profile: DbCommuteProfile | null;
       {errands.length > 0 && (
         <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', padding: '14px 16px' }}>
           <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>
-            📋 ERRANDS · {errands.length} PENDING
+            ERRANDS · {errands.length} PENDING
           </div>
           {errands.map(e => (
             <div key={e.id} style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', padding: '5px 0', borderBottom: '1px solid var(--border-dim)' }}>

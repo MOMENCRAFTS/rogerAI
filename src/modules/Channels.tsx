@@ -81,7 +81,7 @@ export default function Channels() {
       {showCreate && (
         <div style={{ margin: '12px 20px 0', padding: '16px 18px', background: 'rgba(212,160,68,0.05)', border: '1px solid rgba(212,160,68,0.25)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>📻 CREATE CHANNEL</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>CREATE CHANNEL</span>
             <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={12} /></button>
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -122,7 +122,7 @@ export default function Channels() {
             background: 'rgba(212,160,68,0.15)', border: '1px solid var(--amber)', color: 'var(--amber)',
             opacity: creating ? 0.5 : 1,
           }}>
-            {creating ? 'CREATING...' : '📻 OPEN CHANNEL'}
+            {creating ? 'CREATING...' : 'OPEN CHANNEL'}
           </button>
         </div>
       )}

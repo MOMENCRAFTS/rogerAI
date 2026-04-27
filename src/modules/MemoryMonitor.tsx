@@ -153,7 +153,7 @@ export default function MemoryMonitor() {
         const factTypes    = ['all', ...Array.from(new Set(data.facts.map(f => f.fact_type)))];
         const filteredFacts = data.facts.filter(f => factFilter === 'all' || f.fact_type === factFilter);
         const onboardingColor = data.onboarding.complete ? 'var(--green)' : data.onboarding.step > 0 ? 'var(--amber)' : '#f87171';
-        const onboardingLabel = data.onboarding.complete ? '✅ Complete' : data.onboarding.step > 0 ? `🔄 Step ${data.onboarding.step}/5` : '❌ Not started';
+        const onboardingLabel = data.onboarding.complete ? 'Complete' : data.onboarding.step > 0 ? `Step ${data.onboarding.step}/5` : 'Not started';
 
         return (
           <>

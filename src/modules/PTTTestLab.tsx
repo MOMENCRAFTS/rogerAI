@@ -612,7 +612,7 @@ export default function PTTTestLab() {
           background:  rogerMode === 'quiet' ? 'rgba(255,255,255,0.03)' : rogerMode === 'briefing' ? 'rgba(96,165,250,0.08)' : 'var(--green-dim)',
           color:       rogerMode === 'quiet' ? 'var(--text-muted)' : rogerMode === 'briefing' ? '#60a5fa' : 'var(--green)',
         }}>
-          {rogerMode === 'quiet' ? '🔇 QUIET' : rogerMode === 'briefing' ? '🎙 BRIEFING' : '📡 ACTIVE'}
+          {rogerMode === 'quiet' ? 'QUIET' : rogerMode === 'briefing' ? 'BRIEFING' : 'ACTIVE'}
         </span>
 
         {/* Network status + queue badge */}
@@ -718,7 +718,7 @@ export default function PTTTestLab() {
                       ? <MicOff size={9} style={{ color: 'var(--amber)' }} />
                       : <Volume2 size={9} style={{ color: msg.type === 'error' ? 'var(--rust)' : msg.type === 'clarification' ? 'var(--amber)' : 'var(--green)' }} />}
                     <span className="font-mono text-nano uppercase tracking-wider" style={{ color: msg.role === 'user' ? 'var(--amber)' : msg.type === 'error' ? 'var(--rust)' : msg.type === 'clarification' ? 'var(--amber)' : 'var(--green)' }}>
-                      {msg.role === 'user' ? (msg.voiceInput ? '🎙 VOICE TX' : 'USER TX') : msg.type === 'clarification' ? 'ROGER — INTERCEPT' : msg.type === 'error' ? 'ROGER — FAIL' : 'ROGER AI'}
+                      {msg.role === 'user' ? (msg.voiceInput ? 'VOICE TX' : 'USER TX') : msg.type === 'clarification' ? 'ROGER — INTERCEPT' : msg.type === 'error' ? 'ROGER — FAIL' : 'ROGER AI'}
                     </span>
                     {msg.liveAI && <span className="font-mono text-micro border px-1" style={{ borderColor: 'var(--green-border)', color: 'var(--green)' }}>GPT-5.5</span>}
                     {msg.txId && <span className="font-mono text-micro ml-auto" style={{ color: 'var(--text-muted)' }}>{msg.txId}</span>}
@@ -749,8 +749,8 @@ export default function PTTTestLab() {
               <div className="flex justify-end">
                 <div className="max-w-[85%] border px-3 py-2 font-mono text-nano italic" style={{ borderColor: 'var(--amber-border)', background: 'rgba(212,160,68,0.04)', color: 'var(--text-muted)' }}>
                   {isTranscribing && !liveTranscript
-                    ? <span style={{ color: 'var(--amber)' }}>🎙 WHISPER PROCESSING{whisperMs != null ? ` · ${whisperMs}ms` : '...'}</span>
-                    : <>🎙 &quot;{liveTranscript}&quot;</>
+                    ? <span style={{ color: 'var(--amber)' }}>WHISPER PROCESSING{whisperMs != null ? ` · ${whisperMs}ms` : '...'}</span>
+                    : <>&quot;{liveTranscript}&quot;</>
                   }
                 </div>
               </div>
@@ -762,7 +762,7 @@ export default function PTTTestLab() {
                 <div className="border px-3 py-2 flex items-center gap-2" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }}>
                   <Activity size={11} className="led-pulse" style={{ color: isSpeakingState ? 'var(--green)' : 'var(--amber)' }} />
                   <span className="font-mono text-nano" style={{ color: isSpeakingState ? 'var(--green)' : 'var(--amber)' }}>
-                    {isTranscribing ? 'TRANSCRIBING…' : isProcessing ? (liveAIMode ? 'ROGER AI THINKING (GPT-5.5)…' : 'ROGER PROCESSING…') : '🔊 ROGER SPEAKING…'}
+                    {isTranscribing ? 'TRANSCRIBING…' : isProcessing ? (liveAIMode ? 'ROGER AI THINKING (GPT-5.5)…' : 'ROGER PROCESSING…') : 'ROGER SPEAKING…'}
                   </span>
                   {isSpeakingState && (
                     <button onClick={handleStopSpeaking} className="ml-2 border px-1.5 py-0.5 font-mono text-micro" style={{ borderColor: 'var(--rust-border)', color: 'var(--rust)' }}>
@@ -804,10 +804,10 @@ export default function PTTTestLab() {
                 : <Mic size={20} style={{ color: canPTT ? 'var(--amber)' : 'var(--olive)' }} />}
 
               <span className="font-mono text-micro uppercase tracking-widest" style={{ color: isRecording ? 'var(--amber)' : isSpeakingState ? 'var(--green)' : 'var(--text-muted)' }}>
-                {isRecording ? `🎙 LISTENING… ${(holdMs / 1000).toFixed(1)}s`
+                {isRecording ? `LISTENING… ${(holdMs / 1000).toFixed(1)}s`
                   : isTranscribing ? 'TRANSCRIBING…'
                   : isProcessing ? (liveAIMode ? 'GPT-5.5 PROCESSING…' : 'PROCESSING…')
-                  : isSpeakingState ? '🔊 ROGER SPEAKING'
+                  : isSpeakingState ? 'ROGER SPEAKING'
                   : liveAIMode && VOICE_SUPPORTED ? 'HOLD TO SPEAK'
                   : 'HOLD TO TRANSMIT'}
               </span>

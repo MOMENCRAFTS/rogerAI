@@ -103,7 +103,7 @@ export default function Contacts() {
       {showInvite && (
         <div style={{ margin: '12px 20px', padding: '16px 18px', background: 'rgba(212,160,68,0.06)', border: '1px solid rgba(212,160,68,0.3)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>📡 INVITE TO ROGER NETWORK</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>INVITE TO ROGER NETWORK</span>
             <button onClick={() => setShowInvite(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={12} /></button>
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -211,7 +211,7 @@ export default function Contacts() {
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
-                📡 {historyContact.display_name}
+                {historyContact.display_name}
               </span>
               <button onClick={() => setHistoryContact(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={14} /></button>
             </div>
