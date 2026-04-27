@@ -10,8 +10,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Radio, Mic } from 'lucide-react';
+import { Radio } from 'lucide-react';
 import TwemojiFlag from './TwemojiFlag';
+import RogerMascot from './RogerMascot';
 import type { Locale, BaseLanguage } from '../lib/i18n';
 import { DIALECT_CONFIG, getDialectsForLanguage } from '../lib/translations/dialects';
 import { speakResponse, unlockAudio } from '../lib/tts';
@@ -113,6 +114,8 @@ const CSS = `
 @keyframes gsh{0%{background-position:-200% 0}100%{background-position:200% 0}}
 @keyframes gbr{0%,100%{transform:scale(1);box-shadow:0 0 30px rgba(212,160,68,.2)}50%{transform:scale(1.08);box-shadow:0 0 60px rgba(212,160,68,.5)}}
 @keyframes grp{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.8);opacity:0}}
+@keyframes rogerMascotPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+@keyframes rogerMascotRing{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(1.3)}}
 `;
 
 export default function LanguageGate({ onLocaleSelected }: Props) {
@@ -289,9 +292,8 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
       {/* Scanlines */}
       <div style={{ position:'absolute',inset:0,opacity:.03,backgroundImage:'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(212,160,68,.3) 2px,rgba(212,160,68,.3) 4px)',pointerEvents:'none' }} />
       {/* Mascot + Badge */}
-      <div style={{ position:'absolute',top:36,left:'50%',transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:8,animation:'gfi .8s ease-out' }}>
-        <img src="/mascot.png" alt="Roger AI" style={{ width:56,height:56,objectFit:'contain',mixBlendMode:'screen',filter:'drop-shadow(0 0 14px rgba(212,160,68,0.4))',animation:'glp 4s ease-in-out infinite' }} />
-        <div style={mono(8,'rgba(212,160,68,.5)','.25em')}>▸ ROGER AI</div>
+      <div style={{ position:'absolute',top:36,left:'50%',transform:'translateX(-50%)',animation:'gfi .8s ease-out' }}>
+        <RogerMascot variant="badge" />
       </div>
 
       {/* ═══ NODE 1: Say your language ═══ */}
@@ -306,9 +308,9 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
 
           {/* PTT */}
           <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
-            style={{ width:120,height:120,borderRadius:'50%',border:ptt?'3px solid rgba(212,160,68,.8)':'2px solid rgba(212,160,68,.3)',background:ptt?'radial-gradient(circle,rgba(212,160,68,.25) 0%,rgba(212,160,68,.08) 100%)':'radial-gradient(circle,rgba(212,160,68,.1) 0%,rgba(212,160,68,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
+            style={{ width:120,height:120,borderRadius:'50%',border:ptt?'3px solid rgba(212,160,68,.8)':'2.5px solid rgba(212,160,68,.3)',background:ptt?'radial-gradient(circle,rgba(212,160,68,.25) 0%,rgba(212,160,68,.08) 100%)':'radial-gradient(circle,rgba(212,160,68,.1) 0%,rgba(212,160,68,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
             {ptt && <><div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(212,160,68,.4)',animation:'grp 1.5s ease-out infinite' }} /><div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(212,160,68,.3)',animation:'grp 1.5s ease-out infinite .5s' }} /></>}
-            <Mic size={36} color={ptt?'rgba(212,160,68,1)':'rgba(212,160,68,.6)'} />
+            <Radio size={36} color={ptt?'rgba(212,160,68,1)':'rgba(212,160,68,.6)'} />
           </button>
 
           {hint && <div style={{ ...mono(8,'rgba(255,200,100,.7)','.08em'),textTransform:'none',textAlign:'center',maxWidth:300,animation:'gfi .3s ease-out' }}>{hint}</div>}
@@ -361,9 +363,9 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
 
           {/* PTT */}
           <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
-            style={{ width:100,height:100,borderRadius:'50%',border:ptt?'3px solid rgba(212,160,68,.8)':'2px solid rgba(212,160,68,.3)',background:ptt?'radial-gradient(circle,rgba(212,160,68,.25) 0%,rgba(212,160,68,.08) 100%)':'radial-gradient(circle,rgba(212,160,68,.1) 0%,rgba(212,160,68,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
+            style={{ width:120,height:120,borderRadius:'50%',border:ptt?'3px solid rgba(212,160,68,.8)':'2.5px solid rgba(212,160,68,.3)',background:ptt?'radial-gradient(circle,rgba(212,160,68,.25) 0%,rgba(212,160,68,.08) 100%)':'radial-gradient(circle,rgba(212,160,68,.1) 0%,rgba(212,160,68,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
             {ptt && <><div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(212,160,68,.4)',animation:'grp 1.5s ease-out infinite' }} /></>}
-            <Mic size={28} color={ptt?'rgba(212,160,68,1)':'rgba(212,160,68,.6)'} />
+            <Radio size={36} color={ptt?'rgba(212,160,68,1)':'rgba(212,160,68,.6)'} />
           </button>
 
           {hint && <div style={{ ...mono(8,'rgba(255,200,100,.7)','.08em'),textTransform:'none',textAlign:'center',maxWidth:300,animation:'gfi .3s ease-out' }}>{hint}</div>}
@@ -424,9 +426,9 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
 
           {/* PTT */}
           <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
-            style={{ width:100,height:100,borderRadius:'50%',border:ptt?'3px solid rgba(16,185,129,.8)':'2px solid rgba(16,185,129,.3)',background:ptt?'radial-gradient(circle,rgba(16,185,129,.25) 0%,rgba(16,185,129,.08) 100%)':'radial-gradient(circle,rgba(16,185,129,.1) 0%,rgba(16,185,129,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
+            style={{ width:120,height:120,borderRadius:'50%',border:ptt?'3px solid rgba(16,185,129,.8)':'2.5px solid rgba(16,185,129,.3)',background:ptt?'radial-gradient(circle,rgba(16,185,129,.25) 0%,rgba(16,185,129,.08) 100%)':'radial-gradient(circle,rgba(16,185,129,.1) 0%,rgba(16,185,129,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
             {ptt && <div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(16,185,129,.4)',animation:'grp 1.5s ease-out infinite' }} />}
-            <Mic size={28} color={ptt?'rgba(16,185,129,1)':'rgba(16,185,129,.6)'} />
+            <Radio size={36} color={ptt?'rgba(16,185,129,1)':'rgba(16,185,129,.6)'} />
           </button>
 
           {hint && <div style={{ ...mono(8,'rgba(255,200,100,.7)','.08em'),textTransform:'none',textAlign:'center',maxWidth:300,animation:'gfi .3s ease-out' }}>{hint}</div>}

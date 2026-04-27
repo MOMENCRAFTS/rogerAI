@@ -1,4 +1,5 @@
 import { useAuth } from '../context/AuthContext';
+import RogerMascot from './RogerMascot';
 
 export default function LoginScreen() {
   const { signInWithGoogle, authError } = useAuth();
@@ -65,27 +66,8 @@ export default function LoginScreen() {
       }}>
 
         {/* Logo */}
-        <div style={{ position: 'relative', marginBottom: 28 }}>
-          <img
-            src="/mascot.png"
-            alt="Roger AI"
-            style={{
-              width: 100,
-              height: 100,
-              objectFit: 'contain',
-              mixBlendMode: 'screen',
-              filter: 'drop-shadow(0 0 32px rgba(212,160,68,0.6))',
-              animation: 'loginGlow 4s ease-in-out infinite',
-            }}
-          />
-          {/* Pulsing ring */}
-          <div style={{
-            position: 'absolute',
-            inset: -12,
-            borderRadius: '50%',
-            border: '1px solid rgba(212,160,68,0.25)',
-            animation: 'loginRing 3s ease-in-out infinite',
-          }} />
+        <div style={{ marginBottom: 28 }}>
+          <RogerMascot variant="hero" showLabel={false} />
         </div>
 
         {/* Title */}
@@ -189,6 +171,8 @@ export default function LoginScreen() {
           0%, 100% { transform: scale(1); opacity: 0.3; }
           50% { transform: scale(1.12); opacity: 0.6; }
         }
+        @keyframes rogerMascotPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+        @keyframes rogerMascotRing{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(1.3)}}
       `}</style>
     </div>
   );

@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from 'react';
 import { Mic, MapPin, Volume2, ChevronDown, ChevronUp, Settings, CheckCircle2, AlertCircle } from 'lucide-react';
+import RogerMascot from './RogerMascot';
 import { requestMicPermission, requestLocationPermission, markPermissionsGranted } from '../lib/audioPermission';
 import { unlockAudio } from '../lib/tts';
 import { unlockSfxContext } from '../lib/sfx';
@@ -135,6 +136,8 @@ export default function PermissionGate({ onGranted }: PermissionGateProps) {
         .pg-row:nth-child(1) { animation-delay: 0.1s; }
         .pg-row:nth-child(2) { animation-delay: 0.2s; }
         .pg-row:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes rogerMascotPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+        @keyframes rogerMascotRing{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(1.3)}}
       `}</style>
 
       <div style={{
@@ -158,6 +161,11 @@ export default function PermissionGate({ onGranted }: PermissionGateProps) {
           background: `linear-gradient(90deg, transparent, ${PRIMARY}88, ${SECONDARY}cc, transparent)`,
           boxShadow: `0 0 16px 2px ${PRIMARY}44`,
         }} />
+
+        {/* Mascot — consistent with LanguageGate and Onboarding */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+          <RogerMascot variant="badge" showLabel={false} />
+        </div>
 
         {/* ── Main card ── */}
         <div className="pg-card" style={{

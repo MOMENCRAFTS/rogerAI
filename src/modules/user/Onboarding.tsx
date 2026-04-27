@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Radio } from 'lucide-react';
+import RogerMascot from '../../components/RogerMascot';
 import { useI18n } from '../../context/I18nContext';
 import {
   generateNameConfirm, generateAddInfoTurn,
@@ -44,7 +45,7 @@ interface Props {
 type PttPhase = 'speaking' | 'waiting' | 'recording' | 'processing' | 'done';
 
 export default function Onboarding({ userId, onComplete }: Props) {
-  const { t } = useI18n();
+  const { t: _t } = useI18n(); // i18n context kept for future use
   const [flowPhase, setFlowPhase] = useState<OnboardingPhase>('welcome');
   const [totalTurns, setTotalTurns] = useState(1);
   const [answers, setAnswers]     = useState<OnboardingAnswers>({});
@@ -311,20 +312,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
 
       {/* Mascot + title */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24, gap: 10, zIndex: 1 }}>
-        <div style={{ position: 'relative' }}>
-          <img src="/mascot.png" alt="Roger AI" style={{ width: 64, height: 64, objectFit: 'contain', mixBlendMode: 'screen', filter: 'drop-shadow(0 0 16px rgba(212,160,68,0.4))' }} />
-          {phase === 'speaking' && (
-            <div style={{ position: 'absolute', inset: -8, borderRadius: '50%', border: '2px solid rgba(212,160,68,0.4)', animation: 'ping 1.5s ease-in-out infinite' }} />
-          )}
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.25em', margin: 0 }}>
-            {t('app.name')}
-          </p>
-          <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', margin: '2px 0 0' }}>
-            {PHASE_LABELS[flowPhase] ?? 'Initializing your profile'}
-          </p>
-        </div>
+        <RogerMascot variant="badge" speaking={phase === 'speaking'} subtitle={PHASE_LABELS[flowPhase] ?? 'Initializing your profile'} />
       </div>
 
       {/* Progress bar */}
