@@ -13,6 +13,7 @@ import MemoryView    from './MemoryView';
 import RogerSettings from './RogerSettings';
 import Onboarding    from './Onboarding';
 import Orientation   from './Orientation';
+import ErrorBoundary from '../../components/ErrorBoundary';
 import UserAnalytics from './UserAnalytics';
 import LocationView  from './LocationView';
 import JournalView   from './JournalView';
@@ -185,14 +186,16 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   // ── Orientation (replaces old auto-FeatureTour gate) ────────────────────────
   if (onboarded && orientationSeen === false) {
     return (
-      <Orientation
-        displayName={displayName}
-        islamicMode={islamicMode}
-        onComplete={() => {
-          markOrientationSeen(userId, ORIENTATION_VERSION).catch(() => {});
-          setOrientationSeen(true);
-        }}
-      />
+      <ErrorBoundary fallbackMessage="Orientation failed to load" onReset={() => setOrientationSeen(true)}>
+        <Orientation
+          displayName={displayName}
+          islamicMode={islamicMode}
+          onComplete={() => {
+            markOrientationSeen(userId, ORIENTATION_VERSION).catch(() => {});
+            setOrientationSeen(true);
+          }}
+        />
+      </ErrorBoundary>
     );
   }
 

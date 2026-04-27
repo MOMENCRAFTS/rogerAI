@@ -5,12 +5,10 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 // ── Phases ──────────────────────────────────────────────────────────────────
 export type OnboardingPhase =
-  | 'welcome'        // rigid: Roger introduces himself, asks name + open question
-  | 'interview'      // elastic 3-7 turns: AI-driven multi-field extraction
-  | 'name_confirm'   // rigid: spelling check
-  | 'features'       // rigid: app features showcase
-  | 'islamic'        // rigid: Islamic mode question
-  | 'review'         // rigid: AI-generated profile summary
+  | 'welcome'        // Roger introduces himself, asks name + open question
+  | 'name_confirm'   // spelling check with phonetic variants
+  | 'islamic'        // must-ask: Islamic mode
+  | 'review'         // AI-generated profile summary
   | 'complete';
 
 export interface OnboardingAnswers {
@@ -34,9 +32,9 @@ export interface OnboardingAnswers {
 // ] as const;
 
 // Minimum / maximum elastic interview turns
-export const MIN_INTERVIEW_TURNS = 3;
-export const MAX_INTERVIEW_TURNS = 7;
-export const MAX_TOTAL_TURNS = 12;
+export const MIN_INTERVIEW_TURNS = 1;
+export const MAX_INTERVIEW_TURNS = 2;
+export const MAX_TOTAL_TURNS = 6;
 
 // Features list shown during the dedicated features turn
 export const ROGER_FEATURES = [
@@ -54,9 +52,7 @@ export const ROGER_FEATURES = [
 // Phase labels for progress UI
 export const PHASE_LABELS: Record<OnboardingPhase, string> = {
   welcome:      'WELCOME',
-  interview:    'GETTING TO KNOW YOU',
   name_confirm: 'NAME CHECK',
-  features:     'YOUR FEATURES',
   islamic:      'PREFERENCES',
   review:       'REVIEW',
   complete:     'COMPLETE',

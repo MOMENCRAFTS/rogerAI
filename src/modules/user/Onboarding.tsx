@@ -2,10 +2,10 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Radio } from 'lucide-react';
 import { useI18n } from '../../context/I18nContext';
 import {
-  generateInterviewTurn, generateNameConfirm, generateFeaturesTurn,
+  generateNameConfirm,
   generateIslamicTurn, buildReviewScript, parseReviewIntentAI,
-  mergeExtractedFields, applyFeaturePrefs, silentExtractFields,
-  WELCOME_SCRIPT, PHASE_LABELS, MAX_TOTAL_TURNS, MIN_INTERVIEW_TURNS, MAX_INTERVIEW_TURNS,
+  mergeExtractedFields, silentExtractFields,
+  getWelcomeScript, PHASE_LABELS, MAX_TOTAL_TURNS,
   type OnboardingPhase, type OnboardingAnswers,
 } from '../../lib/onboarding';
 import { speakResponse, stopSpeaking, unlockAudio } from '../../lib/tts';
@@ -46,8 +46,7 @@ type PttPhase = 'speaking' | 'waiting' | 'recording' | 'processing' | 'done';
 export default function Onboarding({ userId, onComplete }: Props) {
   const { t } = useI18n();
   const [flowPhase, setFlowPhase] = useState<OnboardingPhase>('welcome');
-  const [interviewTurn, setInterviewTurn] = useState(0); // 0 = not started yet
-  const [totalTurns, setTotalTurns] = useState(1); // tracks overall turn count
+  const [totalTurns, setTotalTurns] = useState(1);
   const [answers, setAnswers]     = useState<OnboardingAnswers>({});
   const [script, setScript]       = useState('');
   const [phase, setPhase]         = useState<PttPhase>('speaking');
@@ -58,7 +57,6 @@ export default function Onboarding({ userId, onComplete }: Props) {
   const holdRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const typeRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const pttStartRef  = useRef<number>(0);
-  const questionHistory = useRef<string[]>([]);
 
   // ── Typewriter ────────────────────────────────────────────────────────────
   const typewrite = useCallback((text: string) => {
@@ -85,7 +83,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
-    speakNode(WELCOME_SCRIPT);
+    speakNode(getWelcomeScript());
     preloadAll();
     return () => { stopSpeaking(); if (typeRef.current) clearInterval(typeRef.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -114,124 +112,43 @@ export default function Onboarding({ userId, onComplete }: Props) {
     setTotalTurns(t);
     hapticTick();
 
-    // ── WELCOME → this IS interview turn 1 ────────────────────────────────
+    // ── WELCOME → extract name + fields, then move to name_confirm or islamic
     if (flowPhase === 'welcome') {
-      // STEP 1: Silent extraction — process what user said to the welcome greeting
       const extracted = await silentExtractFields(transcript, currentAnswers);
       const merged = mergeExtractedFields(currentAnswers, extracted);
       setAnswers(merged);
       console.log('[Onboarding] Welcome response extracted:', JSON.stringify(extracted));
 
-      // Seed question history with the welcome greeting so LLM won't repeat it
-      if (questionHistory.current.length === 0) {
-        questionHistory.current.push(WELCOME_SCRIPT);
-      }
-
-      // Transition to interview — welcome IS turn 1
-      setFlowPhase('interview');
-      const turn = 1;
-      setInterviewTurn(turn);
-
-      // Check if name was just extracted → confirm spelling first
-      if (merged.name && !currentAnswers.name) {
-        const nc = await generateNameConfirm(merged.name);
-        setFlowPhase('name_confirm');
-        await speakNode(nc.script);
-        return;
-      }
-
-      // Name NOT found in welcome → ask for it directly before anything else
-      if (!merged.name) {
-        const nameScript = 'Copy. Before we go further — what should I call you?';
-        questionHistory.current.push(nameScript);
-        await speakNode(nameScript);
-        return;
-      }
-
-      // STEP 2: Generate follow-up WITH the user's transcript so LLM
-      // acknowledges what they said and asks about what's STILL missing
-      const result = await generateInterviewTurn(turn, merged, transcript, questionHistory.current);
-      questionHistory.current.push(result.script);
-      const merged2 = mergeExtractedFields(merged, result.extracted_fields);
-      setAnswers(merged2);
-      await speakNode(result.script);
-      return;
-    }
-
-    // ── INTERVIEW (elastic 3-7 turns) ─────────────────────────────────────
-    if (flowPhase === 'interview') {
-      // STEP 1: Silent extraction — process what user said
-      const extracted = await silentExtractFields(transcript, currentAnswers);
-      const merged = mergeExtractedFields(currentAnswers, extracted);
-      setAnswers(merged);
-
-      // Check if name was just extracted → confirm spelling
-      if (merged.name && !currentAnswers.name) {
+      // Name found → confirm spelling
+      if (merged.name) {
         setFlowPhase('name_confirm');
         const nc = await generateNameConfirm(merged.name);
         await speakNode(nc.script);
         return;
       }
 
-      // STEP 2: Generate next question with UPDATED state + what user said
-      const turn = interviewTurn + 1;
-      setInterviewTurn(turn);
-      const result = await generateInterviewTurn(turn, merged, transcript, questionHistory.current);
-      questionHistory.current.push(result.script);
-      const merged2 = mergeExtractedFields(merged, result.extracted_fields);
-      setAnswers(merged2);
-
-      // Check if interview is done
-      if ((result.all_covered && turn >= MIN_INTERVIEW_TURNS) || turn >= MAX_INTERVIEW_TURNS) {
-        setFlowPhase('features');
-        const ft = await generateFeaturesTurn(merged2.name ?? 'Commander');
-        await speakNode(ft.script);
-        return;
-      }
-
-      await speakNode(result.script);
+      // Name NOT found → ask directly
+      const nameScript = 'Copy. Before we go further — what should I call you?';
+      await speakNode(nameScript);
       return;
     }
 
-    // ── NAME CONFIRM ──────────────────────────────────────────────────────
+    // ── NAME CONFIRM → then straight to islamic ──────────────────────────
     if (flowPhase === 'name_confirm') {
       const nc = await generateNameConfirm(currentAnswers.name ?? '', transcript);
-      if (nc.extracted_value) {
-        const merged = { ...currentAnswers };
-        if (nc.extracted_value.toLowerCase() !== 'yes') {
-          merged.name = nc.extracted_value;
-        }
-        setAnswers(merged);
+      const merged = { ...currentAnswers };
+      if (nc.extracted_value && nc.extracted_value.toLowerCase() !== 'yes') {
+        merged.name = nc.extracted_value;
       }
-      // Back to interview — use updated answers
-      setFlowPhase('interview');
-      const turn = interviewTurn + 1;
-      setInterviewTurn(turn);
-      const updatedAnswers = { ...currentAnswers, ...(nc.extracted_value && nc.extracted_value.toLowerCase() !== 'yes' ? { name: nc.extracted_value } : {}) };
-      const result = await generateInterviewTurn(turn, updatedAnswers, undefined, questionHistory.current);
-      questionHistory.current.push(result.script);
-      const merged2 = mergeExtractedFields(updatedAnswers, result.extracted_fields);
-      setAnswers(merged2);
-      await speakNode(result.script);
-      return;
-    }
-
-    // ── FEATURES (dedicated rigid turn) ───────────────────────────────────
-    if (flowPhase === 'features') {
-      const ft = await generateFeaturesTurn(currentAnswers.name ?? '', transcript);
-      const prefs = ft.extracted_value
-        ? applyFeaturePrefs(ft.extracted_value)
-        : [];
-      const merged = { ...currentAnswers, feature_prefs: prefs };
       setAnswers(merged);
-      // Move to Islamic mode
+      // Move directly to Islamic mode
       setFlowPhase('islamic');
       const it = await generateIslamicTurn();
       await speakNode(it.script);
       return;
     }
 
-    // ── ISLAMIC MODE (dedicated rigid turn) ───────────────────────────────
+    // ── ISLAMIC MODE ─────────────────────────────────────────────────────
     if (flowPhase === 'islamic') {
       const it = await generateIslamicTurn(transcript);
       const isYes = it.extracted_value?.toLowerCase() === 'yes';
@@ -244,22 +161,21 @@ export default function Onboarding({ userId, onComplete }: Props) {
       return;
     }
 
-    // ── REVIEW ────────────────────────────────────────────────────────────
+    // ── REVIEW ───────────────────────────────────────────────────────────
     if (flowPhase === 'review') {
       const intent = await parseReviewIntentAI(transcript, userId);
       if (intent === 'confirm') {
         await finishOnboarding(currentAnswers);
         return;
       }
-      // User wants to edit — go back to interview for 1 more turn
-      setFlowPhase('interview');
-      const editTurn = interviewTurn + 1;
-      setInterviewTurn(editTurn);
-      const result = await generateInterviewTurn(editTurn, currentAnswers, `I want to change my ${intent}`);
-      await speakNode(result.script);
+      // User wants to edit — ask one more question about what they want to change
+      const editScript = `Got it. Tell me the correct ${intent}, Commander.`;
+      await speakNode(editScript);
+      // After they respond, extract and go back to review
+      setFlowPhase('welcome'); // re-enter to re-extract
       return;
     }
-  }, [flowPhase, interviewTurn, totalTurns, userId, speakNode, finishOnboarding]);
+  }, [flowPhase, totalTurns, userId, speakNode, finishOnboarding]);
 
   // ── PTT Down ──────────────────────────────────────────────────────────────
   const handleDown = useCallback(async (e: React.PointerEvent) => {
