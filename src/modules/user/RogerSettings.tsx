@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw, Contact, Brain } from 'lucide-react';
+import { RogerIcon } from '../../components/icons';
 import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, fullUserReset, type DbUserPreferences } from '../../lib/api';
 import { useLocation } from '../../lib/useLocation';
 import { setHapticsEnabled } from '../../lib/haptics';
@@ -10,10 +11,10 @@ import { supabase } from '../../lib/supabase';
 
 type Mode = 'quiet' | 'active' | 'briefing';
 
-const MODE_INFO: Record<Mode, { emoji: string; desc: string }> = {
-  quiet:    { emoji: '🔇', desc: 'Only respond when you press PTT. Never speaks first.' },
-  active:   { emoji: '📡', desc: 'Responds to PTT + proactively surfaces items when idle.' },
-  briefing: { emoji: '🎙', desc: 'Scheduled summaries only (8am & 6pm). Quiet between them.' },
+const MODE_INFO: Record<Mode, { iconName: string; desc: string }> = {
+  quiet:    { iconName: 'mode-quiet', desc: 'Only respond when you press PTT. Never speaks first.' },
+  active:   { iconName: 'mode-active', desc: 'Responds to PTT + proactively surfaces items when idle.' },
+  briefing: { iconName: 'mode-briefing', desc: 'Scheduled summaries only (8am & 6pm). Quiet between them.' },
 };
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string;
@@ -273,7 +274,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </span>
 
         {saving && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>Saving...</span>}
-        {saved  && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--green)' }}>✓ Saved</span>}
+        {saved  && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--green)' }}>Saved</span>}
       </div>
 
       {/* ── Language ── */}
@@ -327,7 +328,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             <p style={{ fontFamily: 'monospace', fontSize: 12, color: contactConnected ? '#3b82f6' : 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Contacts</p>
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>
               {contactConnected
-                ? `📡 ${contactCount} contacts synced${contactLastSync ? ` · Last: ${new Date(contactLastSync).toLocaleTimeString()}` : ''}`
+                ? `${contactCount} contacts synced${contactLastSync ? ` · Last: ${new Date(contactLastSync).toLocaleTimeString()}` : ''}`
                 : 'Not connected — grant access to unlock voice messaging'}
             </p>
           </div>
@@ -348,7 +349,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
                 setContactSyncing(false);
               }}
               style={{ flexShrink: 0, padding: '6px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', cursor: 'pointer' }}
-            >🔄 Sync</button>
+            >Sync</button>
           )}
         </div>
         {contactConnected ? (
@@ -364,7 +365,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
               localStorage.removeItem('roger_contacts_prompted');
             }}
             style={{ width: '100%', padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', cursor: 'pointer' }}
-          >⛔ Disconnect Contacts</button>
+          >Disconnect Contacts</button>
         ) : (
           <button
             onClick={async () => {
@@ -382,9 +383,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
               } catch { /* silent */ }
             }}
             style={{ marginTop: 10, width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', cursor: 'pointer' }}
-          >📡 Connect Contacts</button>
+          >Connect Contacts</button>
         )}
-        <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '8px 0 0', opacity: 0.6 }}>🔒 Only names are read. Numbers stay on your device.</p>
+        <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '8px 0 0', opacity: 0.6 }}>Only names are read. Numbers stay on your device.</p>
       </div>
 
       {/* Push Notifications */}
@@ -487,7 +488,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             const active = prefs.roger_mode === mode;
             return (
               <button key={mode} onClick={() => saveMode(mode)} style={{ padding: '14px 16px', textAlign: 'left', cursor: 'pointer', border: `1px solid ${active ? 'var(--amber)' : 'var(--border-subtle)'}`, background: active ? 'rgba(212,160,68,0.08)' : 'var(--bg-elevated)', display: 'flex', alignItems: 'flex-start', gap: 12, transition: 'all 150ms' }}>
-                <span style={{ fontSize: 20 }}>{info.emoji}</span>
+                <RogerIcon name={info.iconName} size={20} color={active ? 'var(--amber)' : 'var(--text-muted)'} />
                 <div>
                   <p style={{ fontFamily: 'monospace', fontSize: 12, color: active ? 'var(--amber)' : 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 4px', fontWeight: active ? 600 : 400 }}>{mode}</p>
                   <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>{info.desc}</p>
@@ -565,9 +566,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(239,161,51,0.7)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>How Chatty</p>
             <div style={{ display: 'flex', gap: 6 }}>
               {([
-                { value: 'thoughtful',  label: '💭 Thoughtful',  desc: '2-3/day' },
-                { value: 'active_talk', label: '📡 Active',      desc: 'Up to 6/day' },
-                { value: 'always_on',   label: '⚡ Always On',    desc: 'Whenever' },
+                { value: 'thoughtful',  label: 'Thoughtful',  desc: '2-3/day' },
+                { value: 'active_talk', label: 'Active',      desc: 'Up to 6/day' },
+                { value: 'always_on',   label: 'Always On',    desc: 'Whenever' },
               ] as { value: string; label: string; desc: string }[]).map(opt => {
                 const active = ((prefs as Record<string, unknown>).talkative_frequency ?? 'thoughtful') === opt.value;
                 return (
@@ -599,8 +600,8 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(239,161,51,0.7)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>Delivery</p>
             <div style={{ display: 'flex', gap: 6 }}>
               {([
-                { value: 'auto_speak', label: '🔊 Auto Speak', desc: 'Roger talks immediately' },
-                { value: 'ptt_pulse',  label: '🔴 PTT Pulse',  desc: 'Button glows red' },
+                { value: 'auto_speak', label: 'Auto Speak', desc: 'Roger talks immediately' },
+                { value: 'ptt_pulse',  label: 'PTT Pulse',  desc: 'Button glows red' },
               ] as { value: string; label: string; desc: string }[]).map(opt => {
                 const active = ((prefs as Record<string, unknown>).talkative_delivery ?? 'ptt_pulse') === opt.value;
                 return (
@@ -740,7 +741,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
 
         {/* Google Calendar */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>📅</span>
+          <RogerIcon name="svc-gcal" size={18} color="var(--text-muted)" />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Google Calendar</p>
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: prefs.gcal_connected ? 'var(--green)' : 'var(--text-muted)', margin: 0 }}>
@@ -770,7 +771,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* Finnhub Finance */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: prefs.finnhub_tickers?.length ? 10 : 0 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>📈</span>
+            <RogerIcon name="svc-finnhub" size={18} color="var(--text-muted)" />
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Finnhub Finance</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Add API key to .env.local · Say "what's Apple at?" or "market brief"</p>
@@ -791,7 +792,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
 
         {/* AviationStack */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>✈️</span>
+          <RogerIcon name="svc-aviation" size={18} color="var(--text-muted)" />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Flight Tracking</p>
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Add VITE_AVIATIONSTACK_API_KEY to .env.local · Say "status of EK204"</p>
@@ -802,7 +803,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* Twilio SMS */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>💬</span>
+            <span style={{ fontSize: 18, flexShrink: 0 }}></span>
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Twilio SMS</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Say "text Ahmad I'll be late" to send real SMS</p>
@@ -821,7 +822,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
 
         {/* Spotify */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>🎵</span>
+          <span style={{ fontSize: 18, flexShrink: 0 }}></span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Spotify</p>
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>
@@ -847,7 +848,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* Notion */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>📓</span>
+            <span style={{ fontSize: 18, flexShrink: 0 }}></span>
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Notion</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Say "log this to Notion" to push session notes and tasks</p>

@@ -92,7 +92,7 @@ export default function ContactsPermissionGate({ onComplete, compact }: Props) {
         <div style={{ padding: compact ? '20px 20px 0' : '28px 28px 0', textAlign: 'center' }}>
 
           {/* Icon */}
-          <div style={{ fontSize: 42, marginBottom: 12, opacity: 0.9 }}>📡</div>
+          <div style={{ fontSize: 42, marginBottom: 12, opacity: 0.9 }}></div>
 
           {/* Title */}
           <p style={mono(compact ? 16 : 20, 'rgba(255,255,255,0.92)', '0.25em')}>
@@ -118,7 +118,7 @@ export default function ContactsPermissionGate({ onComplete, compact }: Props) {
 
           {/* ── 🔒 PRIVACY GUARANTEE BOX ── */}
           <div style={privacyBoxStyle}>
-            <p style={mono(10, '#22c55e', '0.18em')}>🔒 PRIVACY GUARANTEE</p>
+            <p style={mono(10, '#22c55e', '0.18em')}>PRIVACY GUARANTEE</p>
             <ul style={privacyListStyle}>
               <li>Only display names are read</li>
               <li>Phone numbers stay <strong>ON DEVICE</strong></li>
@@ -157,7 +157,7 @@ export default function ContactsPermissionGate({ onComplete, compact }: Props) {
             onClick={handleGrant}
             disabled={loading}
           >
-            {loading ? '◌ CONNECTING…' : '✓ GRANT ACCESS'}
+            {loading ? 'CONNECTING…' : 'GRANT ACCESS'}
           </button>
         </div>
 
@@ -185,17 +185,17 @@ export default function ContactsPermissionGate({ onComplete, compact }: Props) {
 
 const BENEFITS = [
   {
-    icon: '🎙️',
+    icon: '',
     title: 'VOICE RECOGNITION',
     desc: 'Roger learns contact names so Whisper never mishears "Ahmad" as "Akhmad" again.',
   },
   {
-    icon: '💬',
+    icon: '',
     title: 'HANDS-FREE MESSAGING',
     desc: 'Say "Roger, text Mom I\'m on my way" and the message opens ready to send.',
   },
   {
-    icon: '🧠',
+    icon: '',
     title: 'SMART MEMORY',
     desc: 'Roger remembers who matters to you and builds context from your world.',
   },

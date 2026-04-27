@@ -29,12 +29,12 @@ export interface HazardEvent {
   mergedSources?:  HazardSource[];
 }
 
-export const HAZARD_META: Record<HazardType, { icon: string; label: string; color: string; expiryMs: number }> = {
-  speed_cam:  { icon: '📷', label: 'SPEED CAM',   color: '#d4a044', expiryMs: 60 * 60 * 1000 },
-  police:     { icon: '🚔', label: 'POLICE',       color: '#ef4444', expiryMs: 60 * 60 * 1000 },
-  accident:   { icon: '⚠️', label: 'ACCIDENT',     color: '#f97316', expiryMs: 4 * 60 * 60 * 1000 },
-  road_works: { icon: '🚧', label: 'ROAD WORKS',   color: '#eab308', expiryMs: 24 * 60 * 60 * 1000 },
-  debris:     { icon: '🪨', label: 'DEBRIS',        color: '#a78bfa', expiryMs: 2 * 60 * 60 * 1000 },
-  flood:      { icon: '🌊', label: 'FLOOD',         color: '#3b82f6', expiryMs: 6 * 60 * 60 * 1000 },
-  closure:    { icon: '🚫', label: 'ROAD CLOSED',   color: '#a84832', expiryMs: 24 * 60 * 60 * 1000 },
+export const HAZARD_META: Record<HazardType, { icon: string; iconName: string; label: string; color: string; expiryMs: number }> = {
+  speed_cam:  { icon: '📷', iconName: 'hazard-speedcam',  label: 'SPEED CAM',   color: '#d4a044', expiryMs: 60 * 60 * 1000 },
+  police:     { icon: '🚔', iconName: 'hazard-police',    label: 'POLICE',       color: '#ef4444', expiryMs: 60 * 60 * 1000 },
+  accident:   { icon: '⚠️', iconName: 'hazard-accident',  label: 'ACCIDENT',     color: '#f97316', expiryMs: 4 * 60 * 60 * 1000 },
+  road_works: { icon: '🚧', iconName: 'hazard-roadworks', label: 'ROAD WORKS',   color: '#eab308', expiryMs: 24 * 60 * 60 * 1000 },
+  debris:     { icon: '🪨', iconName: 'hazard-debris',    label: 'DEBRIS',        color: '#a78bfa', expiryMs: 2 * 60 * 60 * 1000 },
+  flood:      { icon: '🌊', iconName: 'hazard-flood',     label: 'FLOOD',         color: '#3b82f6', expiryMs: 6 * 60 * 60 * 1000 },
+  closure:    { icon: '🚫', iconName: 'hazard-closure',   label: 'ROAD CLOSED',   color: '#a84832', expiryMs: 24 * 60 * 60 * 1000 },
 };

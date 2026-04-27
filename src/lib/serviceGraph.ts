@@ -21,6 +21,7 @@ export interface ServiceNode {
   id: ServiceId;
   displayName: string;
   emoji: string;
+  iconName: string;
   status: ServiceStatus;
   configured: boolean;
   lastCheckedAt: number;
@@ -58,23 +59,23 @@ const FALLBACK_MAP: Partial<Record<ServiceId, ServiceId>> = {
 
 // ─── Service Metadata ────────────────────────────────────────────────────────
 
-const SERVICE_META: Record<ServiceId, { displayName: string; emoji: string }> = {
-  spotify:        { displayName: 'Spotify',           emoji: '🎵' },
-  radio:          { displayName: 'Radio Browser',     emoji: '📻' },
-  gcal:           { displayName: 'Google Calendar',   emoji: '📅' },
-  tuya:           { displayName: 'Tuya Smart Home',   emoji: '🏠' },
-  notion:         { displayName: 'Notion',            emoji: '📝' },
-  finnhub:        { displayName: 'Finnhub Finance',   emoji: '📈' },
-  aviationstack:  { displayName: 'Flight Tracker',    emoji: '✈️' },
-  google_maps:    { displayName: 'Google Maps',       emoji: '🗺️' },
-  openai:         { displayName: 'OpenAI GPT',        emoji: '🤖' },
-  whisper:        { displayName: 'Whisper STT',       emoji: '🎙️' },
-  tts:            { displayName: 'TTS Engine',        emoji: '🔊' },
-  supabase:       { displayName: 'Supabase',          emoji: '🔗' },
-  twilio:         { displayName: 'Twilio SMS',        emoji: '📱' },
-  contacts:       { displayName: 'Device Contacts',   emoji: '👤' },
-  islamic:        { displayName: 'Islamic Services',   emoji: '🕌' },
-  news:           { displayName: 'News API',          emoji: '📰' },
+const SERVICE_META: Record<ServiceId, { displayName: string; emoji: string; iconName: string }> = {
+  spotify:        { displayName: 'Spotify',           emoji: '🎵', iconName: 'svc-spotify' },
+  radio:          { displayName: 'Radio Browser',     emoji: '📻', iconName: 'svc-radio' },
+  gcal:           { displayName: 'Google Calendar',   emoji: '📅', iconName: 'svc-gcal' },
+  tuya:           { displayName: 'Tuya Smart Home',   emoji: '🏠', iconName: 'svc-tuya' },
+  notion:         { displayName: 'Notion',            emoji: '📝', iconName: 'svc-notion' },
+  finnhub:        { displayName: 'Finnhub Finance',   emoji: '📈', iconName: 'svc-finnhub' },
+  aviationstack:  { displayName: 'Flight Tracker',    emoji: '✈️', iconName: 'svc-aviation' },
+  google_maps:    { displayName: 'Google Maps',       emoji: '🗺️', iconName: 'svc-maps' },
+  openai:         { displayName: 'OpenAI GPT',        emoji: '🤖', iconName: 'svc-openai' },
+  whisper:        { displayName: 'Whisper STT',       emoji: '🎙️', iconName: 'svc-whisper' },
+  tts:            { displayName: 'TTS Engine',        emoji: '🔊', iconName: 'svc-tts' },
+  supabase:       { displayName: 'Supabase',          emoji: '🔗', iconName: 'svc-supabase' },
+  twilio:         { displayName: 'Twilio SMS',        emoji: '📱', iconName: 'svc-twilio' },
+  contacts:       { displayName: 'Device Contacts',   emoji: '👤', iconName: 'svc-contacts' },
+  islamic:        { displayName: 'Islamic Services',   emoji: '🕌', iconName: 'svc-islamic' },
+  news:           { displayName: 'News API',          emoji: '📰', iconName: 'svc-news' },
 };
 
 // ─── Service Graph Singleton ─────────────────────────────────────────────────
@@ -95,6 +96,7 @@ class ServiceGraphImpl {
         id,
         displayName: meta.displayName,
         emoji: meta.emoji,
+        iconName: meta.iconName,
         status: 'unknown',
         configured: false,
         lastCheckedAt: 0,

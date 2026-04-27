@@ -93,7 +93,7 @@ export default function TasksView({ userId }: { userId: string }) {
         <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>{open.length} OPEN · {tasks.length} TOTAL</span>
         {open.length > 1 && (
           <button onClick={markAllDone} style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'transparent', border: '1px solid var(--green-border)', color: 'var(--green)', cursor: 'pointer' }}>
-            ✓ All Done
+            All Done
           </button>
         )}
         <button
@@ -240,12 +240,12 @@ export default function TasksView({ userId }: { userId: string }) {
                 </span>
                 {t.source_tx_id && (
                   <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '1px 6px', background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    ⚡ From conversation
+                    From conversation
                   </span>
                 )}
                 {t.due_at && (
                   <span style={{ fontFamily: 'monospace', fontSize: 8, color: isOverdue ? '#f87171' : 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    {isOverdue ? '⚠ ' : ''}Due {new Date(t.due_at).toLocaleDateString()}
+                    {isOverdue ? '' : ''}Due {new Date(t.due_at).toLocaleDateString()}
                   </span>
                 )}
               </div>

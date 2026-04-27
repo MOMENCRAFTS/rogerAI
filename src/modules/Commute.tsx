@@ -120,7 +120,7 @@ export default function Commute() {
           background: 'rgba(212,160,68,0.12)', border: '1px solid var(--amber)', color: 'var(--amber)',
           display: 'flex', alignItems: 'center', gap: 6,
         }}>
-          🚦 DEPARTURE BRIEF
+          DEPARTURE BRIEF
         </button>
         <button onClick={load} style={iconBtn}><RefreshCw size={12} /></button>
       </div>
@@ -182,7 +182,7 @@ export default function Commute() {
                   padding: '7px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase',
                   letterSpacing: '0.1em', cursor: 'pointer',
                   background: 'rgba(212,160,68,0.15)', border: '1px solid var(--amber)', color: 'var(--amber)',
-                }}>✓ SAVE PROFILE</button>
+                }}>SAVE PROFILE</button>
               </div>
             ) : profile?.home_address || profile?.work_address ? (
               <div style={{ display: 'flex', gap: 0, flexDirection: 'column' }}>
@@ -195,11 +195,11 @@ export default function Commute() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ marginBottom: 10 }}>
-                      <div style={fieldLabel}>🏠 HOME</div>
+                      <div style={fieldLabel}>HOME</div>
                       <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)' }}>{profile?.home_address ?? '—'}</div>
                     </div>
                     <div>
-                      <div style={fieldLabel}>🏢 WORK</div>
+                      <div style={fieldLabel}>WORK</div>
                       <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)' }}>{profile?.work_address ?? '—'}</div>
                     </div>
                   </div>
@@ -300,7 +300,7 @@ export default function Commute() {
             {parking ? (
               <div style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.25)' }}>
                 <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', marginBottom: 6 }}>
-                  📍 {parking.location_label}
+                  {parking.location_label}
                 </div>
                 {parking.address && (
                   <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginBottom: 4 }}>{parking.address}</div>
@@ -329,17 +329,17 @@ export default function Commute() {
           <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', width: '100%', maxWidth: 440, padding: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.18em' }}>
-                🚦 DEPARTURE BRIEF
+                DEPARTURE BRIEF
               </span>
               <button onClick={() => setShowBrief(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={14} /></button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
-                { icon: '🚗', label: 'ETA TO WORK', value: eta ? `${eta.duration} (${eta.distance})` : 'Enable GPS', color: 'var(--amber)' },
-                { icon: '📋', label: 'PENDING ERRANDS', value: `${errands.length} item${errands.length !== 1 ? 's' : ''} on route`, color: '#8b5cf6' },
-                { icon: '📍', label: 'PARKING STATUS', value: parking ? `Last parked: ${parking.location_label}` : 'No log', color: '#3b82f6' },
-                { icon: '📡', label: 'ROGER STATUS', value: 'Standing by · All systems active', color: '#10b981' },
+                { icon: '', label: 'ETA TO WORK', value: eta ? `${eta.duration} (${eta.distance})` : 'Enable GPS', color: 'var(--amber)' },
+                { icon: '', label: 'PENDING ERRANDS', value: `${errands.length} item${errands.length !== 1 ? 's' : ''} on route`, color: '#8b5cf6' },
+                { icon: '', label: 'PARKING STATUS', value: parking ? `Last parked: ${parking.location_label}` : 'No log', color: '#3b82f6' },
+                { icon: '', label: 'ROGER STATUS', value: 'Standing by · All systems active', color: '#10b981' },
               ].map(row => (
                 <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)' }}>
                   <span style={{ fontSize: 16 }}>{row.icon}</span>

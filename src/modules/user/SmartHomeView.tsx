@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Zap, RefreshCw, Power, Play, Wifi, WifiOff, Home, ChevronRight } from 'lucide-react';
+import { RogerIcon } from '../../components/icons';
 import { listTuyaDevices, controlDevice, listTuyaScenes, triggerTuyaScene, TUYA_CATEGORY_LABELS, type TuyaDevice, type TuyaScene } from '../../lib/tuya';
 import { fetchUserPreferences } from '../../lib/api';
 import { useI18n } from '../../context/I18nContext';
@@ -97,7 +98,7 @@ export default function SmartHomeView({ userId }: { userId: string }) {
     return sw?.value === true;
   };
 
-  const getCategoryInfo = (cat: string) => TUYA_CATEGORY_LABELS[cat] ?? { label: cat.toUpperCase(), emoji: '📦' };
+  const getCategoryInfo = (cat: string) => TUYA_CATEGORY_LABELS[cat] ?? { label: cat.toUpperCase(), emoji: '', iconName: 'device-unknown' };
 
   const onlineCount  = devices.filter(d => d.online).length;
   const offlineCount = devices.filter(d => !d.online).length;
@@ -203,7 +204,7 @@ export default function SmartHomeView({ userId }: { userId: string }) {
       {/* ── Error banner ── */}
       {error && (
         <div style={{ margin: '0 16px 8px', padding: '8px 12px', border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.06)' }}>
-          <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#ef4444', margin: 0 }}>⚠ {error}</p>
+          <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#ef4444', margin: 0 }}>{error}</p>
         </div>
       )}
 
@@ -264,7 +265,7 @@ export default function SmartHomeView({ userId }: { userId: string }) {
 
                   {/* Top row: emoji + status */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 22 }}>{cat.emoji}</span>
+                    <RogerIcon name={cat.iconName} size={22} color={on ? '#60a5fa' : 'var(--text-muted)'} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       {device.online
                         ? <Wifi size={9} style={{ color: 'var(--green)' }} />

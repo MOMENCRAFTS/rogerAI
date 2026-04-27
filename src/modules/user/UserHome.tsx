@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, MapPin, Square } from 'lucide-react';
+import { RogerIcon } from '../../components/icons';
 import { useI18n } from '../../context/I18nContext';
 import MorningBriefing from './MorningBriefing';
 import SpotifyMiniPlayer from './SpotifyMiniPlayer';
@@ -75,16 +76,16 @@ interface BadgeCelebration {
 }
 
 const MILESTONE_BADGES: Record<number, BadgeCelebration> = {
-  7:   { icon: '🔥', title: '7-Day Warrior', subtitle: 'First streak freeze earned', color: '#ef4444', glow: 'rgba(239,68,68,0.3)', image: '/badges/badge_7day_warrior.png' },
-  14:  { icon: '⭐', title: 'Dedicated Learner', subtitle: '14 days of commitment', color: '#f59e0b', glow: 'rgba(245,158,11,0.3)', image: '/badges/badge_dedicated_learner.png' },
-  30:  { icon: '🏆', title: 'Monthly Master', subtitle: 'One full month conquered', color: '#d4a044', glow: 'rgba(212,160,68,0.3)', image: '/badges/badge_monthly_master.png' },
-  60:  { icon: '💎', title: 'Diamond Scholar', subtitle: 'Two months of excellence', color: '#60a5fa', glow: 'rgba(96,165,250,0.3)', image: '/badges/badge_diamond_scholar.png' },
-  100: { icon: '🎖️', title: 'Elite Commander', subtitle: 'Triple-digit legend', color: '#8b5cf6', glow: 'rgba(139,92,246,0.3)', image: '/badges/badge_elite_commander.png' },
-  365: { icon: '👑', title: 'Supreme Linguist', subtitle: 'One year. Unstoppable.', color: '#fbbf24', glow: 'rgba(251,191,36,0.4)', image: '/badges/badge_supreme_linguist.png' },
+  7:   { icon: 'badge-7day', title: '7-Day Warrior', subtitle: 'First streak freeze earned', color: '#ef4444', glow: 'rgba(239,68,68,0.3)', image: '/badges/badge_7day_warrior.png' },
+  14:  { icon: 'badge-14day', title: 'Dedicated Learner', subtitle: '14 days of commitment', color: '#f59e0b', glow: 'rgba(245,158,11,0.3)', image: '/badges/badge_dedicated_learner.png' },
+  30:  { icon: 'badge-30day', title: 'Monthly Master', subtitle: 'One full month conquered', color: '#d4a044', glow: 'rgba(212,160,68,0.3)', image: '/badges/badge_monthly_master.png' },
+  60:  { icon: 'badge-60day', title: 'Diamond Scholar', subtitle: 'Two months of excellence', color: '#60a5fa', glow: 'rgba(96,165,250,0.3)', image: '/badges/badge_diamond_scholar.png' },
+  100: { icon: 'badge-100day', title: 'Elite Commander', subtitle: 'Triple-digit legend', color: '#8b5cf6', glow: 'rgba(139,92,246,0.3)', image: '/badges/badge_elite_commander.png' },
+  365: { icon: 'badge-365day', title: 'Supreme Linguist', subtitle: 'One year. Unstoppable.', color: '#fbbf24', glow: 'rgba(251,191,36,0.4)', image: '/badges/badge_supreme_linguist.png' },
 };
 
 const FREEZE_BADGE: BadgeCelebration = {
-  icon: '❄️', title: 'Streak Saved', subtitle: 'Freeze token activated', color: '#38bdf8', glow: 'rgba(56,189,248,0.3)', image: '/badges/badge_streak_freeze.png',
+  icon: 'badge-freeze', title: 'Streak Saved', subtitle: 'Freeze token activated', color: '#38bdf8', glow: 'rgba(56,189,248,0.3)', image: '/badges/badge_streak_freeze.png',
 };
 
 const PTT_RANK_IMAGES: Record<string, string> = {
@@ -95,12 +96,12 @@ const PTT_RANK_IMAGES: Record<string, string> = {
 };
 
 function getPTTRank(totalSessions: number): { label: string; icon: string; color: string; image?: string } {
-  if (totalSessions >= 1000) return { label: 'LEGEND', icon: '👑', color: '#fbbf24', image: PTT_RANK_IMAGES.LEGEND };
-  if (totalSessions >= 500)  return { label: 'COMMANDER', icon: '🎖️', color: '#8b5cf6', image: PTT_RANK_IMAGES.COMMANDER };
-  if (totalSessions >= 200)  return { label: 'VETERAN', icon: '⭐', color: '#f59e0b' };
-  if (totalSessions >= 50)   return { label: 'OPERATOR', icon: '📡', color: '#3b82f6', image: PTT_RANK_IMAGES.OPERATOR };
-  if (totalSessions >= 10)   return { label: 'CADET', icon: '🎯', color: '#10b981' };
-  return { label: 'ROOKIE', icon: '📻', color: '#64748b', image: PTT_RANK_IMAGES.ROOKIE };
+  if (totalSessions >= 1000) return { label: 'LEGEND', icon: 'badge-365day', color: '#fbbf24', image: PTT_RANK_IMAGES.LEGEND };
+  if (totalSessions >= 500)  return { label: 'COMMANDER', icon: 'badge-100day', color: '#8b5cf6', image: PTT_RANK_IMAGES.COMMANDER };
+  if (totalSessions >= 200)  return { label: 'VETERAN', icon: 'badge-14day', color: '#f59e0b' };
+  if (totalSessions >= 50)   return { label: 'OPERATOR', icon: 'mode-active', color: '#3b82f6', image: PTT_RANK_IMAGES.OPERATOR };
+  if (totalSessions >= 10)   return { label: 'CADET', icon: 'badge-cadet', color: '#10b981' };
+  return { label: 'ROOKIE', icon: 'svc-radio', color: '#64748b', image: PTT_RANK_IMAGES.ROOKIE };
 }
 
 // ── Pending confirmation gate ────────────────────────────────────────────────
@@ -1245,7 +1246,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               const msg = celebrations[milestone] ?? `🎯 ${milestone}-day streak milestone! Over.`;
               hapticMilestone();
               // Show badge overlay
-              const badge = MILESTONE_BADGES[milestone] ?? { icon: '🎯', title: `${milestone}-Day Streak`, subtitle: 'Keep the momentum going', color: '#d4a044', glow: 'rgba(212,160,68,0.3)' };
+              const badge = MILESTONE_BADGES[milestone] ?? { icon: 'badge-fallback', title: `${milestone}-Day Streak`, subtitle: 'Keep the momentum going', color: '#d4a044', glow: 'rgba(212,160,68,0.3)' };
               showBadge(badge);
               import('../../lib/tts').then(({ speakResponse }) => speakResponse(msg).catch(() => {}));
             }
@@ -2309,8 +2310,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     : pttState === 'transcribing' ? `▸▸ ${t('ptt.listening')}`
     : pttState === 'processing'   ? `◈ ${t('ptt.thinking')}`
     : pttState === 'speaking'     ? `◉ ${t('ptt.speaking')}`
-    : pttState === 'awaiting_answer' ? '⚡ ANSWER NOW'
-    : pttState === 'responded'    ? `✓ ${t('ptt.standing_by')}`
+    : pttState === 'awaiting_answer' ? 'ANSWER NOW'
+    : pttState === 'responded'    ? `${t('ptt.standing_by')}`
     : `▣ ${t('ptt.hold_to_talk')}`;
 
   const btnColor = pttState === 'recording'       ? '#d4a044'
@@ -2353,7 +2354,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           )}
         </div>
         <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '2px 8px', border: '1px solid var(--green-border)', background: 'var(--green-dim)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
-          📡 {rogerMode.toUpperCase()}
+          <RogerIcon name="mode-active" size={9} color="var(--green)" style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{rogerMode.toUpperCase()}
         </span>
         {location && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
@@ -2377,7 +2378,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           display: 'flex', alignItems: 'center', gap: 10,
           animation: proactivePending.trigger === 'thinking' ? 'thinkingPulse 1.5s ease-in-out infinite' : 'rogerPingPulse 2s ease-in-out infinite',
         }}>
-          <span style={{ fontSize: 16 }}>{proactivePending.trigger === 'thinking' ? '🧠' : '📡'}</span>
+          <RogerIcon name={proactivePending.trigger === 'thinking' ? 'brain' : 'mode-active'} size={16} color={proactivePending.trigger === 'thinking' ? '#efa133' : 'var(--amber)'} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: 'monospace', fontSize: 9, color: proactivePending.trigger === 'thinking' ? '#efa133' : 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 2 }}>
               {proactivePending.trigger === 'thinking' ? 'ROGER IS THINKING' : `ROGER HAS A MESSAGE · ${proactivePending.trigger.toUpperCase()}`}
@@ -2418,9 +2419,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               color: incomingRelay.priority === 'emergency' ? '#ef4444'
                 : incomingRelay.priority === 'urgent' ? 'var(--amber)' : '#3b82f6',
             }}>
-              {incomingRelay.priority === 'emergency' ? '🚨 EMERGENCY TRANSMISSION'
-               : incomingRelay.priority === 'urgent'  ? '⚡ URGENT MESSAGE'
-               : '📨 INCOMING TRANSMISSION'}
+              {incomingRelay.priority === 'emergency' ? 'EMERGENCY TRANSMISSION'
+               : incomingRelay.priority === 'urgent'  ? 'URGENT MESSAGE'
+               : 'INCOMING TRANSMISSION'}
             </span>
             <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)' }}>
               {Math.floor((Date.now() - new Date(incomingRelay.created_at).getTime()) / 60000)}m ago
@@ -2439,7 +2440,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 letterSpacing: '0.12em', cursor: 'pointer',
                 background: 'rgba(59,130,246,0.12)', border: '1px solid #3b82f6', color: '#3b82f6',
               }}>
-              🎙 REPLY NOW
+              REPLY NOW
             </button>
             <button
               onClick={async () => { await deferRelayMessage(incomingRelay.id); setIncomingRelay(null); }}
@@ -2457,7 +2458,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 letterSpacing: '0.12em', cursor: 'pointer',
                 background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)',
               }}>
-              ✓ READ
+              READ
             </button>
           </div>
         </div>
@@ -2478,7 +2479,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: '#6366f1' }}>
-                📡 INCOMING TUNE-IN REQUEST
+                INCOMING TUNE-IN REQUEST
               </span>
               <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>
                 {secondsLeft}s
@@ -2504,7 +2505,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                   if (res.ok) { setActiveTuneInSession({ sessionId: res.sessionId, withName: res.withName ?? req.from }); setIncomingTuneInRequest(null); }
                 }}
                 style={{ flex: 1, padding: '9px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(99,102,241,0.15)', border: '1px solid #6366f1', color: '#6366f1', borderRadius: 3 }}>
-                ✅ ACCEPT
+                ACCEPT
               </button>
               <button
                 onClick={async () => {
@@ -2519,7 +2520,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                   setIncomingTuneInRequest(null);
                 }}
                 style={{ padding: '9px 16px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', borderRadius: 3 }}>
-                ✕ DECLINE
+                DECLINE
               </button>
             </div>
           </div>
@@ -2538,7 +2539,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }}>
           <div>
             <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#10b981', marginBottom: 4 }}>
-              📡 LIVE SESSION — ROGER LISTENING
+              LIVE SESSION — ROGER LISTENING
             </div>
             <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
               {activeTuneInSession.withName}
@@ -2589,7 +2590,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#a855f7', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#a855f7', animation: 'pulse 1.2s infinite' }} />
-              🎙️ AMBIENT LISTENING ACTIVE
+              AMBIENT LISTENING ACTIVE
             </div>
             {ambientLastChunk && (
               <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -2637,7 +2638,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#ef4444', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#ef4444', animation: 'pulse 0.9s infinite' }} />
-              📋 RECORDING: {meetingTitle || 'MEETING'}
+              RECORDING: {meetingTitle || 'MEETING'}
             </div>
             <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', display: 'flex', gap: 14 }}>
               <span>⏱ {Math.floor(meetingElapsed / 60)}:{String(meetingElapsed % 60).padStart(2, '0')}</span>
@@ -2669,7 +2670,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           borderRadius: 4,
         }}>
           <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--amber)', marginBottom: 8 }}>
-            💾 SAVE CONTACT — {pendingContactSave.callsign}
+            SAVE CONTACT — {pendingContactSave.callsign}
           </div>
           <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
             What should Roger call this person?
@@ -2713,7 +2714,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           borderRadius: 4,
         }}>
           <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--green)', marginBottom: 8, fontWeight: 700 }}>
-            ✅ ROGER AWAITING CONFIRMATION
+            ROGER AWAITING CONFIRMATION
           </div>
           <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.55 }}>
             {pendingAction.label}
@@ -2722,12 +2723,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             <button
               onClick={confirmPendingAction}
               style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(74,222,128,0.12)', border: '1px solid var(--green)', color: 'var(--green)' }}>
-              ✓ CONFIRM
+              CONFIRM
             </button>
             <button
               onClick={cancelPendingAction}
               style={{ padding: '8px 16px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-              ✕ CANCEL
+              CANCEL
             </button>
           </div>
         </div>
@@ -2743,7 +2744,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           borderRadius: 4,
         }}>
           <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#a78bfa', marginBottom: 8, fontWeight: 700 }}>
-            🔤 NAME CONFIRMATION
+            NAME CONFIRMATION
           </div>
           <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.55 }}>
             Roger heard: <strong style={{ letterSpacing: '0.1em' }}>{pendingNameConfirm.name.toUpperCase().split('').join(' · ')}</strong> — is that correct?
@@ -2752,12 +2753,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             <button
               onClick={() => { setPendingNameConfirm(null); const m = 'Name confirmed. Over.'; speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }); }}
               style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(167,139,250,0.12)', border: '1px solid #a78bfa', color: '#a78bfa' }}>
-              ✓ CORRECT
+              CORRECT
             </button>
             <button
               onClick={() => { setPendingNameConfirm(null); const m = 'Please say the name again. Over.'; speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }); }}
               style={{ padding: '8px 16px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-              ✕ WRONG
+              WRONG
             </button>
           </div>
         </div>
@@ -2785,7 +2786,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700 }}>
-              ⚡ ROGER NEEDS CLARIFICATION
+              ROGER NEEDS CLARIFICATION
               {pendingClarification && pendingClarification.attempt > 1
                 ? ` (ATTEMPT ${pendingClarification.attempt}/${2})`
                 : ''}
@@ -2852,7 +2853,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 letterSpacing: '0.12em', cursor: 'pointer',
                 background: 'rgba(212,160,68,0.1)', border: '1px solid var(--amber)', color: 'var(--amber)',
               }}>
-              🎙 ANSWER NOW
+              ANSWER NOW
             </button>
             <button
               onClick={() => {
@@ -2876,7 +2877,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       {activeSurface && (
         <div style={{ margin: '12px 16px 0', padding: '14px 16px', background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: 2 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.15em' }}>🎙 ROGER · PROACTIVE</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.15em' }}>ROGER · PROACTIVE</span>
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>Auto-surfaced</span>
           </div>
           <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: '0 0 12px', lineHeight: 1.5 }}>{activeSurface.content}</p>
@@ -2901,7 +2902,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#818cf8', animation: 'pulse 1.5s ease-in-out infinite' }} />
           <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.12em', flex: 1 }}>
-            📚 LEARNING MODE — {deepDiveState.topic}
+            LEARNING MODE — {deepDiveState.topic}
           </span>
           <button
             onClick={() => setDeepDiveState(null)}
@@ -2963,7 +2964,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                   borderRadius: 6,
                 }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 8, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-                    🌐 TRANSLATION {msg.translationTargetLang ? `(${msg.translationTargetLang.toUpperCase()})` : ''}
+                    TRANSLATION {msg.translationTargetLang ? `(${msg.translationTargetLang.toUpperCase()})` : ''}
                   </div>
                   {msg.translationSource && (
                     <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, opacity: 0.6 }}>
@@ -2991,7 +2992,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(74,222,128,0.07)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
                   >
-                    <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>📰 {article.source} · {new Date(article.publishedAt).toLocaleDateString()}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>{article.source} · {new Date(article.publishedAt).toLocaleDateString()}</div>
                     <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.4 }}>{article.title}</div>
                     {article.description && (
                       <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{article.description}</div>
@@ -3027,7 +3028,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                     onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.20)'; e.currentTarget.style.borderColor = '#818cf8'; }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.10)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)'; }}
                   >
-                    📖 Tell Me More
+                    Tell Me More
                   </button>
                 )}
 
@@ -3035,7 +3036,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 {msg.deepDiveDepth === 2 && (
                   <div style={{ padding: '10px 14px', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.25)', display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#818cf8', lineHeight: 1.4 }}>
-                      🔍 This is getting thorough. Want a full deep dive with sub-topics?
+                      This is getting thorough. Want a full deep dive with sub-topics?
                     </span>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
@@ -3050,11 +3051,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                           setPttState('processing');
                         }}
                         style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.4)', color: '#818cf8' }}
-                      >🔍 Yes, Deep Dive</button>
+                      >Yes, Deep Dive</button>
                       <button
                         onClick={() => setDeepDiveState(null)}
                         style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}
-                      >✓ That's Enough</button>
+                      >That's Enough</button>
                     </div>
                   </div>
                 )}
@@ -3066,7 +3067,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                     {msg.deepDiveDepth >= 4 && (
                       <div style={{ padding: '10px 14px', background: 'rgba(20,184,166,0.06)', border: '1px solid rgba(20,184,166,0.25)', display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#14b8a6', lineHeight: 1.4 }}>
-                          📚 That's a thorough briefing. Save to your Personal Encyclopedia?
+                          That's a thorough briefing. Save to your Personal Encyclopedia?
                         </span>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button
@@ -3094,11 +3095,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                               setDeepDiveState(null);
                             }}
                             style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(20,184,166,0.12)', border: '1px solid rgba(20,184,166,0.4)', color: '#14b8a6' }}
-                          >📚 Save to Encyclopedia</button>
+                          >Save to Encyclopedia</button>
                           <button
                             onClick={() => setDeepDiveState(null)}
                             style={{ flex: 1, padding: '6px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}
-                          >✕ Skip</button>
+                          >Skip</button>
                         </div>
                       </div>
                     )}
@@ -3118,7 +3119,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                       style={{ padding: '6px 14px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.3)', color: '#818cf8', transition: 'all 150ms', alignSelf: 'flex-start' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.20)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.10)'; }}
-                    >🔍 Keep Going</button>
+                    >Keep Going</button>
 
                     {/* Sub-topic chips */}
                     {msg.subtopics && msg.subtopics.length > 0 && (
@@ -3174,15 +3175,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       {/* Radio chip added alongside existing quick actions */}
       <div style={{ padding: '8px 16px 0', display: 'flex', gap: 6, borderTop: '1px solid var(--border-subtle)', overflowX: 'auto', flexShrink: 0 }}>
         {([
-          { label: '📋 My tasks',       prompt: 'What tasks do I have open right now?' },
-          { label: '⏰ Reminders',       prompt: 'What reminders do I have coming up?' },
-          { label: '📅 Calendar',        prompt: "What's on my calendar today?" },
-          { label: '📻 Radio',           prompt: 'Play some popular radio near me.' },
-          { label: '🧠 Memory',          prompt: 'What do you know about me?' },
-          { label: '📰 News',            prompt: 'Give me a quick news briefing.' },
-          { label: '📈 Markets',         prompt: 'Give me a market brief.' },
-          { label: '🚗 Uber',            prompt: 'Book me an Uber ride.' },
-          { label: '📍 Reminders',       prompt: 'Reminders', isNav: true as const, tab: 'reminders' as UserTab },
+          { label: 'My tasks',       prompt: 'What tasks do I have open right now?' },
+          { label: 'Reminders',       prompt: 'What reminders do I have coming up?' },
+          { label: 'Calendar',        prompt: "What's on my calendar today?" },
+          { label: 'Radio',           prompt: 'Play some popular radio near me.' },
+          { label: 'Memory',          prompt: 'What do you know about me?' },
+          { label: 'News',            prompt: 'Give me a quick news briefing.' },
+          { label: 'Markets',         prompt: 'Give me a market brief.' },
+          { label: 'Uber',            prompt: 'Book me an Uber ride.' },
+          { label: 'Reminders',       prompt: 'Reminders', isNav: true as const, tab: 'reminders' as UserTab },
         ] as { label: string; prompt?: string; isNav?: true; tab?: UserTab }[]).map((chip, i) => (
           <button key={i}
             onClick={() => {
@@ -3219,14 +3220,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
         {/* ── Mode Roll Selector (right side of PTT) ── */}
         {(() => {
-          type RollMode = { key: string; emoji: string; label: string; color: string; roger: 'quiet' | 'active' | 'briefing'; talk: boolean; freq?: 'thoughtful' | 'active_talk' | 'always_on' };
+          type RollMode = { key: string; iconName: string; label: string; color: string; roger: 'quiet' | 'active' | 'briefing'; talk: boolean; freq?: 'thoughtful' | 'active_talk' | 'always_on' };
           const modes: RollMode[] = [
-            { key: 'quiet',      emoji: '🔇', label: 'QRT',  color: '#6b7280', roger: 'quiet',    talk: false },
-            { key: 'active',     emoji: '📡', label: 'ACT',  color: '#d4a044', roger: 'active',   talk: false },
-            { key: 'briefing',   emoji: '🎙', label: 'BRF',  color: '#a78bfa', roger: 'briefing', talk: false },
-            { key: 'thoughtful', emoji: '💭', label: 'THK',  color: '#f59e0b', roger: 'active',   talk: true, freq: 'thoughtful' },
-            { key: 'chatty',     emoji: '🗣', label: 'CHT',  color: '#ef8a33', roger: 'active',   talk: true, freq: 'active_talk' },
-            { key: 'always_on',  emoji: '⚡', label: 'MAX',  color: '#ef4444', roger: 'active',   talk: true, freq: 'always_on' },
+            { key: 'quiet',      iconName: 'mode-quiet',     label: 'QRT',  color: '#6b7280', roger: 'quiet',    talk: false },
+            { key: 'active',     iconName: 'mode-active',    label: 'ACT',  color: '#d4a044', roger: 'active',   talk: false },
+            { key: 'briefing',   iconName: 'mode-briefing',  label: 'BRF',  color: '#a78bfa', roger: 'briefing', talk: false },
+            { key: 'thoughtful', iconName: 'mode-thoughtful',label: 'THK',  color: '#f59e0b', roger: 'active',   talk: true, freq: 'thoughtful' },
+            { key: 'chatty',     iconName: 'mode-chatty',    label: 'CHT',  color: '#ef8a33', roger: 'active',   talk: true, freq: 'active_talk' },
+            { key: 'always_on',  iconName: 'mode-always-on', label: 'MAX',  color: '#ef4444', roger: 'active',   talk: true, freq: 'always_on' },
           ];
           let currentIdx = talkativeEnabled
             ? modes.findIndex(m => m.talk && m.freq === talkativeFreq)
@@ -3288,7 +3289,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                   transition: 'all 300ms ease',
                   boxShadow: `0 0 14px ${current.color}18, inset 0 0 8px ${current.color}08`,
                 }}>
-                  <span style={{ fontSize: 16, lineHeight: 1 }}>{current.emoji}</span>
+                  <RogerIcon name={current.iconName} size={16} color={current.color} />
                   <span style={{
                     fontFamily: 'monospace', fontSize: 6,
                     color: current.color, textTransform: 'uppercase',
@@ -3426,65 +3427,85 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           );
         })()}
 
-        {/* Talkative Mode Quick Toggle */}
-        <div
-          id="talkative-quick-toggle"
-          onClick={() => {
-            const next = !talkativeEnabled;
-            setTalkativeEnabled(next);
-            setThinkingPulse(false);
-            supabase
-              .from('user_preferences')
-              .update({ talkative_enabled: next })
-              .eq('user_id', userId)
-              .then(() => {});
-          }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 14px',
-            borderRadius: 20,
-            cursor: 'pointer',
-            border: `1px solid ${talkativeEnabled ? 'rgba(239,161,51,0.4)' : 'rgba(255,255,255,0.08)'}`,
-            background: talkativeEnabled ? 'rgba(239,161,51,0.08)' : 'rgba(255,255,255,0.03)',
-            transition: 'all 300ms ease',
-            userSelect: 'none', WebkitUserSelect: 'none',
-          }}
-        >
-          {/* Animated brain icon */}
-          <span style={{
-            fontSize: 13,
-            filter: talkativeEnabled ? 'drop-shadow(0 0 6px rgba(239,161,51,0.5))' : 'none',
-            transition: 'filter 300ms',
-          }}>🧠</span>
+        {/* ── Talkative Mode Dial (left side, mirrors Mode Roll on right) ── */}
+        {(() => {
+          const talkColor = talkativeEnabled ? '#efa133' : '#6b7280';
+          return (
+            <div
+              id="talkative-quick-toggle"
+              onClick={() => {
+                const next = !talkativeEnabled;
+                setTalkativeEnabled(next);
+                setThinkingPulse(false);
+                supabase
+                  .from('user_preferences')
+                  .update({ talkative_enabled: next })
+                  .eq('user_id', userId)
+                  .then(() => {});
+              }}
+              style={{
+                position: 'absolute',
+                left: 'max(12px, calc(50% - 140px))', top: '50%', transform: 'translateY(-50%)',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                cursor: 'pointer',
+                userSelect: 'none', WebkitUserSelect: 'none',
+              }}
+            >
+              {/* Up arrow hint */}
+              <div style={{
+                width: 0, height: 0,
+                borderLeft: '4px solid transparent', borderRight: '4px solid transparent',
+                borderBottom: `5px solid ${talkColor}30`,
+                transition: 'border-color 300ms',
+              }} />
 
-          <span style={{
-            fontFamily: 'monospace', fontSize: 8,
-            color: talkativeEnabled ? '#efa133' : 'var(--text-muted)',
-            textTransform: 'uppercase', letterSpacing: '0.12em',
-            transition: 'color 300ms',
-          }}>
-            {talkativeEnabled ? 'Thinking' : 'Silent'}
-          </span>
+              {/* Dial circle */}
+              <div style={{
+                width: 48, height: 48,
+                borderRadius: '50%',
+                border: `1.5px solid ${talkColor}60`,
+                background: `${talkColor}10`,
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: 1,
+                transition: 'all 300ms ease',
+                boxShadow: talkativeEnabled
+                  ? `0 0 14px ${talkColor}30, inset 0 0 8px ${talkColor}12`
+                  : `0 0 14px ${talkColor}18, inset 0 0 8px ${talkColor}08`,
+                animation: talkativeEnabled ? 'thinkingPulse 2.5s ease-in-out infinite' : 'none',
+              }}>
+                <span style={{
+                  fontSize: 16, lineHeight: 1,
+                  filter: talkativeEnabled ? `drop-shadow(0 0 6px ${talkColor}80)` : 'none',
+                  transition: 'filter 300ms',
+                }}>AI</span>
+                <span style={{
+                  fontFamily: 'monospace', fontSize: 6,
+                  color: talkColor, textTransform: 'uppercase',
+                  letterSpacing: '0.1em', fontWeight: 700,
+                  lineHeight: 1,
+                }}>{talkativeEnabled ? 'ON' : 'OFF'}</span>
+              </div>
 
-          {/* Toggle pill */}
-          <div style={{
-            width: 28, height: 14,
-            borderRadius: 7,
-            background: talkativeEnabled ? 'rgba(239,161,51,0.35)' : 'rgba(255,255,255,0.1)',
-            position: 'relative',
-            transition: 'background 300ms',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 2, left: talkativeEnabled ? 14 : 2,
-              width: 10, height: 10,
-              borderRadius: '50%',
-              background: talkativeEnabled ? '#efa133' : 'rgba(255,255,255,0.3)',
-              transition: 'left 300ms cubic-bezier(0.4, 0, 0.2, 1), background 300ms',
-              boxShadow: talkativeEnabled ? '0 0 8px rgba(239,161,51,0.5)' : 'none',
-            }} />
-          </div>
-        </div>
+              {/* Down arrow hint */}
+              <div style={{
+                width: 0, height: 0,
+                borderLeft: '4px solid transparent', borderRight: '4px solid transparent',
+                borderTop: `5px solid ${talkColor}30`,
+                transition: 'border-color 300ms',
+              }} />
+
+              {/* Label below */}
+              <span style={{
+                fontFamily: 'monospace', fontSize: 7,
+                color: `${talkColor}90`,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+                marginTop: 1,
+              }}>
+                {talkativeEnabled ? 'Think' : 'Silent'}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Sonar keyframe */}

@@ -387,22 +387,22 @@ export default function Onboarding({ userId, onComplete }: Props) {
           {/* Context chips row */}
           <div style={{ padding: '10px 16px', display: 'flex', flexWrap: 'wrap', gap: 6, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
             {answers.location_base && (
-              <span style={chipStyle}>📍 {answers.location_base}</span>
+              <span style={chipStyle}>{answers.location_base}</span>
             )}
             {answers.work_schedule && (
-              <span style={chipStyle}>🕘 {answers.work_schedule}</span>
+              <span style={chipStyle}>{answers.work_schedule}</span>
             )}
             {answers.comm_style && (
-              <span style={chipStyle}>💬 {answers.comm_style}</span>
+              <span style={chipStyle}>{answers.comm_style}</span>
             )}
             {answers.tools_used?.map(t => (
-              <span key={t} style={chipStyle}>⚙️ {t}</span>
+              <span key={t} style={chipStyle}>{t}</span>
             ))}
             {answers.key_priorities?.map(p => (
               <span key={p} style={{ ...chipStyle, borderColor: 'rgba(96,165,250,0.3)', color: '#93c5fd' }}>▸ {p}</span>
             ))}
             {answers.islamic_mode && (
-              <span style={{ ...chipStyle, borderColor: 'rgba(16,185,129,0.4)', color: '#34d399', background: 'rgba(16,185,129,0.06)' }}>☽ Islamic Mode</span>
+              <span style={{ ...chipStyle, borderColor: 'rgba(16,185,129,0.4)', color: '#34d399', background: 'rgba(16,185,129,0.06)' }}>Islamic Mode</span>
             )}
           </div>
 

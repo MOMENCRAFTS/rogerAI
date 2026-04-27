@@ -158,7 +158,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
       // Orientation is informational — any spoken response means the user
       // engaged with the content. Accept it and advance.
       if (lower.length >= 2) {
-        flash('✓ Copy that');
+        flash('Copy that');
         setTimeout(() => goNext(), 600);
       } else {
         // Near-empty transcript — mic noise
@@ -359,7 +359,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
               {current.tip && (
                 <div style={{ padding: '8px 12px', background: 'rgba(212,160,68,0.05)', border: '1px solid rgba(212,160,68,0.15)' }}>
                   <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'rgba(212,160,68,0.7)', margin: 0, lineHeight: 1.5 }}>
-                    💡 {current.tip}
+                    TIP: {current.tip}
                   </p>
                 </div>
               )}
@@ -441,7 +441,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                       }}
                     >
-                      ✓ Continue →
+                      Continue →
                     </button>
                   )}
                 </motion.div>

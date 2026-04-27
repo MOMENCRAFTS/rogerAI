@@ -1757,3 +1757,136 @@ export async function deleteEncyclopediaEntry(id: string): Promise<void> {
   const { error } = await supabase.from('user_encyclopedia').delete().eq('id', id);
   if (error) throw error;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE FLAGS — Full CRUD for admin panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DbFeatureFlag = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  rollout_pct: number;
+  environment: 'development' | 'staging' | 'production';
+  target_users: string[] | null;
+  category: 'general' | 'ui' | 'ai' | 'hardware' | 'experiment';
+  created_by: string | null;
+  updated_at: string;
+  created_at: string;
+};
+
+export async function fetchFeatureFlags(): Promise<DbFeatureFlag[]> {
+  const { data, error } = await supabase.from('feature_flags').select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function updateFeatureFlag(
+  id: string, patch: Partial<Pick<DbFeatureFlag, 'enabled' | 'rollout_pct' | 'environment' | 'target_users' | 'name' | 'description' | 'category'>>
+): Promise<void> {
+  const { error } = await supabase.from('feature_flags')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function insertFeatureFlag(
+  flag: Pick<DbFeatureFlag, 'key' | 'name' | 'description' | 'enabled' | 'rollout_pct' | 'environment' | 'category'>
+): Promise<DbFeatureFlag> {
+  const { data, error } = await supabase.from('feature_flags')
+    .insert({ ...flag, created_by: 'admin' })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteFeatureFlag(id: string): Promise<void> {
+  const { error } = await supabase.from('feature_flags').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG — Read-only admin action journal
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DbAuditLogEntry = {
+  id: string;
+  admin_id: string;
+  admin_email: string | null;
+  module: string;
+  action: string;
+  target_id: string | null;
+  target_label: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  reason: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+};
+
+export async function fetchAuditLog(
+  opts?: { module?: string; limit?: number }
+): Promise<DbAuditLogEntry[]> {
+  let q = supabase.from('admin_audit_log').select('*')
+    .order('created_at', { ascending: false })
+    .limit(opts?.limit ?? 200);
+  if (opts?.module) q = q.eq('module', opts.module);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function insertAuditLogEntry(
+  entry: Pick<DbAuditLogEntry, 'admin_id' | 'admin_email' | 'module' | 'action' | 'target_id' | 'target_label' | 'before_state' | 'after_state' | 'reason'>
+): Promise<void> {
+  await supabase.from('admin_audit_log').insert(entry);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER REGISTRY — Admin list of all users with profile data
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DbUserProfile = {
+  user_id: string;
+  display_name: string | null;
+  roger_mode: string;
+  language: string;
+  timezone: string;
+  onboarding_complete: boolean;
+  islamic_mode: boolean;
+  tour_seen: boolean;
+  updated_at: string;
+};
+
+/** Fetch all user_preferences rows (admin only — RLS disabled on this table) */
+export async function fetchAllUserProfiles(): Promise<DbUserProfile[]> {
+  const { data, error } = await supabase.from('user_preferences')
+    .select('user_id, display_name, roger_mode, language, timezone, onboarding_complete, islamic_mode, tour_seen, updated_at')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Fetch per-user stats: memory count, reminder count, task count, transmission count */
+export async function fetchUserStats(userId: string): Promise<{
+  memories: number; reminders: number; tasks: number; transmissions: number; conversations: number;
+}> {
+  const [mem, rem, tsk, tx, conv] = await Promise.all([
+    supabase.from('memories').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+    supabase.from('reminders').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+    supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+    supabase.from('transmissions').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+    supabase.from('conversation_history').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+  ]);
+  return {
+    memories: mem.count ?? 0,
+    reminders: rem.count ?? 0,
+    tasks: tsk.count ?? 0,
+    transmissions: tx.count ?? 0,
+    conversations: conv.count ?? 0,
+  };
+}

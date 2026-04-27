@@ -296,8 +296,8 @@ export default function SubscriptionView({ userId }: Props) {
       {/* Footer note */}
       <div style={{ padding: '12px 14px', border: '1px solid rgba(212,160,68,0.15)', background: 'rgba(212,160,68,0.03)' }}>
         <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
-          🛡 <span style={{ color: 'var(--amber)' }}>Islamic Mode</span> — Prayer times, Qibla, Quran — always free.<br />
-          💳 Stripe payment integration coming soon. All upgrades applied instantly.
+          <span style={{ color: 'var(--amber)' }}>Islamic Mode</span> — Prayer times, Qibla, Quran — always free.<br />
+          Stripe payment integration coming soon. All upgrades applied instantly.
         </p>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Brain, Zap, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { RogerIcon } from '../components/icons';
 import HelpBadge from '../components/shared/HelpBadge';
 import { COMMAND_PROMPT, SURFACE_PROMPT, PRIORITY_PROMPT } from '../lib/openai';
 import { getVocabPrompt, getDrillPrompt, getConversationPrompt, getProgressPrompt } from '../lib/academyPrompts';
@@ -9,11 +10,11 @@ import type { ServiceNode } from '../lib/serviceGraph';
 
 // ─── Tab definition ───────────────────────────────────────────────────────────
 const TABS = [
-  { key: 'prompt',   label: '🧠 COMMAND PROMPT', tooltip: 'Core GPT-5.5 system prompt' },
-  { key: 'edge',     label: '⚡ EDGE FUNCTIONS', tooltip: 'Server-side AI functions' },
-  { key: 'services', label: '🔌 SERVICE GRAPH',  tooltip: 'Live service health' },
-  { key: 'intents',  label: '🎯 INTENT MAP',     tooltip: 'Dispatch handler registry' },
-  { key: 'aux',      label: '📚 AUX PROMPTS',    tooltip: 'Secondary AI prompts' },
+  { key: 'prompt',   label: 'COMMAND PROMPT', iconName: 'brain', tooltip: 'Core GPT-5.5 system prompt' },
+  { key: 'edge',     label: 'EDGE FUNCTIONS', iconName: 'mode-always-on', tooltip: 'Server-side AI functions' },
+  { key: 'services', label: 'SERVICE GRAPH',  iconName: 'svc-supabase', tooltip: 'Live service health' },
+  { key: 'intents',  label: 'INTENT MAP',     iconName: 'badge-cadet', tooltip: 'Dispatch handler registry' },
+  { key: 'aux',      label: 'AUX PROMPTS',    iconName: 'memory', tooltip: 'Secondary AI prompts' },
 ] as const;
 type TabKey = typeof TABS[number]['key'];
 
@@ -39,12 +40,12 @@ function parsePromptSections(prompt: string) {
   return sections;
 }
 
-const STATUS_STYLE: Record<string, { color: string; label: string; emoji: string }> = {
-  healthy:      { color: 'var(--green)', label: 'HEALTHY',      emoji: '✅' },
-  degraded:     { color: 'var(--amber)', label: 'DEGRADED',     emoji: '⚠️' },
-  down:         { color: 'var(--rust)',  label: 'DOWN',          emoji: '❌' },
-  unconfigured: { color: 'var(--text-muted)', label: 'NOT SET', emoji: '⚪' },
-  unknown:      { color: 'var(--text-muted)', label: 'UNKNOWN', emoji: '❓' },
+const STATUS_STYLE: Record<string, { color: string; label: string; iconName: string }> = {
+  healthy:      { color: 'var(--green)', label: 'HEALTHY',      iconName: 'status-healthy' },
+  degraded:     { color: 'var(--amber)', label: 'DEGRADED',     iconName: 'status-degraded' },
+  down:         { color: 'var(--rust)',  label: 'DOWN',          iconName: 'status-down' },
+  unconfigured: { color: 'var(--text-muted)', label: 'NOT SET', iconName: 'status-unconfigured' },
+  unknown:      { color: 'var(--text-muted)', label: 'UNKNOWN', iconName: 'status-unknown' },
 };
 
 const EDGE_FNS: { name: string; category: string; desc: string }[] = [
@@ -207,10 +208,10 @@ function ServiceTab() {
             <div key={node.id} className="border p-3 space-y-2" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 16 }}>{node.emoji}</span>
+                  <RogerIcon name={node.iconName ?? 'mode-active'} size={16} color={st.color} />
                   <span className="font-mono text-mini font-bold" style={{ color: 'var(--text-primary)' }}>{node.displayName}</span>
                 </div>
-                <span className="font-mono text-micro" style={{ color: st.color }}>{st.emoji}</span>
+                <RogerIcon name={st.iconName} size={12} color={st.color} />
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-micro px-1.5 py-0.5 border" style={{ borderColor: st.color, color: st.color, background: 'transparent' }}>{st.label}</span>

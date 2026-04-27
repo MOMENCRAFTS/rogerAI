@@ -276,7 +276,7 @@ export default function AcademyView({ userId }: Props) {
                 >
                   <span style={{ fontSize: 16 }}>{getLocaleFlag(l)}</span>
                   <span style={{ flex: 1 }}>{getLocaleName(l)}</span>
-                  {l === targetLocale && <span style={{ fontSize: 10, color: 'var(--amber)' }}>✓ ACTIVE</span>}
+                  {l === targetLocale && <span style={{ fontSize: 10, color: 'var(--amber)' }}>ACTIVE</span>}
                 </button>
               ))}
             </div>
@@ -331,7 +331,7 @@ export default function AcademyView({ userId }: Props) {
           }}
         >
           <BookOpen size={20} color="#f59e0b" />
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>🔤 VOCAB</span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>VOCAB</span>
           <span style={{ fontSize: 10, opacity: 0.5 }}>{totalWords}/200</span>
         </button>
 
@@ -347,7 +347,7 @@ export default function AcademyView({ userId }: Props) {
           }}
         >
           <Mic size={20} color="#3b82f6" />
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>🎙 DRILL</span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>DRILL</span>
           <span style={{ fontSize: 10, opacity: 0.5 }}>Streak: {currentStreak}</span>
         </button>
 
@@ -363,7 +363,7 @@ export default function AcademyView({ userId }: Props) {
           }}
         >
           <MessageCircle size={20} color="#8b5cf6" />
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>💬 CONV</span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>CONV</span>
           <span style={{ fontSize: 10, opacity: 0.5 }}>Level {Math.min(5, Math.floor(totalWords / 50) + 1)}</span>
         </button>
       </div>
@@ -384,9 +384,9 @@ export default function AcademyView({ userId }: Props) {
           <Zap size={16} color="#10b981" />
           <div>
             <div style={{ fontSize: 13, fontWeight: 600 }}>
-              {mode === 'vocab' ? '🔤 Vocabulary Mode Active' :
-               mode === 'drill' ? '🎙 Drill Mode Active' :
-               '💬 Conversation Mode Active'}
+              {mode === 'vocab' ? 'Vocabulary Mode Active' :
+               mode === 'drill' ? 'Drill Mode Active' :
+               'Conversation Mode Active'}
             </div>
             <div style={{ fontSize: 11, opacity: 0.5, marginTop: 2 }}>
               Hold PTT on the Home tab to {mode === 'vocab' ? 'learn new words' : mode === 'drill' ? 'start a quiz' : 'practice conversation'}
@@ -471,7 +471,7 @@ export default function AcademyView({ userId }: Props) {
         <div>
           <Award size={16} color="#60a5fa" style={{ marginBottom: 4 }} />
           <div style={{ fontSize: 18, fontWeight: 700 }}>{streak?.streak_freezes ?? 0}</div>
-          <div style={{ fontSize: 10, opacity: 0.4 }}>❄️ Freezes</div>
+          <div style={{ fontSize: 10, opacity: 0.4 }}>Freezes</div>
         </div>
       </div>
 
@@ -492,8 +492,8 @@ export default function AcademyView({ userId }: Props) {
             {newWords > 0 && <div style={{ flex: newWords, background: 'rgba(255,255,255,0.15)', borderRadius: 3 }} />}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-            <span style={{ fontSize: 10, color: '#10b981' }}>✓ {masteredCount} mastered</span>
-            <span style={{ fontSize: 10, color: '#3b82f6' }}>⚡ {inProgress} learning</span>
+            <span style={{ fontSize: 10, color: '#10b981' }}>{masteredCount} mastered</span>
+            <span style={{ fontSize: 10, color: '#3b82f6' }}>{inProgress} learning</span>
             <span style={{ fontSize: 10, opacity: 0.4 }}>● {newWords} new</span>
           </div>
         </div>
@@ -548,7 +548,7 @@ export default function AcademyView({ userId }: Props) {
                   {badge.title}
                 </span>
                 <span style={{ fontSize: 7, opacity: earned ? 0.5 : 0.3, fontWeight: 600 }}>
-                  {earned ? '✓ EARNED' : `🔒 ${badge.day}d`}
+                  {earned ? 'EARNED' : `${badge.day}d`}
                 </span>
               </div>
             );

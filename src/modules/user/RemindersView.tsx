@@ -100,7 +100,7 @@ export default function RemindersView({ userId }: { userId: string }) {
   const FILTERS: { key: Filter; label: string }[] = [
     { key: 'all',       label: 'All' },
     { key: 'pending',   label: 'Pending' },
-    { key: 'geo',       label: `📍 Geo${geoWatching > 0 ? ` (${geoWatching})` : ''}` },
+    { key: 'geo',       label: `Geo${geoWatching > 0 ? ` (${geoWatching})` : ''}` },
     { key: 'done',      label: 'Done' },
     { key: 'dismissed', label: 'Dismissed' },
   ];
@@ -224,7 +224,7 @@ export default function RemindersView({ userId }: { userId: string }) {
               {/* Status + time row */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: r.status === 'done' ? 'var(--green)' : r.status === 'dismissed' ? 'var(--text-muted)' : isOverdue ? '#f87171' : 'var(--amber)' }}>
-                  {isOverdue ? '⚠ OVERDUE' : r.status}
+                  {isOverdue ? 'OVERDUE' : r.status}
                 </span>
                 <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>
                   {new Date(r.created_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -276,14 +276,14 @@ export default function RemindersView({ userId }: { userId: string }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: '#4ade80', animation: 'geo-pulse 1.8s ease-in-out infinite' }} />
                   <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#4ade80', padding: '2px 7px', border: '1px solid rgba(74,222,128,0.4)', background: 'rgba(74,222,128,0.08)' }}>
-                    📍 WATCHING · {r.due_location}
+                    WATCHING · {r.due_location}
                   </span>
                 </div>
               )}
               {isGeoTriggered && (
                 <div style={{ marginBottom: 8 }}>
                   <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)' }}>
-                    ✓ GEO FIRED · {r.due_location}
+                    GEO FIRED · {r.due_location}
                   </span>
                 </div>
               )}

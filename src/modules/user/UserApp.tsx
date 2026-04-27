@@ -219,7 +219,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
             <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', marginBottom: 20 }}>
               {confirm === 'onboarding' && 'Reset onboarding? Roger will re-introduce himself.'}
               {confirm === 'memory'     && 'Flush all memory? This cannot be undone.'}
-              {confirm === 'all'        && '⚠ Factory reset? All data will be erased.'}
+              {confirm === 'all'        && 'Factory reset? All data will be erased.'}
             </p>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => handleFlush(confirm)} style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: confirm === 'all' ? 'rgba(239,68,68,0.15)' : 'rgba(212,160,68,0.1)', border: `1px solid ${confirm === 'all' ? 'rgba(239,68,68,0.4)' : 'rgba(212,160,68,0.3)'}`, color: confirm === 'all' ? '#f87171' : 'var(--amber)', cursor: 'pointer' }}>
@@ -237,7 +237,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       {isAdmin && (
         <div style={{ background: 'rgba(212,160,68,0.07)', borderBottom: '1px solid rgba(212,160,68,0.2)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.18em', color: 'rgba(212,160,68,0.7)', textTransform: 'uppercase', flex: 1, minWidth: 0 }}>
-            ⚠ ADMIN · {userEmail}{displayName ? ` · ${displayName}` : ''}
+            ADMIN · {userEmail}{displayName ? ` · ${displayName}` : ''}
           </span>
 
           <button disabled={!!flushing} onClick={() => setConfirm('onboarding')} title="Reset onboarding"

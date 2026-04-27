@@ -315,7 +315,7 @@ export default function UserAnalytics({ userId }: { userId: string }) {
       {stats.academy && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-            <span style={{ fontSize: 11, opacity: 0.8 }}>🎓</span>
+            <span style={{ fontSize: 11, opacity: 0.8 }}></span>
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
               Language Academy
             </span>
@@ -345,7 +345,7 @@ export default function UserAnalytics({ userId }: { userId: string }) {
       {stats.academy && stats.vocabDistribution.some(n => n > 0) && (
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-            <span style={{ fontSize: 11, opacity: 0.8 }}>📊</span>
+            <span style={{ fontSize: 11, opacity: 0.8 }}></span>
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
               Word Mastery Distribution
             </span>
@@ -377,8 +377,8 @@ export default function UserAnalytics({ userId }: { userId: string }) {
           })}
           {/* Freezes & milestone info */}
           <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center', opacity: 0.5, display: 'flex', justifyContent: 'center', gap: 12 }}>
-            <span>❄️ {stats.academy.streak_freezes} freeze{stats.academy.streak_freezes !== 1 ? 's' : ''}</span>
-            {stats.academy.last_milestone > 0 && <span>🏆 {stats.academy.last_milestone}d milestone</span>}
+            <span>{stats.academy.streak_freezes} freeze{stats.academy.streak_freezes !== 1 ? 's' : ''}</span>
+            {stats.academy.last_milestone > 0 && <span>{stats.academy.last_milestone}d milestone</span>}
           </div>
         </div>
       )}

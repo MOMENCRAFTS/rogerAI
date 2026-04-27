@@ -287,8 +287,11 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
     <div style={{ position:'fixed',inset:0,zIndex:9999,background:'radial-gradient(ellipse at 50% 30%,rgba(20,20,25,1) 0%,rgba(8,8,12,1) 100%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',overflow:'hidden' }}>
       {/* Scanlines */}
       <div style={{ position:'absolute',inset:0,opacity:.03,backgroundImage:'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(212,160,68,.3) 2px,rgba(212,160,68,.3) 4px)',pointerEvents:'none' }} />
-      {/* Badge */}
-      <div style={{ position:'absolute',top:48,left:'50%',transform:'translateX(-50%)',...mono(9,'rgba(212,160,68,.5)','.25em'),animation:'gfi .8s ease-out' }}>▸ ROGER AI</div>
+      {/* Mascot + Badge */}
+      <div style={{ position:'absolute',top:36,left:'50%',transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:8,animation:'gfi .8s ease-out' }}>
+        <img src="/mascot.png" alt="Roger AI" style={{ width:56,height:56,objectFit:'contain',mixBlendMode:'screen',filter:'drop-shadow(0 0 14px rgba(212,160,68,0.4))',animation:'glp 4s ease-in-out infinite' }} />
+        <div style={mono(8,'rgba(212,160,68,.5)','.25em')}>▸ ROGER AI</div>
+      </div>
 
       {/* ═══ NODE 1: Say your language ═══ */}
       {step === 'node1' && (

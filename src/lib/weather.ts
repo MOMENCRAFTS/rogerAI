@@ -11,38 +11,39 @@ export interface WeatherData {
   description: string;  // e.g. "Clear skies"
   humidity:    number;  // 0–100
   windKph:     number;
-  icon:        string;  // emoji
+  icon:        string;  // emoji (kept for GPT context injection)
+  iconName:    string;  // RogerIcon name for UI rendering
   feelsLike:   string;  // "Hot" | "Warm" | "Comfortable" | "Cool" | "Cold"
   city?:       string;  // passed through from caller if available
 }
 
-// WMO Weather Interpretation Codes → description + emoji
+// WMO Weather Interpretation Codes → description + emoji + iconName
 // https://open-meteo.com/en/docs#weathervariables
-const WMO_MAP: Record<number, { description: string; icon: string }> = {
-  0:  { description: 'Clear skies',         icon: '☀️' },
-  1:  { description: 'Mainly clear',        icon: '🌤️' },
-  2:  { description: 'Partly cloudy',       icon: '⛅' },
-  3:  { description: 'Overcast',            icon: '☁️' },
-  45: { description: 'Foggy',               icon: '🌫️' },
-  48: { description: 'Icy fog',             icon: '🌫️' },
-  51: { description: 'Light drizzle',       icon: '🌦️' },
-  53: { description: 'Drizzle',             icon: '🌦️' },
-  55: { description: 'Heavy drizzle',       icon: '🌧️' },
-  61: { description: 'Light rain',          icon: '🌧️' },
-  63: { description: 'Moderate rain',       icon: '🌧️' },
-  65: { description: 'Heavy rain',          icon: '🌧️' },
-  71: { description: 'Light snow',          icon: '🌨️' },
-  73: { description: 'Moderate snow',       icon: '❄️' },
-  75: { description: 'Heavy snowfall',      icon: '❄️' },
-  77: { description: 'Snow grains',         icon: '🌨️' },
-  80: { description: 'Light showers',       icon: '🌦️' },
-  81: { description: 'Moderate showers',    icon: '🌧️' },
-  82: { description: 'Violent showers',     icon: '⛈️' },
-  85: { description: 'Snow showers',        icon: '🌨️' },
-  86: { description: 'Heavy snow showers',  icon: '❄️' },
-  95: { description: 'Thunderstorm',        icon: '⛈️' },
-  96: { description: 'Thunderstorm + hail', icon: '⛈️' },
-  99: { description: 'Thunderstorm + hail', icon: '⛈️' },
+const WMO_MAP: Record<number, { description: string; icon: string; iconName: string }> = {
+  0:  { description: 'Clear skies',         icon: '☀️',  iconName: 'weather-clear' },
+  1:  { description: 'Mainly clear',        icon: '🌤️', iconName: 'weather-mostly-clear' },
+  2:  { description: 'Partly cloudy',       icon: '⛅',  iconName: 'weather-partly-cloudy' },
+  3:  { description: 'Overcast',            icon: '☁️',  iconName: 'weather-overcast' },
+  45: { description: 'Foggy',               icon: '🌫️', iconName: 'weather-fog' },
+  48: { description: 'Icy fog',             icon: '🌫️', iconName: 'weather-fog' },
+  51: { description: 'Light drizzle',       icon: '🌦️', iconName: 'weather-drizzle' },
+  53: { description: 'Drizzle',             icon: '🌦️', iconName: 'weather-drizzle' },
+  55: { description: 'Heavy drizzle',       icon: '🌧️', iconName: 'weather-rain' },
+  61: { description: 'Light rain',          icon: '🌧️', iconName: 'weather-rain' },
+  63: { description: 'Moderate rain',       icon: '🌧️', iconName: 'weather-rain' },
+  65: { description: 'Heavy rain',          icon: '🌧️', iconName: 'weather-rain' },
+  71: { description: 'Light snow',          icon: '🌨️', iconName: 'weather-snow-light' },
+  73: { description: 'Moderate snow',       icon: '❄️',  iconName: 'weather-snow' },
+  75: { description: 'Heavy snowfall',      icon: '❄️',  iconName: 'weather-snow' },
+  77: { description: 'Snow grains',         icon: '🌨️', iconName: 'weather-snow-light' },
+  80: { description: 'Light showers',       icon: '🌦️', iconName: 'weather-drizzle' },
+  81: { description: 'Moderate showers',    icon: '🌧️', iconName: 'weather-rain' },
+  82: { description: 'Violent showers',     icon: '⛈️',  iconName: 'weather-storm' },
+  85: { description: 'Snow showers',        icon: '🌨️', iconName: 'weather-snow-light' },
+  86: { description: 'Heavy snow showers',  icon: '❄️',  iconName: 'weather-snow' },
+  95: { description: 'Thunderstorm',        icon: '⛈️',  iconName: 'weather-storm' },
+  96: { description: 'Thunderstorm + hail', icon: '⛈️',  iconName: 'weather-storm' },
+  99: { description: 'Thunderstorm + hail', icon: '⛈️',  iconName: 'weather-storm' },
 };
 
 function getFeelsLike(tempC: number): string {
@@ -98,12 +99,13 @@ export async function fetchWeather(lat: number, lng: number, city?: string): Pro
     const c = data.current;
     if (!c) return null;
 
-    const wmo = WMO_MAP[c.weathercode] ?? { description: 'Unknown conditions', icon: '🌡️' };
+    const wmo = WMO_MAP[c.weathercode] ?? { description: 'Unknown conditions', icon: '🌡️', iconName: 'weather-unknown' };
 
     const result: WeatherData = {
       tempC:       Math.round(c.temperature_2m),
       description: wmo.description,
       icon:        wmo.icon,
+      iconName:    wmo.iconName,
       humidity:    Math.round(c.relative_humidity_2m),
       windKph:     Math.round(c.windspeed_10m),
       feelsLike:   getFeelsLike(c.temperature_2m),

@@ -29,6 +29,9 @@ import SubscriptionMonitor from './modules/SubscriptionMonitor';
 import IslamicModeMonitor from './modules/IslamicModeMonitor';
 import UserApp from './modules/user/UserApp';
 import ApiSettings from './modules/ApiSettings';
+import UserRegistry from './modules/UserRegistry';
+import FeatureFlags from './modules/FeatureFlags';
+import AuditLog from './modules/AuditLog';
 import RichPlaceholder from './components/shared/RichPlaceholder';
 import SplashScreen from './components/SplashScreen';
 import LoginScreen from './components/LoginScreen';
@@ -61,6 +64,9 @@ function ModuleRenderer({ activeModule }: { activeModule: string }) {
     case 'billing':         return <SubscriptionMonitor />;
     case 'islamic_monitor': return <IslamicModeMonitor />;
     case 'ai_brain':        return <AIBrainViewer />;
+    case 'users':           return <UserRegistry />;
+    case 'flags':           return <FeatureFlags />;
+    case 'audit':           return <AuditLog />;
     default: {
       const info = moduleInfoMap[activeModule];
       if (!info) return (
