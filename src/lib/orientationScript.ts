@@ -1,20 +1,22 @@
 /**
  * orientationScript.ts — Roger's interactive orientation chapter data.
  *
- * 10 chapters, each with:
+ * 5 domain-based chapters (consolidated from 13), each with:
  *  - Full TTS speech Roger reads aloud
  *  - Voice example chips shown on screen
  *  - A confirm prompt asking the user to say "understood"
  *  - Optional pro tip
+ *
+ * +1 conditional Islamic Mode chapter for users who opted in.
  */
 
 import {
-  Radio, Brain, CheckSquare, Car, TrendingUp,
-  Calendar, Users, Mic, FileText, Zap, Moon, BookOpen, Contact,
+  Radio, Brain, Car,
+  Calendar, Users, Zap, Moon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export const ORIENTATION_VERSION = 3;
+export const ORIENTATION_VERSION = 4;
 
 export interface OrientationChapter {
   id: string;
@@ -31,254 +33,95 @@ export interface OrientationChapter {
 
 export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
 
-  // ── 01 ── Welcome ─────────────────────────────────────────────────────────
+  // ── 01 ── Welcome + PTT Mastery ─────────────────────────────────────────────
   {
-    id: 'welcome',
+    id: 'welcome-ptt',
     icon: Radio,
     iconColor: '#d4a044',
     chapterLabel: 'Chapter 01',
-    headline: 'I\'m Roger. Your Chief of Staff.',
-    body: 'I\'m a voice-first AI built for executives and high-performers who don\'t have time to type. Press and hold the PTT button — that\'s Push to Talk — speak your command, release, and I\'ll handle the rest. Think of me as a trusted aide who\'s always on standby.',
+    headline: 'I\'m Roger. Voice First.',
+    body: 'I\'m your AI Chief of Staff — built for executives who don\'t have time to type. Everything runs through the PTT button: hold to speak, tap to stop me, double-tap to replay. One button, three powers.',
     rogerSpeech: (name) =>
-      `${name ? `${name}, ` : ''}welcome aboard. I'm Roger — your AI Chief of Staff. Everything in this system is voice-first. You'll use the PTT button at the bottom of the screen. Press and hold to speak, release when done. I process your words, take action, and report back. I don't do small talk — I get things done. Let's walk through what I can do. Say "understood" when you're ready to continue. Over.`,
+      `${name ? `${name}, ` : ''}welcome aboard. I'm Roger — your AI Chief of Staff. Everything here is voice-first. The PTT button at the bottom is your only control. Hold it and speak to give me a command. Tap once to stop me mid-sentence. Double-tap to replay my last message. That's it — hold, tap, double-tap. I don't do small talk — I get things done. Say "understood" when you're ready. Over.`,
     confirmPrompt: 'Say "understood" or tap Continue to proceed.',
     keyExamples: [
-      '"Roger, remind me to call Ahmed at 3pm"',
-      '"Roger, what\'s on my calendar today?"',
-      '"Roger, brief me for my drive"',
+      'HOLD — Record your voice command',
+      'TAP — Stop Roger mid-sentence',
+      'DOUBLE-TAP — Replay last message',
     ],
     tip: 'Hold PTT for at least 0.5 seconds before speaking for best recognition.',
   },
 
-  // ── 02 ── PTT Mastery ───────────────────────────────────────────────────────
+  // ── 02 ── Your Day (Tasks + Calendar + Commute) ─────────────────────────────
   {
-    id: 'ptt-mastery',
-    icon: Radio,
-    iconColor: '#f59e0b',
-    chapterLabel: 'Chapter 02',
-    headline: 'Master the PTT Button.',
-    body: 'The PTT button has three gestures. Tap once to stop Roger mid-sentence. Double-tap to replay his last message. Press and hold to record your voice command. One button, three powers.',
-    rogerSpeech: (name) =>
-      `${name ? `${name}, ` : ''}let me teach you the PTT gestures. If I\'m speaking and you want me to stop \u2014 just tap the button once, quick. Need me to repeat what I just said? Double-tap \u2014 two quick taps \u2014 and I\'ll replay my last message. And to give me a command, press and hold the button, speak, then release. Three gestures, one button: tap to stop, double-tap to replay, hold to talk. Say \"understood\" when ready. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
-      'TAP \u2014 Stop Roger mid-sentence',
-      'DOUBLE-TAP \u2014 Replay last message',
-      'HOLD \u2014 Record your voice command',
-    ],
-    tip: 'Double-tap also works when Roger is idle \u2014 replay his last response any time.',
-  },
-
-  // ── 03 ── Memory ─────────────────────────────────────────────────────────
-  {
-    id: 'memory',
-    icon: Brain,
-    iconColor: '#8b5cf6',
-    chapterLabel: 'Chapter 03',
-    headline: 'I Remember Everything.',
-    body: 'Every conversation I have with you builds a private memory graph — facts about people, places, preferences, and context. The more you use me, the smarter I get about you. High-confidence facts are stored immediately. Lower-confidence ones are held as drafts until confirmed a second time.',
-    rogerSpeech: (name) =>
-      `Every conversation we have trains my memory. ${name ? `I already know your name is ${name}. ` : ''}When you mention that a client prefers morning calls, or that your partner has a birthday next month — I store that. You can ask me to recall anything: "Roger, what do you know about Ahmad?", or "Roger, what's in my memory vault?" I'll surface what's relevant before meetings automatically. Your data is private — only you can access it. Say "understood" when ready. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
-      '"Roger, remember that Ahmad likes direct communication"',
-      '"Roger, what do you know about the Dubai project?"',
-      '"Roger, open my memory vault"',
-      '"Roger, forget that last thing I said"',
-    ],
-    tip: 'Roger grades every fact by confidence. Draft facts (50–74%) become permanent after a second mention.',
-  },
-
-  // ── 04 ── Tasks & Reminders ────────────────────────────────────────────
-  {
-    id: 'tasks',
-    icon: CheckSquare,
-    iconColor: '#22c55e',
-    chapterLabel: 'Chapter 04',
-    headline: 'I Manage Your Workload.',
-    body: 'Tasks and reminders are my core engine. Create them by voice, and I\'ll track deadlines, surface overdue items proactively, and even suggest new tasks based on what you tell me. I can set geo-triggered reminders that fire when you arrive at a location.',
-    rogerSpeech: () =>
-      `Task and reminder management is where I earn my keep. Say "Roger, add a task: finalise Q2 report, high priority" — it's logged instantly. Need a reminder? "Roger, remind me to call the accountant tomorrow at 9am" — done. I'll surface items proactively if they're overdue and you haven't acted on them. I can also trigger reminders by location: "Roger, remind me to pick up dry cleaning when I'm near the mall." Say "understood" to continue. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
-      '"Roger, add task: prepare board slides, priority 9"',
-      '"Roger, remind me to take my medication at 8am daily"',
-      '"Roger, what tasks are due today?"',
-      '"Roger, remind me when I\'m near the office"',
-    ],
-    tip: 'I auto-extract tasks from your natural speech — if you mention a deadline, I\'ll propose a task automatically.',
-  },
-
-  // ── 05 ── Drive & Commute ──────────────────────────────────────────────
-  {
-    id: 'commute',
-    icon: Car,
-    iconColor: '#f97316',
-    chapterLabel: 'Chapter 05',
-    headline: 'I Own Your Drive.',
-    body: 'Drive Mode activates when your speed exceeds 20 km/h. I switch to a hands-free, audio-only interface and brief you on your schedule, weather, and hazards before you leave. The Radar tab shows community-reported speed cameras and road incidents in real time.',
-    rogerSpeech: () =>
-      `When you\'re behind the wheel, I shift into Drive Mode automatically based on your GPS speed. Before you leave, say "Roger, brief me for my drive" and I\'ll give you weather, your first meeting, any pending errands, and road conditions — all spoken, no screen needed. The Radar tab is your community hazard map — speed cameras, accidents, road works reported by other Roger users. You can report hazards hands-free: "Roger, report radar ahead." And if you need a ride, "Roger, book me a car to KAFD" opens Uber pre-filled. Say "understood" to continue. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
-      '"Roger, brief me for my drive"',
-      '"Roger, report speed camera ahead"',
-      '"Roger, where did I park?"',
-      '"Roger, book me a ride to the airport"',
-    ],
-    tip: 'Say "I\'m leaving now" to trigger your full departure brief and switch to drive mode.',
-  },
-
-  // ── 06 ── Intelligence & Briefings ────────────────────────────────────────
-  {
-    id: 'intel',
-    icon: TrendingUp,
-    iconColor: '#06b6d4',
-    chapterLabel: 'Chapter 06',
-    headline: 'I Brief You on the World.',
-    body: 'Live stock quotes, flight tracking, market briefs, and breaking news — all on demand via PTT. Ask me about any stock ticker, any flight number, or for a full market overview. I surface relevant news based on your memory context.',
-    rogerSpeech: () =>
-      `Market intelligence, flight tracking, and news — all voice-accessible. "Roger, what's Apple trading at?" — I'll give you the price, change, and a one-line outlook. "Roger, is Emirates flight EK204 on time?" — I'll check live and report back. "Roger, market brief" — I'll summarise the key movers. For news, I filter by what's relevant to topics in your memory, so you're not reading irrelevant headlines. Say "understood" to continue. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
-      '"Roger, what\'s Tesla trading at?"',
-      '"Roger, is EK201 on time?"',
-      '"Roger, market brief"',
-      '"Roger, any news I should know about?"',
-    ],
-    tip: 'I resolve company names to tickers automatically — say "Apple" not "AAPL" if you prefer.',
-  },
-
-  // ── 07 ── Knowledge Mode ────────────────────────────────────────────────────
-  {
-    id: 'knowledge',
-    icon: BookOpen,
-    iconColor: '#6366f1',
-    chapterLabel: 'Chapter 07',
-    headline: 'I Help You Learn.',
-    body: 'Ask me about any topic and I\'ll brief you. Say "tell me more" to go deeper — after two rounds, I\'ll offer a full deep dive with sub-topics. Your accumulated knowledge is saved to your Personal Encyclopedia in the Memory tab.',
-    rogerSpeech: (name) =>
-      `${name ? `${name}, ` : ''}I\'m not just a task manager — I\'m your personal research aide. Ask me anything: "Roger, tell me about Modena city" or "Roger, explain quantum computing." I\'ll give you a concise overview. If you want more, say "tell me more" and I\'ll elaborate with new information. After two elaborations, I\'ll offer you a full deep dive with specific sub-topics to explore. Every knowledge session auto-saves to your Personal Encyclopedia — find it under the Knowledge filter in your Memory tab. Your own private briefing library, built by conversation. Say "understood" to continue. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
-      '"Roger, tell me about blockchain"',
-      '"Tell me more" — go deeper',
-      '"Tell me about the history" — explore sub-topic',
-      '"Save to encyclopedia" — compile your session',
-    ],
-    tip: 'Knowledge entries auto-save as you explore. The encyclopedia grows passively — no action needed.',
-  },
-
-  // ── 08 ── Calendar ───────────────────────────────────────────────────────
-  {
-    id: 'calendar',
+    id: 'your-day',
     icon: Calendar,
-    iconColor: '#ec4899',
-    chapterLabel: 'Chapter 08',
-    headline: 'I Own Your Calendar.',
-    body: 'Connect your Google Calendar and I\'ll read, book, and cancel meetings by voice. I surface your schedule each morning and alert you when a meeting is approaching. High-stakes bookings go through a confirmation gate — I\'ll read the details back before writing to your calendar.',
-    rogerSpeech: () =>
-      `Calendar integration is critical for a Chief of Staff. Once you\'ve linked Google Calendar in Settings, say "Roger, what\'s on my calendar today?" — I\'ll read your full schedule. Book a meeting: "Roger, book a strategy session with Layla at 2pm tomorrow" — I\'ll confirm the details and write it. Cancel: "Roger, cancel the 3pm call" — done. Before important meetings, I'll surface memory facts about the people involved so you walk in prepared. Say "understood" to continue. Over.`,
+    iconColor: '#22c55e',
+    chapterLabel: 'Chapter 02',
+    headline: 'I Run Your Day.',
+    body: 'Tasks, reminders, calendar, and commute — all by voice. I create tasks from natural speech, manage your Google Calendar, and brief you before every drive with weather, schedule, and road conditions.',
+    rogerSpeech: (name) =>
+      `${name ? `${name}, ` : ''}this is where I earn my keep. Say "Roger, add task: finalize Q2 report, high priority" — it's logged. "Remind me to call the accountant at 9am" — done. I also own your calendar — "what's on today?" or "book a meeting with the team at 10am." Before you drive, say "brief me for my drive" and I'll give you weather, your next meeting, and road hazards — all spoken, no screen needed. I even detect when you're driving and switch to hands-free mode automatically. Say "understood" to continue. Over.`,
     confirmPrompt: 'Say "understood" or tap Continue.',
     keyExamples: [
+      '"Roger, add task: prepare board slides"',
       '"Roger, what\'s on my calendar today?"',
-      '"Roger, book a meeting with the team at 10am"',
-      '"Roger, when am I next free?"',
-      '"Roger, cancel my 4pm"',
+      '"Roger, brief me for my drive"',
+      '"Roger, remind me at 8am daily"',
     ],
     tip: 'Link Google Calendar in Settings → Integrations. I\'ll never book without confirming first.',
   },
 
-  // ── 09 ── Tune In ────────────────────────────────────────────────────────
+  // ── 03 ── Your Intel (Memory + Knowledge + News + Stocks) ───────────────────
   {
-    id: 'network',
-    icon: Users,
-    iconColor: '#6366f1',
-    chapterLabel: 'Chapter 09',
-    headline: 'Tune In — Your Private Radio.',
-    body: 'Tune In is a private, AI-monitored voice channel between two Roger users. Every user has a unique 7-character callsign. Connect by name (if saved) or callsign. I monitor the session, take notes, flag key moments, and deliver a full debrief when you end the call.',
-    rogerSpeech: () =>
-      `Tune In is Roger\'s peer-to-peer voice network. Think of it as a private radio channel — you and another Roger user connect, speak freely, and I listen and take notes in the background. Your callsign is displayed in Settings — share it with colleagues. To connect: "Roger, tune in with Ahmad" if they\'re in your contacts, or "Roger, tune in with code A2F34AC" for a new contact. During the session, say "Roger, flag this" to mark an important moment. When you say "over and out", I deliver a full debrief. Relay messages if they\'re offline: "Roger, tell Ahmad I\'ll be 10 minutes late." Say "understood" to continue. Over.`,
+    id: 'your-intel',
+    icon: Brain,
+    iconColor: '#8b5cf6',
+    chapterLabel: 'Chapter 03',
+    headline: 'I Know Everything You Tell Me.',
+    body: 'Every conversation builds your private memory graph. I remember people, places, preferences, and context. Ask me about any topic and I\'ll brief you — then go deeper. I also track stocks, flights, and news on demand.',
+    rogerSpeech: (name) =>
+      `${name ? `${name}, ` : ''}I build a private memory of everything you tell me. Mention that a client prefers morning calls — I store it and surface it before your next meeting with them. Ask "what do you know about Ahmad?" and I'll recall everything. I'm also your research aide — ask me anything, say "tell me more" to go deeper, and I'll build a personal encyclopedia over time. For markets: "what's Tesla trading at?" For flights: "is EK201 on time?" For news: "anything I should know?" — I filter by what's relevant to you. Say "understood" to continue. Over.`,
     confirmPrompt: 'Say "understood" or tap Continue.',
     keyExamples: [
-      '"Roger, tune in with Ahmad"',
-      '"Roger, connect with code A2F34AC"',
-      '"Roger, relay to Layla: I\'m running late"',
-      '"Roger, any messages?"',
+      '"Roger, remember that Ahmad prefers email"',
+      '"Roger, tell me about quantum computing"',
+      '"Roger, what\'s Apple trading at?"',
+      '"Roger, any news I should know?"',
     ],
-    tip: 'Your callsign is in Settings. Share it for others to reach you even when you\'re not in the app.',
+    tip: 'The more you use me, the smarter my memory gets. High-confidence facts are stored instantly.',
   },
 
-  // ── 10 ── Contacts ──────────────────────────────────────────────────────
+  // ── 04 ── Your Network (Contacts + Tune In + Meetings + Ambient) ────────────
   {
-    id: 'contacts',
-    icon: Contact,
-    iconColor: '#3b82f6',
-    chapterLabel: 'Chapter 10',
-    headline: 'I Know Your People.',
-    body: 'When you grant Roger access to your contacts, I can recognize names when you speak, text and call people hands-free, and build a smarter memory about the people in your life. Only display names are read — phone numbers never leave your device.',
+    id: 'your-network',
+    icon: Users,
+    iconColor: '#6366f1',
+    chapterLabel: 'Chapter 04',
+    headline: 'I Handle Your People.',
+    body: 'Sync your contacts and I\'ll recognize names instantly — text, call, or WhatsApp hands-free. Tune In connects you with other Roger users via private voice channels. I can also record meetings with full AI-generated notes.',
     rogerSpeech: (name) =>
-      `${name ? `${name}, ` : ''}here\'s where things get personal. If you grant me access to your phone contacts, three things happen. First — voice accuracy. Right now when you say "call Ahmad", my transcription might hear "Akhmad" or "Ahmed". With your contacts synced, I know exactly who Ahmad is — spelled correctly, every time. Second — hands-free messaging. Say "Roger, text Mom I\'m on my way" and I\'ll open your SMS app with her number and your message ready to send. Same for WhatsApp and phone calls. Third — smarter memory. I\'ll learn who matters to you so when you mention "Sarah" in a meeting note, I already know which Sarah you mean. And here\'s the important part — I only read display names. Phone numbers stay locked on your device. Nothing is uploaded. You can disconnect at any time in Settings. Say "understood" when ready. Over.`,
+      `${name ? `${name}, ` : ''}when you sync your contacts, I know exactly who you mean when you say a name — no more mis-transcriptions. Say "text Mom I'm on my way" or "call Ahmad" — hands-free. Tune In is Roger's private voice network — connect with other Roger users by name or callsign, and I'll take notes in the background. For meetings: say "Roger, record meeting" and I'll transcribe everything. When it's over, I generate an executive summary, action items, and key decisions. And if you hear something you want identified — say "Roger, listen to this" and I'll detect the language or identify the music. Say "understood" to continue. Over.`,
     confirmPrompt: 'Say "understood" or tap Continue.',
     keyExamples: [
       '"Roger, text Ahmad I\'m running late"',
-      '"Roger, call Mom"',
-      '"Roger, WhatsApp Sarah — meeting at 5pm"',
-      '"Roger, who\'s in my contacts named Khalid?"',
-    ],
-    tip: 'You can connect or disconnect contacts at any time from Settings → Contacts.',
-  },
-
-  // ── 11 ── Ambient Listening ────────────────────────────────────────────
-  {
-    id: 'ambient',
-    icon: Mic,
-    iconColor: '#a855f7',
-    chapterLabel: 'Chapter 11',
-    headline: 'I Listen When You Ask.',
-    body: 'Ambient Listening mode analyses your surroundings in 30-second chunks. I detect speech in any language, identify music via ACRCloud fingerprinting, and classify ambient noise. This is on-demand only — I never listen without your explicit command.',
-    rogerSpeech: () =>
-      `If you hear something and want to know what it is, say "Roger, listen to this." I\'ll open a passive microphone and analyse the audio every 30 seconds. If there\'s a conversation in Arabic, French, or any other language, I\'ll detect it and summarise what\'s being said. If music is playing, I\'ll try to identify the track — title, artist, and album — using audio fingerprinting. You\'ll see a purple banner at the top while I\'m listening. Say "what was that?" at any time for an update, or "stop listening" to end the session. A summary is saved to your history. Say "understood" to continue. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
-      '"Roger, listen to this"',
-      '"Roger, what language is that?"',
-      '"Roger, what\'s that music?"',
-      '"Roger, stop listening"',
-    ],
-    tip: 'Music detection requires ACRCloud API keys set in your Supabase project secrets.',
-  },
-
-  // ── 12 ── Meeting Recorder ─────────────────────────────────────────────
-  {
-    id: 'meeting',
-    icon: FileText,
-    iconColor: '#ef4444',
-    chapterLabel: 'Chapter 12',
-    headline: 'I Record Your Meetings.',
-    body: 'Start a meeting recorder and I\'ll transcribe everything in 60-second rolling chunks. When you end the session, I generate structured notes: executive summary, action items with owners and due dates, key decisions made, and a list of participants. Everything is saved to your Meeting Archive.',
-    rogerSpeech: () =>
-      `Meeting documentation is time-consuming. I eliminate it. Say "Roger, record meeting" before your next session starts. I\'ll transcribe continuously using Whisper. When it\'s over, say "end meeting" — I\'ll run the full transcript through a GPT-4 analysis and produce: an executive summary, a clean action item list with owners and due dates, the key decisions made, and participant names. I\'ll also speak a short summary so you can close the tab immediately. Everything is saved under the Meetings tab. I never record without your command, and a red banner shows when recording is active. Say "understood" to continue. Over.`,
-    confirmPrompt: 'Say "understood" or tap Continue.',
-    keyExamples: [
+      '"Roger, tune in with Sarah"',
       '"Roger, record meeting"',
-      '"Roger, record this Q2 strategy session"',
-      '"Roger, end meeting"',
-      '"Roger, generate notes"',
+      '"Roger, listen to this"',
     ],
-    tip: 'Participant names mentioned during the meeting are automatically added to your memory vault as draft contacts.',
+    tip: 'Sync contacts in Settings. Only display names are read — phone numbers never leave your device.',
   },
 
-  // ── 13 ── Engage ─────────────────────────────────────────────────────────
+  // ── 05 ── Engage ────────────────────────────────────────────────────────────
   {
     id: 'engage',
     icon: Zap,
     iconColor: '#d4a044',
-    chapterLabel: 'Chapter 13',
+    chapterLabel: 'Chapter 05',
     headline: 'You\'re Ready. Let\'s Go.',
-    body: 'That\'s the full briefing. You now know how to use Roger across all 13 capability domains. Start with the PTT button — just press, speak, and release. The more you use me, the better I understand you. You can replay this orientation any time from Settings.',
+    body: 'That\'s the full briefing. Use me daily so my memory builds context. Speak naturally — just talk to me like a trusted aide. The more specific you are, the more precisely I act. Replay this orientation any time from Settings.',
     rogerSpeech: (name) =>
-      `${name ? `${name}, ` : ''}that\'s your full briefing. You now have a Chief of Staff that handles your memory, tasks, calendar, commute, intelligence, communications, and meetings — all by voice. My top three tips: one, use me daily so my memory builds context. Two, speak naturally — don\'t use command syntax, just talk to me like a trusted aide. Three, the more specific you are, the more precisely I can act. If you ever need a refresher, say "Roger, replay orientation" or find it in Settings. I\'m standing by. Say "I\'m ready" or tap Engage to enter. Over.`,
+      `${name ? `${name}, ` : ''}that's your briefing. You now have a Chief of Staff that handles your memory, tasks, calendar, commute, intelligence, and communications — all by voice. Three tips: one, use me daily so my memory builds context. Two, speak naturally — don't use command syntax, just talk to me. Three, the more specific you are, the better I perform. If you ever need a refresher, say "Roger, replay orientation" or find it in Settings. I'm standing by. Say "I'm ready" or tap Engage. Over.`,
     confirmPrompt: 'Say "I\'m ready" — or tap Engage to enter.',
     keyExamples: [
       '"Roger, what can you do?"',
@@ -289,16 +132,16 @@ export const ORIENTATION_CHAPTERS: OrientationChapter[] = [
   },
 ];
 
-// ── Chapter 11 — Islamic Mode (conditional, shown only to Islamic Mode users) ──
+// ── Islamic Mode (conditional, shown only to Islamic Mode users) ────────────
 export const ISLAMIC_CHAPTER: OrientationChapter = {
   id: 'islamic',
   icon: Moon,
   iconColor: '#10b981',
-  chapterLabel: 'Chapter 11 · Islamic Mode',
+  chapterLabel: 'Chapter 05 · Islamic Mode',
   headline: 'Salah. I\'ve Got You Covered.',
-  body: 'Islamic Mode is now active. The SALAH tab in your navigation gives you live prayer times based on your GPS, a Qibla compass, a daily Quran verse with audio recitation, Hadith of the Day, Dua of the Day, the 99 Names of Allah, and a Hijri calendar. I will also remind you 10 minutes before each prayer.',
+  body: 'Islamic Mode is now active. The SALAH tab gives you live prayer times, Qibla compass, daily Quran verse with audio, Hadith of the Day, Dua of the Day, the 99 Names of Allah, and a Hijri calendar. I\'ll also remind you 10 minutes before each prayer.',
   rogerSpeech: (name) =>
-    `${name ? `${name}, ` : ''}Islamic Mode is active. I'll track your five daily prayers based on your live location. The Salah tab has your prayer times, Qibla direction, daily Quran verse with audio recitation, a Hadith, a Dua, and the 99 Names of Allah — all refreshed daily via UmmahAPI. 10 minutes before each prayer, I'll alert you by voice — even while you're driving. You can adjust your prayer calculation method, or disable these alerts entirely, from Settings. Say "understood" when ready. Over.`,
+    `${name ? `${name}, ` : ''}Islamic Mode is active. I'll track your five daily prayers based on your live location. The Salah tab has your prayer times, Qibla direction, daily Quran verse with audio recitation, a Hadith, a Dua, and the 99 Names of Allah — all refreshed daily. 10 minutes before each prayer, I'll alert you by voice — even while you're driving. You can adjust your prayer calculation method from Settings. Say "understood" when ready. Over.`,
   confirmPrompt: 'Say "understood" or tap Continue to enter.',
   keyExamples: [
     '"Roger, when is Asr today?"',
