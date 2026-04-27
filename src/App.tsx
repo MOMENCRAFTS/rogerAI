@@ -20,6 +20,8 @@ import Channels from './modules/Channels';
 import Commute from './modules/Commute';
 import TuneIn from './modules/TuneIn';
 import SessionArchive from './modules/SessionArchive';
+import ConversationMonitor from './modules/ConversationMonitor';
+import AIBrainViewer from './modules/AIBrainViewer';
 import HazardMonitor from './modules/HazardMonitor';
 import ProactiveMonitor from './modules/ProactiveMonitor';
 import CommuteRadar from './modules/user/CommuteRadar';
@@ -51,12 +53,14 @@ function ModuleRenderer({ activeModule }: { activeModule: string }) {
     case 'commute':         return <Commute />;
     case 'tunein':          return <TuneIn />;
     case 'session_archive': return <SessionArchive />;
+    case 'conversations':   return <ConversationMonitor />;
     case 'hazard_monitor':  return <HazardMonitor />;
     case 'proactive':       return <ProactiveMonitor />;
     case 'drive_sim':       return <CommuteRadar userId="admin-preview" />;
     case 'settings':        return <ApiSettings />;
     case 'billing':         return <SubscriptionMonitor />;
     case 'islamic_monitor': return <IslamicModeMonitor />;
+    case 'ai_brain':        return <AIBrainViewer />;
     default: {
       const info = moduleInfoMap[activeModule];
       if (!info) return (

@@ -397,6 +397,86 @@ export async function insertConversationTurn(
   await supabase.from('conversation_history').insert(turn);
 }
 
+// ─── Admin Conversation Monitor ──────────────────────────────────────────────
+
+/** Fetch ALL conversation turns across all users (admin only) */
+export async function fetchAllConversations(limit = 500): Promise<DbConversationTurn[]> {
+  const { data, error } = await supabase
+    .from('conversation_history')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Search all conversations across all users by content (admin only) */
+export async function searchAllConversations(query: string, limit = 100): Promise<DbConversationTurn[]> {
+  const { data, error } = await supabase
+    .from('conversation_history')
+    .select('*')
+    .ilike('content', `%${query}%`)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Fetch distinct session IDs with their turn counts (admin overview) */
+export async function fetchConversationSessionList(): Promise<{
+  session_id: string;
+  user_id: string;
+  turn_count: number;
+  first_at: string;
+  last_at: string;
+  preview: string;
+}[]> {
+  const { data, error } = await supabase
+    .from('conversation_history')
+    .select('session_id, user_id, content, created_at')
+    .order('created_at', { ascending: false })
+    .limit(2000);
+  if (error) throw error;
+
+  // Group by session
+  const sessions = new Map<string, {
+    session_id: string;
+    user_id: string;
+    turns: { content: string; created_at: string }[];
+  }>();
+  for (const row of data ?? []) {
+    const sid = row.session_id;
+    if (!sessions.has(sid)) {
+      sessions.set(sid, { session_id: sid, user_id: row.user_id, turns: [] });
+    }
+    sessions.get(sid)!.turns.push({ content: row.content, created_at: row.created_at });
+  }
+
+  return Array.from(sessions.values()).map(s => {
+    const sorted = s.turns.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const userTurn = sorted.find(t => true); // first turn
+    return {
+      session_id: s.session_id,
+      user_id: s.user_id,
+      turn_count: s.turns.length,
+      first_at: sorted[0]?.created_at ?? '',
+      last_at: sorted[sorted.length - 1]?.created_at ?? '',
+      preview: userTurn?.content?.slice(0, 120) ?? '',
+    };
+  }).sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
+}
+
+/** Fetch all turns for a specific session (admin view, not user-scoped) */
+export async function fetchAdminSessionTurns(sessionId: string): Promise<DbConversationTurn[]> {
+  const { data, error } = await supabase
+    .from('conversation_history')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
 // ─── Entity Mentions ──────────────────────────────────────────────────────────
 
 export async function upsertEntityMention(

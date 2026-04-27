@@ -3,6 +3,7 @@ import {
   Boxes, HelpCircle, Brain, Zap, Newspaper, Eye, BookOpen,
   Mic, Bell, BarChart3, CreditCard, Headphones, Shield,
   Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive, AlertTriangle, Gauge, Moon,
+  MessageSquare,
 } from 'lucide-react';
 import Tooltip from '../shared/Tooltip';
 import type { NavGroup } from '../../types';
@@ -41,6 +42,7 @@ const navGroups: NavGroup2[] = [
       { key: 'dashboard',      label: 'DASHBOARD',     Icon: LayoutDashboard, group: 'OPERATIONS', tooltip: 'Mission control overview' },
       { key: 'transmissions',  label: 'TRANSMISSIONS', Icon: Radio,           group: 'OPERATIONS', tooltip: 'Live PTT voice stream' },
       { key: 'flow',           label: 'FLOW INSPECTOR',Icon: Workflow,        group: 'OPERATIONS', tooltip: 'AI pipeline trace viewer' },
+      { key: 'conversations',  label: 'CONVERSATIONS', Icon: MessageSquare,   group: 'OPERATIONS', tooltip: 'Check all user ↔ Roger conversations' },
       { key: 'automation',     label: 'AUTO NODES',    Icon: Boxes,           group: 'OPERATIONS', tooltip: 'Automation workflow engine' },
       { key: 'clarifications', label: 'INTERCEPTS',    Icon: HelpCircle,      group: 'OPERATIONS', tooltip: 'Ambiguity & clarification hub' },
     ],
@@ -54,6 +56,7 @@ const navGroups: NavGroup2[] = [
       { key: 'momentum',       label: 'MOMENTUM',       Icon: Zap,          group: 'AI & TESTING', tooltip: 'Smart priority engine' },
       { key: 'sandbox',        label: 'SANDBOX LAB',    Icon: FlaskConical, group: 'AI & TESTING', tooltip: 'AI simulation & testing' },
       { key: 'pttlab',        label: 'PTT TEST LAB',   Icon: Mic,          group: 'AI & TESTING', tooltip: 'Simulate patient PTT experience' },
+      { key: 'ai_brain',      label: 'AI BRAIN',       Icon: Cpu,          group: 'AI & TESTING', tooltip: 'View Roger AI prompts & architecture' },
     ],
   },
   {
