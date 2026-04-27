@@ -124,10 +124,17 @@ console.log('\n═════════════════════�
 console.log('  BUILDING ADMIN APK');
 console.log('══════════════════════════════════════════');
 
-// 0. Swap applicationId + app name + icon background for admin
+// 1. Vite build with admin target
+run('npm run build:admin');
+
+// 2. Sync web assets into Android project (this overwrites strings.xml!)
+run('npx cap sync android');
+
+// 3. NOW swap applicationId + app name + icon background AFTER cap sync
+//    (cap sync regenerates strings.xml from capacitor.config.ts, so we must patch after)
 swapAppId(ADMIN_APP_ID);
 swapAppName(ADMIN_APP_NAME);
-// Synchronously wait for icon swap before proceeding
+// Swap icon backgrounds to amber for admin
 execSync('node -e "' +
   `const sharp=require('sharp');const fs=require('fs');const path=require('path');` +
   `const RES='${RES_DIR.replace(/\\/g, '/')}';` +
@@ -136,16 +143,10 @@ execSync('node -e "' +
   `await sharp({create:{width:s,height:s,channels:4,background:{r:180,g:120,b:30,alpha:255}}}).png().toFile(p);}console.log('  → admin icon bg set')})()` +
   '"', { cwd: ROOT, stdio: 'inherit', shell: true });
 
-// 1. Vite build with admin target
-run('npm run build:admin');
-
-// 2. Sync web assets into Android project
-run('npx cap sync android');
-
-// 3. Run the gradle fix script
+// 4. Run the gradle fix script
 run('node scripts/fix-gradle.js');
 
-// 4. Force-delete stale build artifacts (OneDrive locks workaround)
+// 5. Force-delete stale build artifacts (OneDrive locks workaround)
 // App module build dirs
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'intermediates'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'generated'));
@@ -159,10 +160,10 @@ const capPluginDirs = [
 ];
 for (const d of capPluginDirs) forceDeleteDir(d);
 
-// 5. Gradle build
+// 6. Gradle build
 run('.\\gradlew.bat assembleDebug --no-daemon', path.join(ROOT, 'android'));
 
-// 6. Copy and rename APK
+// 7. Copy and rename APK
 const adminApk = copyApk('ADMIN');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,7 +173,13 @@ console.log('\n═════════════════════�
 console.log('  BUILDING USER APK');
 console.log('══════════════════════════════════════════');
 
-// 0. Restore applicationId + app name + icon background for user
+// 1. Vite build with user target
+run('npm run build:user');
+
+// 2. Sync web assets (overwrites strings.xml from capacitor.config.ts)
+run('npx cap sync android');
+
+// 3. NOW restore applicationId + app name + icon background AFTER cap sync
 swapAppId(USER_APP_ID);
 swapAppName(USER_APP_NAME);
 // Restore icon backgrounds to original dark
@@ -184,13 +191,7 @@ execSync('node -e "' +
   `await sharp({create:{width:s,height:s,channels:4,background:{r:10,g:12,b:11,alpha:255}}}).png().toFile(p);}console.log('  → user icon bg set')})()` +
   '"', { cwd: ROOT, stdio: 'inherit', shell: true });
 
-// 1. Vite build with user target
-run('npm run build:user');
-
-// 2. Sync web assets
-run('npx cap sync android');
-
-// 3. Force-delete stale intermediates + outputs
+// 4. Force-delete stale intermediates + outputs
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'intermediates'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'generated'));
 forceDeleteDir(path.join(ROOT, 'android', 'app', 'build', 'outputs'));
@@ -203,10 +204,10 @@ const capPluginDirs2 = [
 ];
 for (const d of capPluginDirs2) forceDeleteDir(d);
 
-// 4. Gradle build
+// 5. Gradle build
 run('.\\gradlew.bat assembleDebug --no-daemon', path.join(ROOT, 'android'));
 
-// 5. Copy and rename APK
+// 6. Copy and rename APK
 const userApk = copyApk('USER');
 
 // ─────────────────────────────────────────────────────────────────────────────
