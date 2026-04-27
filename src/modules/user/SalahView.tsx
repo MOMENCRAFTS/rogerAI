@@ -141,7 +141,7 @@ export default function SalahView({ location }: Props) {
   }
 
   return (
-    <div style={{ padding: '0 0 80px', background: 'var(--bg-base)', minHeight: '100%', position: 'relative' }}>
+    <div style={{ padding: '0 0 80px', background: 'var(--bg-primary)', minHeight: '100%', position: 'relative' }}>
 
       {/* ── Geometric background texture ── */}
       <svg style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', opacity: 0.025, pointerEvents: 'none', zIndex: 0 }} aria-hidden="true">

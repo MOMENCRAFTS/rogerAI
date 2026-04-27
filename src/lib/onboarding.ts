@@ -25,18 +25,12 @@ export interface OnboardingAnswers {
   islamic_mode?: boolean;
 }
 
-// Fields the AI interview can extract from conversation (reference only)
-// const INTERVIEW_FIELDS = [
-//   'name', 'role', 'key_priorities', 'current_focus',
-//   'work_schedule', 'location_base', 'comm_style', 'tools_used', 'interests',
-// ] as const;
-
-// Minimum / maximum elastic interview turns
+// Minimum / maximum elastic interview turns (kept for backward compat)
 export const MIN_INTERVIEW_TURNS = 1;
 export const MAX_INTERVIEW_TURNS = 2;
 export const MAX_TOTAL_TURNS = 6;
 
-// Features list shown during the dedicated features turn
+// Features list (kept for backward compat — no longer shown during onboarding)
 export const ROGER_FEATURES = [
   'Calendar management',
   'Task & reminder tracking',
@@ -59,15 +53,19 @@ export const PHASE_LABELS: Record<OnboardingPhase, string> = {
 };
 
 // ── For backward compat with Onboarding.tsx imports ─────────────────────────
-// These are kept so the existing code doesn't break during migration
-export type OnboardingNode = OnboardingPhase;
-export const TOTAL_NODES = MAX_TOTAL_TURNS;
-export const NODE_INDEX = (_phase: OnboardingPhase) => 0;
-export const NODE_LABELS: Partial<Record<OnboardingPhase, string>> = PHASE_LABELS;
-export const NEXT_NODE: Record<string, string> = {};
+function buildLanguageDirective(): string {
+  try {
+    const locale = (typeof navigator !== 'undefined' && navigator.language) || 'en';
+    const base = locale.split('-')[0];
+    if (base === 'ar') return 'Respond ONLY in Arabic (فصحى). All output in Arabic script.';
+    if (base === 'fr') return 'Respond ONLY in French.';
+    if (base === 'es') return 'Respond ONLY in Spanish.';
+    return 'Respond in English.';
+  } catch { return 'Respond in English.'; }
+}
 
 // ── Utility: which fields are still missing? ────────────────────────────────
-export function getMissingFields(answers: OnboardingAnswers): string[] {
+function getMissingFields(answers: OnboardingAnswers): string[] {
   const missing: string[] = [];
   if (!answers.name) missing.push('name');
   if (!answers.role) missing.push('role');
@@ -83,78 +81,33 @@ export function getMissingFields(answers: OnboardingAnswers): string[] {
 
 // ── Welcome script ──────────────────────────────────────────────────────────
 export const WELCOME_SCRIPT =
-  "Roger AI online. I'm your AI chief of staff — here to manage your day, your tasks, and your intel. Let's get acquainted. What's your name, and what do you do?";
+  "Roger AI online. I'm your AI chief of staff — here to manage your day, your tasks, and your intel. Tell me about yourself — your name, what you do, where you're based, anything you want me to know. Over.";
 
-// ── Interview prompt ────────────────────────────────────────────────────────
-const INTERVIEW_PROMPT = (
-  turnNumber: number,
-  answers: OnboardingAnswers,
-  missing: string[],
-  previousQuestions: string[],
-) => `You are Roger AI — a voice-first AI chief of staff — conducting an onboarding interview.
+export function getWelcomeScript(): string {
+  try {
+    const locale = (typeof navigator !== 'undefined' && navigator.language) || 'en';
+    const base = locale.split('-')[0];
+    if (base === 'ar')
+      return 'روجر AI جاهز. أنا رئيس أركانك الرقمي — أدير يومك، مهامك، ومعلوماتك. عرّفني عن نفسك — اسمك، شغلك، وين مقرّك، وأي شي تبي أعرفه عنك. تفضّل.';
+    if (base === 'fr')
+      return "Roger AI en ligne. Je suis votre chef de cabinet IA. Parlez-moi de vous — votre nom, ce que vous faites, où vous êtes basé, tout ce que je devrais savoir. À vous.";
+    if (base === 'es')
+      return "Roger AI en línea. Soy tu jefe de gabinete IA. Cuéntame sobre ti — tu nombre, a qué te dedicas, dónde estás, lo que quieras que sepa. Adelante.";
+  } catch { /* fall through */ }
+  return WELCOME_SCRIPT;
+}
 
-═══ STEP 1: SILENT AUDIT (do this internally, do NOT output it) ═══
-Before generating your question, silently evaluate:
-1. What fields are ALREADY collected? → ${JSON.stringify(answers)}
-2. What fields are STILL MISSING? → ${missing.length > 0 ? missing.join(', ') : 'NONE — all fields collected'}
-3. What questions have ALREADY been asked? → ${previousQuestions.length > 0 ? previousQuestions.map((q, i) => `Turn ${i + 1}: "${q}"`).join(' | ') : 'None yet'}
-4. Turn budget: ${turnNumber} of ${MAX_INTERVIEW_TURNS} max. Minimum remaining: ${Math.max(0, MIN_INTERVIEW_TURNS - turnNumber)}
-
-═══ STEP 2: EXTRACT FIELDS FROM USER'S RESPONSE ═══
-Extract ALL possible fields from what the user just said:
-- "My name is Momen" → name: "Momen"
-- "I'm a doctor in Dubai" → role: "Doctor", location_base: "Dubai"
-- "I focus on clinic growth and patient retention" → current_focus: "Clinic growth", key_priorities: ["Clinic growth", "Patient retention"]
-- "I start at 8 and finish around 5" → work_schedule: "8 AM – 5 PM"
-- "I use Notion and Slack" → tools_used: ["Notion", "Slack"]
-- "I love football and reading" → interests: ["Football", "Reading"]
-- For comm_style: INFER from verbosity. Terse → "brief". Verbose → "detailed". Normal → "balanced".
-- Title-case names and proper nouns.
-
-═══ STEP 3: DECIDE NEXT QUESTION (critical rules) ═══
-
-ABSOLUTE RULES — VIOLATION IS FAILURE:
-1. NEVER ask about a field that is ALREADY in the collected data. If name is collected, DO NOT ask "what's your name".
-2. NEVER repeat a question from a previous turn. Check the "already asked" list above.
-3. NEVER ask about features or Islamic mode — those have dedicated turns later.
-4. Each question MUST target ONLY missing fields.
-5. DO NOT ask generic questions like "anything else?" or "is there more?" — instead, ask about a SPECIFIC missing field.
-
-QUESTION STYLE:
-- Under 30 words. Warm but direct. Military-aide tone.
-- Start by acknowledging what you just learned: "Copy that, Momen. Doctor in Dubai, focused on growth."
-- Then ask about 1-2 SPECIFIC missing fields: "What time does your day usually start? And what tools do you rely on?"
-- Never say "certainly", "absolutely", "great", "perfect".
-
-COMPLETION LOGIC:
-${turnNumber >= MIN_INTERVIEW_TURNS ? `- You have met the minimum turn requirement.
-- If 5+ fields are collected (especially name + role), set all_covered: true.
-- If only 1-2 fields are missing and they're optional, set all_covered: true.
-- DO NOT drag the interview with vague catch-all questions.` : `- Minimum turns NOT met. Set all_covered: false. Ask about specific missing fields.`}
-
-Return ONLY valid JSON:
-{
-  "script": "your specific question targeting missing fields",
-  "extracted_fields": {
-    "name": "string or null",
-    "role": "string or null",
-    "key_priorities": ["array"] or null,
-    "current_focus": "string or null",
-    "work_schedule": "string or null",
-    "location_base": "string or null",
-    "comm_style": "brief|balanced|detailed or null",
-    "tools_used": ["array"] or null,
-    "interests": ["array"] or null
-  },
-  "all_covered": false
-}`;
-
-// ── Name confirm prompt ─────────────────────────────────────────────────────
+// ── Name confirm prompt (with phonetic variants) ────────────────────────────
 const NAME_CONFIRM_PROMPT = (name: string) =>
   `You are Roger AI confirming a user's name spelling during onboarding.
+${buildLanguageDirective()}
 The name extracted is: "${name}"
-Generate a short confirmation question (under 20 words). E.g. "Got it, ${name} — is that spelled correctly? Say yes or spell it for me."
-Also process the user's response if provided.
+
+IMPORTANT — Name Handling:
+- Generate 2-3 phonetic variants of the name. E.g. for "Momen" → "Moamen, Mu'min"
+- For Arabic names: show both Latin transliteration AND Arabic script if possible.
+- Ask: "Got it, ${name}. Is that right? Could also be [variant1] or [variant2]. Confirm or correct me."
+- Under 25 words.
 
 extracted_value rules:
 - If user says yes/correct/right → extracted_value: "yes"
@@ -163,32 +116,44 @@ extracted_value rules:
 Return ONLY valid JSON:
 {"script": "...", "extracted_value": "yes or corrected name"}`;
 
-// ── Features prompt ─────────────────────────────────────────────────────────
-const FEATURES_PROMPT = (name: string) =>
-  `You are Roger AI presenting available features during onboarding.
-User name: ${name || 'Commander'}
-
-Tell them what Roger can help with: ${ROGER_FEATURES.join(', ')}.
-Ask which features matter most to them. Under 35 words. Warm, direct tone.
-
-When processing their response, match spoken preferences to these exact labels:
-${ROGER_FEATURES.map(f => `"${f}"`).join(', ')}
-
-Return ONLY valid JSON:
-{"script": "...", "extracted_value": "comma-separated matched feature labels, or null"}`;
-
 // ── Islamic mode prompt ─────────────────────────────────────────────────────
-const ISLAMIC_PROMPT =
-  `You are Roger AI asking about Islamic Mode during onboarding.
-Say EXACTLY: "One more thing. Are you Muslim? If so, I can activate Islamic Mode — prayer times, Qibla direction, and salah reminders. Say yes to enable, or skip."
-Do NOT deviate from this phrasing.
+const ISLAMIC_PROMPT = `You are Roger AI asking about Islamic Mode during onboarding.
+${buildLanguageDirective()}
+Ask if the user is Muslim and wants Islamic Mode enabled (prayer times, Qibla, salah reminders).
+Keep it respectful, warm, and under 25 words. Never assume.
 
-When processing their response:
-- "yes"/"sure"/"I am"/"enable" → extracted_value: "yes"
-- "no"/"skip"/"not for me" → extracted_value: "no"
+Process their response:
+- Yes/enable/Muslim/نعم/أيوه → extracted_value: "yes"
+- No/skip/لا → extracted_value: "no"
 
 Return ONLY valid JSON:
 {"script": "...", "extracted_value": "yes or no or null"}`;
+
+// ── Extraction prompt (improved with diverse name examples) ─────────────────
+const EXTRACTION_PROMPT = `You are a data extraction engine. Extract structured fields from the user's speech.
+${buildLanguageDirective()}
+
+RULES:
+- Extract ONLY what the user explicitly stated. Do not infer or assume.
+- Title-case names and proper nouns.
+- IMPORTANT: Extract the ACTUAL name spoken. Do NOT default non-English names to "Mohammad".
+  Examples: "أنا مؤمن" → name: "مؤمن", "Ana ismi Khalid" → name: "Khalid",
+  "Je suis Fatima" → name: "Fatima", "My name is Al-Sayed" → name: "Al-Sayed"
+- For comm_style: infer from verbosity. Terse → "brief". Verbose → "detailed". Normal → "balanced".
+- Return ONLY valid JSON. No explanation, no commentary.
+
+Return format:
+{
+  "name": "string or null",
+  "role": "string or null",
+  "key_priorities": ["array"] or null,
+  "current_focus": "string or null",
+  "work_schedule": "string or null",
+  "location_base": "string or null",
+  "comm_style": "brief|balanced|detailed or null",
+  "tools_used": ["array"] or null,
+  "interests": ["array"] or null
+}`;
 
 // ── Result types ────────────────────────────────────────────────────────────
 export interface InterviewTurnResult {
@@ -210,6 +175,7 @@ export interface NodeScriptResult {
   clarification_prompt: string | null;
 }
 
+// ── LLM call ────────────────────────────────────────────────────────────────
 async function callLLM(system: string, user: string): Promise<string> {
   const token = await getAuthToken().catch(() => null);
   if (!token) throw new Error('No auth token');
@@ -230,7 +196,6 @@ async function callLLM(system: string, user: string): Promise<string> {
   const data = await res.json() as Record<string, unknown>;
   console.log('[callLLM] Response keys:', Object.keys(data));
 
-  // Edge function returns { roger_response: "raw LLM JSON string" }
   const content = typeof data.roger_response === 'string' ? data.roger_response : '';
 
   if (!content) {
@@ -243,27 +208,6 @@ async function callLLM(system: string, user: string): Promise<string> {
 }
 
 // ── Silent field extraction (no question generation) ────────────────────────
-const EXTRACTION_PROMPT = `You are a data extraction engine. Extract structured fields from the user's speech.
-
-RULES:
-- Extract ONLY what the user explicitly stated. Do not infer or assume.
-- Title-case names and proper nouns.
-- For comm_style: infer from verbosity. Terse → "brief". Verbose → "detailed". Normal → "balanced".
-- Return ONLY valid JSON. No explanation, no commentary.
-
-Return format:
-{
-  "name": "string or null",
-  "role": "string or null",
-  "key_priorities": ["array"] or null,
-  "current_focus": "string or null",
-  "work_schedule": "string or null",
-  "location_base": "string or null",
-  "comm_style": "brief|balanced|detailed or null",
-  "tools_used": ["array"] or null,
-  "interests": ["array"] or null
-}`;
-
 export async function silentExtractFields(
   transcript: string,
   existing: OnboardingAnswers,
@@ -297,76 +241,15 @@ export async function silentExtractFields(
   }
 }
 
-// ── Generate interview turn ─────────────────────────────────────────────────
+// ── Generate interview turn (DEPRECATED — stub for backward compat) ─────────
 export async function generateInterviewTurn(
-  turnNumber: number,
+  _turnNumber: number,
   answers: OnboardingAnswers,
   transcript?: string,
-  previousQuestions: string[] = [],
+  _previousQuestions: string[] = [],
 ): Promise<InterviewTurnResult> {
-  const missing = getMissingFields(answers);
-
-  // Fallback questions — context-aware (skip fields already collected)
-  const FALLBACKS: string[] = [];
-  if (!answers.name || !answers.role) {
-    FALLBACKS.push(`What's your name, and what do you do?`);
-  }
-  if (!answers.location_base || !answers.current_focus) {
-    FALLBACKS.push(`${answers.name ? answers.name + ', where' : 'Where'} are you based, and what's your main focus right now?`);
-  }
-  if (!answers.work_schedule) {
-    FALLBACKS.push(`What does a typical day look like? When do you start and wrap up?`);
-  }
-  if (!answers.tools_used?.length || !answers.interests?.length) {
-    FALLBACKS.push(`What tools or apps do you rely on most? And what are your interests outside work?`);
-  }
-  FALLBACKS.push(`${answers.name ? answers.name + ', anything' : 'Anything'} else I should know about you?`);
-
-  try {
-    const prompt = INTERVIEW_PROMPT(turnNumber, answers, missing, previousQuestions);
-    // Build context message — always include collected fields so LLM sees the full picture
-    const collectedSummary = Object.entries(answers)
-      .filter(([, v]) => v && (typeof v !== 'object' || (Array.isArray(v) && v.length > 0)))
-      .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-      .join(', ');
-    const content = transcript
-      ? `User said: "${transcript}"\nAlready collected: {${collectedSummary}}\nGenerate follow-up about MISSING fields only.`
-      : `Already collected: {${collectedSummary}}\nMissing fields: ${missing.join(', ')}\nGenerate a question about the missing fields. Do NOT ask about already-collected fields.`;
-    const raw = await callLLM(prompt, content);
-    const parsed = JSON.parse(raw) as {
-      script: string;
-      extracted_fields: Record<string, unknown>;
-      all_covered: boolean;
-    };
-
-    // Map extracted fields to OnboardingAnswers
-    const ef = parsed.extracted_fields ?? {};
-    const extracted: Partial<OnboardingAnswers> = {};
-    if (ef.name && typeof ef.name === 'string') extracted.name = extractName(ef.name as string);
-    if (ef.role && typeof ef.role === 'string') extracted.role = ef.role as string;
-    if (ef.current_focus && typeof ef.current_focus === 'string') extracted.current_focus = ef.current_focus as string;
-    if (ef.work_schedule && typeof ef.work_schedule === 'string') extracted.work_schedule = ef.work_schedule as string;
-    if (ef.location_base && typeof ef.location_base === 'string') extracted.location_base = ef.location_base as string;
-    if (ef.comm_style && typeof ef.comm_style === 'string') {
-      const cs = (ef.comm_style as string).toLowerCase();
-      extracted.comm_style = cs === 'brief' ? 'brief' : cs === 'detailed' ? 'detailed' : 'balanced';
-    }
-    if (Array.isArray(ef.key_priorities)) extracted.key_priorities = (ef.key_priorities as string[]).filter(Boolean);
-    if (Array.isArray(ef.tools_used)) extracted.tools_used = (ef.tools_used as string[]).filter(Boolean);
-    if (Array.isArray(ef.interests)) extracted.interests = (ef.interests as string[]).filter(Boolean);
-
-    return {
-      script: parsed.script ?? FALLBACKS[Math.min(turnNumber - 1, FALLBACKS.length - 1)],
-      extracted_fields: extracted,
-      all_covered: turnNumber >= MIN_INTERVIEW_TURNS ? (parsed.all_covered ?? false) : false,
-    };
-  } catch {
-    return {
-      script: FALLBACKS[Math.min(turnNumber - 1, FALLBACKS.length - 1)],
-      extracted_fields: transcript ? extractFieldsRegex(transcript, answers) : {},
-      all_covered: false,
-    };
-  }
+  const extracted = transcript ? await silentExtractFields(transcript, answers) : {};
+  return { script: '', extracted_fields: extracted, all_covered: true };
 }
 
 // ── Generate name confirmation ──────────────────────────────────────────────
@@ -387,22 +270,12 @@ export async function generateNameConfirm(
   }
 }
 
-// ── Generate features turn ──────────────────────────────────────────────────
+// ── Generate features turn (DEPRECATED — features in orientation walkthrough)
 export async function generateFeaturesTurn(
-  name: string,
-  transcript?: string,
+  _name: string,
+  _transcript?: string,
 ): Promise<SimpleNodeResult> {
-  const fallbackScript = `${name || 'Commander'}, Roger can help with: calendar, tasks, briefings, hazard alerts, weather, news, finance, commute, and memory vault. Which matter most to you?`;
-  try {
-    const content = transcript
-      ? `User said: "${transcript}"`
-      : `Generate features presentation.`;
-    const raw = await callLLM(FEATURES_PROMPT(name), content);
-    const parsed = JSON.parse(raw) as SimpleNodeResult;
-    return { script: parsed.script ?? fallbackScript, extracted_value: parsed.extracted_value ?? null };
-  } catch {
-    return { script: fallbackScript, extracted_value: null };
-  }
+  return { script: '', extracted_value: null };
 }
 
 // ── Generate Islamic mode turn ──────────────────────────────────────────────
@@ -422,6 +295,53 @@ export async function generateIslamicTurn(
   }
 }
 
+// ── "Add key info" turn (used in review phase) ──────────────────────────────
+const ADD_INFO_PROMPT = (answers: OnboardingAnswers) => {
+  const collected = Object.entries(answers)
+    .filter(([, v]) => v && (typeof v !== 'object' || (Array.isArray(v) && v.length > 0)))
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join(', ');
+  return `You are Roger AI. The user wants to add more information about themselves.
+${buildLanguageDirective()}
+Already collected: {${collected}}
+
+Extract any new fields from what they just said. Use the same field schema.
+Do NOT overwrite existing fields unless the user explicitly corrects them.
+Acknowledge what they added in under 15 words.
+
+Return ONLY valid JSON:
+{"script": "short acknowledgment", "extracted_fields": { ... }}`;
+};
+
+export async function generateAddInfoTurn(
+  answers: OnboardingAnswers,
+  transcript: string,
+): Promise<{ script: string; extracted_fields: Partial<OnboardingAnswers> }> {
+  const fallback = { script: 'Copy. Added to your profile.', extracted_fields: {} as Partial<OnboardingAnswers> };
+  try {
+    const raw = await callLLM(ADD_INFO_PROMPT(answers), `User said: "${transcript}"`);
+    const parsed = JSON.parse(raw) as { script: string; extracted_fields: Record<string, unknown> };
+    const ef = parsed.extracted_fields ?? {};
+    const extracted: Partial<OnboardingAnswers> = {};
+    if (ef.name && typeof ef.name === 'string') extracted.name = extractName(ef.name as string);
+    if (ef.role && typeof ef.role === 'string') extracted.role = ef.role as string;
+    if (ef.current_focus && typeof ef.current_focus === 'string') extracted.current_focus = ef.current_focus as string;
+    if (ef.work_schedule && typeof ef.work_schedule === 'string') extracted.work_schedule = ef.work_schedule as string;
+    if (ef.location_base && typeof ef.location_base === 'string') extracted.location_base = ef.location_base as string;
+    if (ef.comm_style && typeof ef.comm_style === 'string') {
+      const cs = (ef.comm_style as string).toLowerCase();
+      extracted.comm_style = cs === 'brief' ? 'brief' : cs === 'detailed' ? 'detailed' : 'balanced';
+    }
+    if (Array.isArray(ef.key_priorities)) extracted.key_priorities = (ef.key_priorities as string[]).filter(Boolean);
+    if (Array.isArray(ef.tools_used)) extracted.tools_used = (ef.tools_used as string[]).filter(Boolean);
+    if (Array.isArray(ef.interests)) extracted.interests = (ef.interests as string[]).filter(Boolean);
+    return { script: parsed.script ?? fallback.script, extracted_fields: extracted };
+  } catch {
+    const regexFields = extractFieldsRegex(transcript, answers);
+    return { script: fallback.script, extracted_fields: regexFields };
+  }
+}
+
 // ── Build review script ─────────────────────────────────────────────────────
 export function buildReviewScriptFallback(answers: OnboardingAnswers): string {
   const name = answers.name ?? 'you';
@@ -431,10 +351,7 @@ export function buildReviewScriptFallback(answers: OnboardingAnswers): string {
   const sched = answers.work_schedule ? ` Operating from ${answers.work_schedule}.` : '';
   const tools = answers.tools_used?.length ? ` Relies on ${answers.tools_used.join(', ')}.` : '';
   const interests = answers.interests?.length ? ` Passionate about ${answers.interests.join(', ')}.` : '';
-  const features = answers.feature_prefs?.length
-    ? ` Roger will be activated for: ${answers.feature_prefs.join(', ')}.`
-    : '';
-  return `Roger understands that ${name}${role}${loc} is setting up Command.${focus}${sched}${tools}${interests}${features} Say confirm to lock this in, or name the field to change.`;
+  return `Roger understands that ${name}${role}${loc} is setting up Command.${focus}${sched}${tools}${interests} Want to add anything else, or say confirm to lock this in.`;
 }
 
 export async function buildReviewScript(answers: OnboardingAnswers): Promise<string> {
@@ -448,18 +365,18 @@ export async function buildReviewScript(answers: OnboardingAnswers): Promise<str
     answers.comm_style  && `Style: ${answers.comm_style}`,
     answers.tools_used?.length && `Tools: ${answers.tools_used.join(', ')}`,
     answers.interests?.length && `Interests: ${answers.interests.join(', ')}`,
-    answers.feature_prefs?.length && `Features: ${answers.feature_prefs.join(', ')}`,
     answers.islamic_mode !== undefined && `Islamic Mode: ${answers.islamic_mode ? 'Enabled' : 'Disabled'}`,
   ].filter(Boolean).join('\n');
 
   try {
     const system = `You are Roger AI. Given a user profile, write a SHORT 2-3 sentence 3rd-person narrative.
+${buildLanguageDirective()}
 Rules:
 - Speak AS Roger confirming what he learned (e.g. "Roger reads you as...")
 - 3rd person, concise, intelligent, not robotic
 - Reference name, profession, location, passions naturally
 - Under 60 words
-- End with: "Say confirm to lock this in, or name the field to change."
+- End with the equivalent of: "Want to add anything else, or say confirm to lock this in."
 - No emojis. Military-aide tone.`;
     const raw = await callLLM(system, summary);
     const parsed = JSON.parse(raw) as { roger_response?: string; script?: string };
@@ -469,7 +386,10 @@ Rules:
   }
 }
 
-// ── Name extraction (regex fallback) ────────────────────────────────────────
+// ── Name extraction (Arabic-aware) ──────────────────────────────────────────
+const ARABIC_CHAR_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
+const COMPOUND_PREFIXES = /^(al|el|ul|bin|bint|ibn|abu|de|del|van|von|mc|mac|o')/i;
+
 function extractName(raw: string): string {
   let name = raw.trim()
     .replace(/[.!?,]+$/, '')
@@ -477,7 +397,18 @@ function extractName(raw: string): string {
     .replace(/^(my name is|the name is|the name'?s|i'?m called|they call me|people call me|you can call me|call me|i am|i'?m|it'?s|this is|name'?s)\s+/i, '')
     .trim();
   if (!name) name = raw.trim();
-  name = name.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+  // Arabic script → no case transforms (Arabic has no upper/lower case)
+  if (ARABIC_CHAR_RE.test(name)) return name;
+
+  // Latin script → smart title-case that preserves compound prefixes
+  name = name.split(/\s+/).map(w => {
+    if (w.includes('-')) {
+      return w.split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('-');
+    }
+    if (COMPOUND_PREFIXES.test(w) && w.length > 3 && /[A-Z]/.test(w.slice(1))) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }).join(' ');
   return name;
 }
 
@@ -512,7 +443,7 @@ export function mergeExtractedFields(
   return merged;
 }
 
-// ── Apply feature prefs from transcript ─────────────────────────────────────
+// ── Apply feature prefs from transcript (kept for backward compat) ──────────
 export function applyFeaturePrefs(value: string): string[] {
   const lv = value.toLowerCase();
   const matched: string[] = [];
@@ -530,7 +461,6 @@ export function applyFeaturePrefs(value: string): string[] {
   for (const [re, label] of map) {
     if (re.test(lv)) matched.push(label);
   }
-  // Also try exact comma-separated labels from AI
   if (matched.length === 0) {
     const parts = value.split(',').map(s => s.trim()).filter(Boolean);
     for (const p of parts) {
@@ -563,7 +493,7 @@ export async function parseReviewIntentAI(
   transcript: string,
   userId: string,
 ): Promise<string> {
-  void userId; // Used for context in future
+  void userId;
   try {
     const FIELDS = ['name','role','priorities','focus','schedule','location','style','tools','interests','features','islamic'];
     const system = `The user is reviewing their onboarding profile. They want to edit a field or confirm.
@@ -579,13 +509,11 @@ Return JSON: {"action":"confirm"|"edit","field":"<field_name or null>"}`;
 }
 
 // ── Backward compat exports ─────────────────────────────────────────────────
-// These are kept so existing code doesn't break during migration
 export function generateNodeScript(
   _node: OnboardingPhase,
   answers: OnboardingAnswers,
   previousTranscript?: string,
 ): Promise<NodeScriptResult> {
-  // Redirect to the new interview system
   return generateInterviewTurn(1, answers, previousTranscript).then(r => ({
     script: r.script,
     extracted_value: r.extracted_fields.name ?? null,
@@ -602,7 +530,6 @@ export function applyOnboardingAnswer(
 ): OnboardingAnswers {
   const v = (aiValue ?? value).trim();
   if (!v) return answers;
-  // Simple pass-through for backward compat
   return { ...answers };
 }
 

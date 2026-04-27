@@ -235,7 +235,7 @@ export default function MeetingRecorderView({ userId }: Props) {
                     </button>
                     {showTx === m.id && (
                       <div style={{
-                        marginTop: 10, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)',
+                        marginTop: 10, background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)',
                         borderRadius: 4, padding: '12px 14px',
                         maxHeight: 300, overflowY: 'auto',
                         fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.7,

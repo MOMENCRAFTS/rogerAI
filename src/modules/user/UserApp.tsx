@@ -150,7 +150,7 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
   // ── Loading ───────────────────────────────────────────────────────────────
   if (onboarded === null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--bg-base)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--bg-primary)' }}>
         <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
           {t('app.initialising')}
         </span>

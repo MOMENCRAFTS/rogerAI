@@ -2,12 +2,14 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Radio } from 'lucide-react';
 import { useI18n } from '../../context/I18nContext';
 import {
-  generateNameConfirm,
+  generateNameConfirm, generateAddInfoTurn,
   generateIslamicTurn, buildReviewScript, parseReviewIntentAI,
   mergeExtractedFields, silentExtractFields,
   getWelcomeScript, PHASE_LABELS, MAX_TOTAL_TURNS,
   type OnboardingPhase, type OnboardingAnswers,
 } from '../../lib/onboarding';
+import { getOnboardingNameHint } from '../../lib/whisperHint';
+import { getCurrentLocale, getBaseLanguage } from '../../lib/i18n';
 import { speakResponse, stopSpeaking, unlockAudio } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
 import { createAudioRecorder } from '../../lib/audioRecorder';
@@ -52,6 +54,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
   const [phase, setPhase]         = useState<PttPhase>('speaking');
   const [holdMs, setHoldMs]       = useState(0);
   const [typeText, setTypeText]   = useState('');
+  const [addingInfo, setAddingInfo] = useState(false);
 
   const recorderRef  = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
   const holdRef      = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -161,21 +164,31 @@ export default function Onboarding({ userId, onComplete }: Props) {
       return;
     }
 
-    // ── REVIEW ───────────────────────────────────────────────────────────
+    // ── REVIEW (with “add key info” support) ─────────────────────────────────
     if (flowPhase === 'review') {
+      if (addingInfo) {
+        const result = await generateAddInfoTurn(currentAnswers, transcript);
+        const merged = mergeExtractedFields(currentAnswers, result.extracted_fields);
+        setAnswers(merged);
+        setAddingInfo(false);
+        const reviewScript = await buildReviewScript(merged);
+        await speakNode(reviewScript);
+        return;
+      }
       const intent = await parseReviewIntentAI(transcript, userId);
       if (intent === 'confirm') {
         await finishOnboarding(currentAnswers);
         return;
       }
-      // User wants to edit — ask one more question about what they want to change
-      const editScript = `Got it. Tell me the correct ${intent}, Commander.`;
-      await speakNode(editScript);
-      // After they respond, extract and go back to review
-      setFlowPhase('welcome'); // re-enter to re-extract
+      // User said something that’s not confirm — treat as additional info
+      const result = await generateAddInfoTurn(currentAnswers, transcript);
+      const merged = mergeExtractedFields(currentAnswers, result.extracted_fields);
+      setAnswers(merged);
+      const reviewScript = await buildReviewScript(merged);
+      await speakNode(reviewScript);
       return;
     }
-  }, [flowPhase, totalTurns, userId, speakNode, finishOnboarding]);
+  }, [flowPhase, totalTurns, userId, addingInfo, speakNode, finishOnboarding]);
 
   // ── PTT Down ──────────────────────────────────────────────────────────────
   const handleDown = useCallback(async (e: React.PointerEvent) => {
@@ -233,7 +246,9 @@ export default function Onboarding({ userId, onComplete }: Props) {
         console.warn('[Onboarding PTT] Blob too small, skipping transcription');
         hapticError(); sfxError(); setPhase('waiting'); return;
       }
-      const { transcript } = await transcribeAudio(blob);
+      // Pass locale-aware name hint so Whisper can transcribe names accurately
+      const nameHint = !answers.name ? getOnboardingNameHint(getBaseLanguage(getCurrentLocale())) : undefined;
+      const { transcript } = await transcribeAudio(blob, nameHint);
       console.log('[Onboarding PTT] Transcript:', transcript);
       if (!transcript || transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '').length < 2) {
         hapticError(); sfxError(); setPhase('waiting'); return;
@@ -255,7 +270,11 @@ export default function Onboarding({ userId, onComplete }: Props) {
   // ── UI helpers ────────────────────────────────────────────────────────────
   const isAnswerable = flowPhase !== 'welcome' && flowPhase !== 'complete';
   const isReview     = flowPhase === 'review';
-  const progressPct  = flowPhase === 'complete' ? 100 : isReview ? 100 : Math.max(5, (totalTurns / MAX_TOTAL_TURNS) * 100);
+  const progressPct  = flowPhase === 'complete' ? 100
+    : flowPhase === 'review' ? 100
+    : flowPhase === 'islamic' ? 75
+    : flowPhase === 'name_confirm' ? 50
+    : 25;
 
   const btnColor = phase === 'recording'  ? '#d4a044'
     : phase === 'processing' ? '#a78bfa'
@@ -266,7 +285,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
     : phase === 'processing' ? 'Understanding...'
     : phase === 'speaking'   ? 'Roger speaking...'
     : phase === 'done'       ? 'Initializing...'
-    : isReview               ? 'Say "confirm" or "change my [field]"'
+    : isReview               ? (addingInfo ? 'Hold to add info about yourself' : 'Say "confirm" or tap Add Key Info')
     : 'Hold to speak';
 
   return (
@@ -421,10 +440,25 @@ export default function Onboarding({ userId, onComplete }: Props) {
             </div>
           )}
 
-          {/* Edit hint */}
-          <div style={{ padding: '8px 16px' }}>
+          {/* Add key info button */}
+          <div style={{ padding: '8px 16px', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={() => { setAddingInfo(true); setPhase('waiting'); stopSpeaking(); }}
+              disabled={phase === 'processing' || addingInfo}
+              style={{
+                flex: 1, padding: '8px 12px',
+                background: addingInfo ? 'rgba(212,160,68,0.1)' : 'transparent',
+                border: '1px solid rgba(212,160,68,0.25)',
+                cursor: 'pointer', fontFamily: 'monospace', fontSize: 10,
+                color: addingInfo ? 'var(--amber)' : 'var(--text-muted)',
+                textTransform: 'uppercase', letterSpacing: '0.1em',
+                transition: 'all 200ms',
+              }}
+            >
+              {addingInfo ? '▸ SPEAK NOW — ADD KEY INFO' : '＋ ADD KEY INFO'}
+            </button>
             <p style={{ margin: 0, fontFamily: 'monospace', fontSize: 8, color: 'rgba(107,106,94,0.5)', letterSpacing: '0.1em' }}>
-              SAY "CHANGE MY NAME" · "CHANGE MY ROLE" · ETC. OR SAY "CONFIRM"
+              OR SAY "CONFIRM"
             </p>
           </div>
         </div>

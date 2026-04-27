@@ -38,6 +38,9 @@ const NODE_QUESTIONS: Record<string, string> = {
   // node2 and node3 are dynamic — built at runtime with dialect names
 };
 
+/** First-encounter greeting — blends all 4 languages naturally */
+const WELCOME_GREETING = 'Roger online. Welcome. Marhaba. Bienvenue. Bienvenido. Choose your language — English, Al-Arabiyya, Français, or Español. Hold the mic and speak, or tap below.';
+
 // ── Silent node prompts: GPT validates relevance + extracts ───────────────
 const GATE_PROMPTS: Record<string, string> = {
   node1: `You are a silent classification node. Roger asked the user: "Which language would you like me to operate in? English, Arabic, French, or Spanish."
@@ -123,12 +126,25 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
   const showFallback = retries >= 2; // After 2 fails, emphasize tap targets
   const stylesRef = useRef(false);
   const recRef = useRef<any>(null);
+  const greetedRef = useRef(false);
 
   useEffect(() => {
     if (stylesRef.current) return;
     stylesRef.current = true;
     const s = document.createElement('style'); s.textContent = CSS; document.head.appendChild(s);
   }, []);
+
+  // Auto-speak welcome greeting on first load (first encounter)
+  useEffect(() => {
+    if (greetedRef.current || step !== 'node1') return;
+    greetedRef.current = true;
+    // Small delay so the UI renders first, then Roger speaks
+    const t = setTimeout(() => {
+      unlockAudio();
+      speakResponse(WELCOME_GREETING).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [step]);
 
   useEffect(() => {
     if (step !== 'node1') return;
