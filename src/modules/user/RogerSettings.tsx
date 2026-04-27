@@ -977,21 +977,20 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
               id="factory-reset-confirm-input"
               type="text"
               autoFocus
-              autoCapitalize="characters"
               autoCorrect="off"
               autoComplete="off"
               spellCheck={false}
               value={resetInput}
-              onChange={e => setResetInput(e.target.value.toUpperCase())}
+              onChange={e => setResetInput(e.target.value)}
               placeholder="TYPE HERE..."
-              style={{ width: '100%', padding: '10px 12px', fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.15em', background: 'var(--bg-recessed)', border: `1px solid ${resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.6)' : 'var(--border-subtle)'}`, color: resetInput === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-primary)', outline: 'none', boxSizing: 'border-box', marginBottom: 10, textAlign: 'center', transition: 'border-color 200ms, color 200ms' }}
+              style={{ width: '100%', padding: '10px 12px', fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.15em', background: 'var(--bg-recessed)', border: `1px solid ${resetInput.toUpperCase() === 'RESET MY ROGER' ? 'rgba(239,68,68,0.6)' : 'var(--border-subtle)'}`, color: resetInput.toUpperCase() === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-primary)', outline: 'none', boxSizing: 'border-box', marginBottom: 10, textAlign: 'center', transition: 'border-color 200ms, color 200ms' }}
             />
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 id="factory-reset-confirm-btn"
-                disabled={resetInput !== 'RESET MY ROGER'}
+                disabled={resetInput.toUpperCase() !== 'RESET MY ROGER'}
                 onClick={() => setResetStep(3)}
-                style={{ flex: 1, padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: resetInput === 'RESET MY ROGER' ? 'pointer' : 'not-allowed', background: resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.15)' : 'transparent', border: `1px solid ${resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.5)' : 'var(--border-subtle)'}`, color: resetInput === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-muted)', opacity: resetInput === 'RESET MY ROGER' ? 1 : 0.4, transition: 'all 200ms' }}
+                style={{ flex: 1, padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: resetInput.toUpperCase() === 'RESET MY ROGER' ? 'pointer' : 'not-allowed', background: resetInput.toUpperCase() === 'RESET MY ROGER' ? 'rgba(239,68,68,0.15)' : 'transparent', border: `1px solid ${resetInput.toUpperCase() === 'RESET MY ROGER' ? 'rgba(239,68,68,0.5)' : 'var(--border-subtle)'}`, color: resetInput.toUpperCase() === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-muted)', opacity: resetInput.toUpperCase() === 'RESET MY ROGER' ? 1 : 0.4, transition: 'all 200ms' }}
               >
                 Confirm Reset
               </button>
