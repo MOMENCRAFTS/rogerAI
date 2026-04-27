@@ -86,8 +86,9 @@ function swapAppId(targetId) {
 function swapAppName(targetName) {
   let strings = fs.readFileSync(STRINGS_FILE, 'utf8');
   strings = strings.replace(/<string name="app_name">.*?<\/string>/, `<string name="app_name">${targetName}</string>`);
+  strings = strings.replace(/<string name="title_activity_main">.*?<\/string>/, `<string name="title_activity_main">${targetName}</string>`);
   fs.writeFileSync(STRINGS_FILE, strings);
-  console.log(`  → app_name set to "${targetName}"`);
+  console.log(`  → app_name + title_activity_main set to "${targetName}"`);
 }
 
 // Rewrite adaptive icon backgrounds to a specific color using sharp
