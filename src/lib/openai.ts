@@ -729,7 +729,7 @@ export async function callGPT<T>(
   userContent: string,
   _model: 'gpt-5.5' | 'gpt-5.4-mini' = 'gpt-5.5',
   jsonMode = true,
-  timeoutMs = 15000
+  timeoutMs = 30000
 ): Promise<T> {
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
   const token = await getAuthToken().catch(() => import.meta.env.VITE_SUPABASE_ANON_KEY as string);
@@ -844,7 +844,7 @@ export async function processTransmission(
   const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000); // edge fn needs extra time
+  const timer = setTimeout(() => controller.abort(), 35000); // edge fn needs extra time
 
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {

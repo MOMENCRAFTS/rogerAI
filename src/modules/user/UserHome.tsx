@@ -744,7 +744,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         setPttState('processing');
         const ddCtx = deepDiveRef.current;
         const chipTimeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI_TIMEOUT')), 25_000)
+          setTimeout(() => reject(new Error('AI_TIMEOUT')), 45_000)
         );
         const result = await Promise.race([
           processTransmission(prompt, history, userId, undefined, undefined, null,
@@ -1025,9 +1025,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // Inject live service health into GPT-5.5 system prompt
       const serviceContext = silentNodeRef.current.getServiceContext();
 
-      // Race against a 25s timeout so the user never gets stuck on "Processing..."
+      // Race against a 45s timeout so the user never gets stuck on "Processing..."
       const aiTimeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('AI_TIMEOUT')), 25_000)
+        setTimeout(() => reject(new Error('AI_TIMEOUT')), 45_000)
       );
       const result = await Promise.race([
         processTransmission(
