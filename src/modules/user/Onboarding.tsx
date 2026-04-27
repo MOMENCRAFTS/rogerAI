@@ -249,10 +249,19 @@ export default function Onboarding({ userId, onComplete }: Props) {
       if (!transcript || transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '').length < 2) {
         hapticError(); sfxError(); setPhase('waiting'); return;
       }
-      await advanceTurn(transcript, answers);
-    } catch (err) {
+      // Race against a 20s timeout so the user is never stuck on "Understanding..."
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI_TIMEOUT')), 20_000)
+      );
+      await Promise.race([advanceTurn(transcript, answers), timeout]);
+    } catch (err: unknown) {
       console.error('[Onboarding PTT] Error:', err);
-      hapticError(); sfxError(); setPhase('waiting');
+      hapticError(); sfxError();
+      if (err instanceof Error && err.message === 'AI_TIMEOUT') {
+        console.warn('[Onboarding] AI call timed out — recovering');
+        speakResponse('Roger lost signal. Hold the button and try again. Over.').catch(() => {});
+      }
+      setPhase('waiting');
     }
   }, [phase, answers, advanceTurn]);
 

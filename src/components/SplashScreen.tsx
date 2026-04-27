@@ -141,7 +141,9 @@ function RotatingRings({ primary, secondary }: { primary: string; secondary: str
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-const TOTAL_MS = 25_000;
+const FULL_SPLASH_MS    = 25_000;
+const RETURN_SPLASH_MS  = 3_000;
+const SPLASH_SEEN_KEY   = 'roger_splash_seen';
 
 export default function SplashScreen({ onDone }: SplashScreenProps) {
   const { isAdmin } = useAuth();
@@ -150,6 +152,12 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
   const [exiting,   setExiting]   = useState(false);
   const [textIndex, setTextIndex] = useState(0);
   const exitingRef = useRef(false);
+
+  // Returning users get a shorter splash (3s vs 25s)
+  const isReturning = useRef(() => {
+    try { return localStorage.getItem(SPLASH_SEEN_KEY) === '1'; } catch { return false; }
+  });
+  const TOTAL_MS = isReturning.current() ? RETURN_SPLASH_MS : FULL_SPLASH_MS;
 
   // Role palette
   const primaryHex   = isAdmin ? '#d4a044' : '#38bdf8';
@@ -193,6 +201,8 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
     if (exitingRef.current) return;
     exitingRef.current = true;
     setExiting(true);
+    // Mark splash as seen so returning users get the short version
+    try { localStorage.setItem(SPLASH_SEEN_KEY, '1'); } catch { /* restricted storage */ }
     setTimeout(onDone, 650);
   };
 

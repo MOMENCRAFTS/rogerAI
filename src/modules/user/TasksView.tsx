@@ -1,15 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CheckSquare, CheckCircle2, XCircle, Zap, Plus, ChevronUp, Pencil, Check, X, Calendar } from 'lucide-react';
-import { fetchTasks, updateTaskStatus, insertTask, type DbTask } from '../../lib/api';
+import { CheckSquare, CheckCircle2, XCircle, Plus, ChevronUp, Pencil, Check, X, Calendar } from 'lucide-react';
+import { fetchTasks, updateTaskStatus, insertTask, fetchAutoResolved, undoAutoResolve, type DbTask } from '../../lib/api';
 import { useI18n } from '../../context/I18nContext';
+import { AutoResolvedBanner, ConfirmCard, SetupBlockedCard } from './TaskCards';
 
-type Filter = 'all' | 'open' | 'done' | 'cancelled';
+type Filter = 'all' | 'open' | 'pending' | 'done' | 'cancelled';
 
 interface NewTask { text: string; priority: number; due_date: string; }
 const EMPTY_NEW: NewTask = { text: '', priority: 5, due_date: '' };
 
 const priorityColor = (p: number) => p >= 8 ? '#f87171' : p >= 5 ? 'var(--amber)' : 'rgba(255,255,255,0.35)';
 const priorityLabel = (p: number) => p >= 8 ? 'HIGH' : p >= 5 ? 'MED' : 'LOW';
+
+/** Detect which integration a setup_required task needs */
+function detectService(text: string): string {
+  const t = text.toLowerCase();
+  if (t.includes('smartlife') || t.includes('tuya')) return 'SmartLife/Tuya';
+  if (t.includes('google') || t.includes('calendar')) return 'Google Calendar';
+  if (t.includes('spotify')) return 'Spotify';
+  if (t.includes('smartthings')) return 'SmartThings';
+  if (t.includes('ezviz')) return 'EZVIZ';
+  return 'Integration';
+}
 
 export default function TasksView({ userId }: { userId: string }) {
   const { t: _t } = useI18n();
@@ -21,9 +33,11 @@ export default function TasksView({ userId }: { userId: string }) {
   const [saving, setSaving]   = useState(false);
   const [editId, setEditId]   = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [autoResolved, setAutoResolved] = useState<DbTask[]>([]);
 
   const loadTasks = useCallback(() => {
     fetchTasks(userId).then(d => { setTasks(d); setLoading(false); }).catch(() => setLoading(false));
+    fetchAutoResolved(userId).then(setAutoResolved).catch(() => {});
   }, [userId]);
 
   useEffect(() => { setLoading(true); loadTasks(); }, [loadTasks]);
@@ -31,18 +45,59 @@ export default function TasksView({ userId }: { userId: string }) {
   useEffect(() => {
     const handler = () => loadTasks();
     window.addEventListener('roger:refresh', handler);
-    return () => window.removeEventListener('roger:refresh', handler);
+    window.addEventListener('roger:tasks-auto-resolved', handler);
+    return () => {
+      window.removeEventListener('roger:refresh', handler);
+      window.removeEventListener('roger:tasks-auto-resolved', handler);
+    };
   }, [loadTasks]);
 
-  const filtered = filter === 'all' ? tasks : tasks.filter(t => t.status === filter);
-  const open     = tasks.filter(t => t.status === 'open');
+  // ── Derived lists ──
+  const confirmTasks = tasks.filter(t => t.status === 'open' && t.execution_tier === 'confirm');
+  const setupTasks   = tasks.filter(t => t.status === 'open' && t.execution_tier === 'setup_required');
+  const manualOpen   = tasks.filter(t => t.status === 'open' && (t.execution_tier === 'manual' || !t.execution_tier));
+  const open         = tasks.filter(t => t.status === 'open');
 
-  const markDone   = async (id: string) => { await updateTaskStatus(id, 'done').catch(() => {}); setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'done' } : t)); };
+  // Group setup tasks by service
+  const setupGroups = setupTasks.reduce<Record<string, number>>((acc, t) => {
+    const svc = detectService(t.text);
+    acc[svc] = (acc[svc] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Filter logic
+  const filtered = (() => {
+    switch (filter) {
+      case 'open': return manualOpen;
+      case 'pending': return confirmTasks;
+      case 'done': return tasks.filter(t => t.status === 'done');
+      case 'cancelled': return tasks.filter(t => t.status === 'cancelled');
+      default: return tasks.filter(t => t.execution_tier !== 'confirm' && t.execution_tier !== 'setup_required');
+    }
+  })();
+
+  const markDone   = async (id: string) => { await updateTaskStatus(id, 'done', 'user').catch(() => {}); setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'done', resolved_by: 'user' } : t)); };
   const markCancel = async (id: string) => { await updateTaskStatus(id, 'cancelled').catch(() => {}); setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled' } : t)); };
 
+  const approveTask = async (id: string) => {
+    await updateTaskStatus(id, 'done', 'roger_confirm').catch(() => {});
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'done', resolved_by: 'roger_confirm' } : t));
+  };
+  const dismissTask = async (id: string) => {
+    // Downgrade to manual
+    const { supabase } = await import('../../lib/supabase');
+    await supabase.from('tasks').update({ execution_tier: 'manual' }).eq('id', id);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, execution_tier: 'manual' } : t));
+  };
+
+  const handleUndo = async () => {
+    const count = await undoAutoResolve(userId);
+    if (count > 0) { setAutoResolved([]); loadTasks(); }
+  };
+
   const markAllDone = async () => {
-    const openIds = tasks.filter(t => t.status === 'open').map(t => t.id);
-    await Promise.all(openIds.map(id => updateTaskStatus(id, 'done').catch(() => {})));
+    const openIds = manualOpen.map(t => t.id);
+    await Promise.all(openIds.map(id => updateTaskStatus(id, 'done', 'user').catch(() => {})));
     setTasks(prev => prev.map(t => t.status === 'open' ? { ...t, status: 'done' } : t));
   };
 
@@ -51,7 +106,7 @@ export default function TasksView({ userId }: { userId: string }) {
     setSaving(true);
     const due_at = newT.due_date ? new Date(`${newT.due_date}T09:00`).toISOString() : null;
     try {
-      const created = await insertTask({ user_id: userId, text: newT.text.trim(), priority: newT.priority, status: 'open', due_at, source_tx_id: null, is_admin_test: false });
+      const created = await insertTask({ user_id: userId, text: newT.text.trim(), priority: newT.priority, status: 'open', due_at, source_tx_id: null, is_admin_test: false, execution_tier: 'manual', dedup_group: null, resolved_by: null, resolved_at: null });
       if (created) setTasks(prev => [created, ...prev]);
     } catch { /* silent */ }
     setNewT(EMPTY_NEW); setShowForm(false); setSaving(false);
@@ -74,7 +129,7 @@ export default function TasksView({ userId }: { userId: string }) {
     setEditId(null);
   };
 
-  const FILTERS: Filter[] = ['all', 'open', 'done', 'cancelled'];
+  const FILTERS: Filter[] = ['all', 'open', 'pending', 'done', 'cancelled'];
 
   const inputStyle: React.CSSProperties = {
     width: '100%', boxSizing: 'border-box', padding: '8px 10px',
@@ -89,9 +144,9 @@ export default function TasksView({ userId }: { userId: string }) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <CheckSquare size={16} style={{ color: 'var(--amber)' }} />
-        <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>Tasks</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>Smart Tasks</span>
         <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>{open.length} OPEN · {tasks.length} TOTAL</span>
-        {open.length > 1 && (
+        {manualOpen.length > 1 && (
           <button onClick={markAllDone} style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'transparent', border: '1px solid var(--green-border)', color: 'var(--green)', cursor: 'pointer' }}>
             All Done
           </button>
@@ -116,7 +171,6 @@ export default function TasksView({ userId }: { userId: string }) {
             onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) handleCreate(); }}
             style={{ ...inputStyle, resize: 'none', lineHeight: 1.5 }}
           />
-
           {/* Priority selector */}
           <div>
             <label style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 6 }}>Priority</label>
@@ -127,13 +181,10 @@ export default function TasksView({ userId }: { userId: string }) {
                     border: `1px solid ${newT.priority === val ? priorityColor(val) : 'var(--border-subtle)'}`,
                     background: newT.priority === val ? `${priorityColor(val)}18` : 'transparent',
                     color: newT.priority === val ? priorityColor(val) : 'var(--text-muted)',
-                  }}>
-                  {label}
-                </button>
+                  }}>{label}</button>
               ))}
             </div>
           </div>
-
           {/* Due date */}
           <div>
             <label style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 4 }}>
@@ -141,7 +192,6 @@ export default function TasksView({ userId }: { userId: string }) {
             </label>
             <input type="date" value={newT.due_date} onChange={e => setNewT(p => ({ ...p, due_date: e.target.value }))} style={inputStyle} />
           </div>
-
           <button onClick={handleCreate} disabled={saving || !newT.text.trim()}
             style={{ padding: '8px', fontFamily: 'monospace', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', background: newT.text.trim() ? 'rgba(212,160,68,0.12)' : 'transparent', border: `1px solid ${newT.text.trim() ? 'var(--amber)' : 'var(--border-subtle)'}`, color: newT.text.trim() ? 'var(--amber)' : 'var(--text-muted)', cursor: newT.text.trim() ? 'pointer' : 'not-allowed', transition: 'all 150ms' }}>
             {saving ? 'Saving...' : '＋ Add Task'}
@@ -149,23 +199,30 @@ export default function TasksView({ userId }: { userId: string }) {
         </div>
       )}
 
-      {/* Auto-enrich callout */}
-      {open.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, padding: '6px 10px', background: 'rgba(212,160,68,0.06)', border: '1px solid rgba(212,160,68,0.15)' }}>
-          <Zap size={10} style={{ color: 'var(--amber)' }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Roger auto-enriches tasks from every conversation</span>
-        </div>
-      )}
+      {/* ── Auto-Resolved Banner ── */}
+      <AutoResolvedBanner tasks={autoResolved} onUndo={handleUndo} />
+
+      {/* ── Confirmation Cards ── */}
+      {confirmTasks.map(t => (
+        <ConfirmCard key={t.id} task={t} onApprove={approveTask} onDismiss={dismissTask} />
+      ))}
+
+      {/* ── Setup-Blocked Cards ── */}
+      {Object.entries(setupGroups).map(([svc, count]) => (
+        <SetupBlockedCard key={svc} service={svc} count={count} />
+      ))}
 
       {/* Filter chips */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, marginTop: (confirmTasks.length + Object.keys(setupGroups).length) > 0 ? 12 : 0 }}>
         {FILTERS.map(f => (
           <button key={f} onClick={() => setFilter(f)} style={{
             padding: '4px 12px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
             border: `1px solid ${filter === f ? 'var(--amber)' : 'var(--border-subtle)'}`,
             background: filter === f ? 'rgba(212,160,68,0.1)' : 'transparent',
             color: filter === f ? 'var(--amber)' : 'var(--text-muted)',
-          }}>{f}</button>
+          }}>
+            {f}{f === 'pending' ? ` (${confirmTasks.length})` : ''}
+          </button>
         ))}
       </div>
 
@@ -192,30 +249,22 @@ export default function TasksView({ userId }: { userId: string }) {
               transition: 'opacity 200ms',
             }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
-
-                {/* Priority bar — click to cycle */}
+                {/* Priority bar */}
                 {t.status === 'open' && (
-                  <button
-                    onClick={() => cyclePriority(t.id, t.priority)}
-                    title="Click to change priority"
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingTop: 2, background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}
-                  >
+                  <button onClick={() => cyclePriority(t.id, t.priority)} title="Click to change priority"
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingTop: 2, background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
                     <span style={{ fontFamily: 'monospace', fontSize: 7, color: pColor, textTransform: 'uppercase' }}>{priorityLabel(t.priority)}</span>
                     <div style={{ width: 4, height: 22, background: 'var(--border-subtle)', borderRadius: 2, overflow: 'hidden' }}>
                       <div style={{ width: '100%', height: `${(t.priority / 10) * 100}%`, background: pColor, marginTop: `${100 - (t.priority / 10) * 100}%`, transition: 'height 200ms, background 200ms' }} />
                     </div>
                   </button>
                 )}
-
-                {/* Text — editable inline */}
+                {/* Text */}
                 {isEditing ? (
                   <div style={{ flex: 1, display: 'flex', gap: 6 }}>
-                    <input
-                      autoFocus value={editText}
-                      onChange={e => setEditText(e.target.value)}
+                    <input autoFocus value={editText} onChange={e => setEditText(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') saveEdit(t.id); if (e.key === 'Escape') setEditId(null); }}
-                      style={{ flex: 1, padding: '5px 8px', fontFamily: 'monospace', fontSize: 13, background: 'var(--bg-recessed)', border: '1px solid var(--amber)', color: 'var(--text-primary)', outline: 'none' }}
-                    />
+                      style={{ flex: 1, padding: '5px 8px', fontFamily: 'monospace', fontSize: 13, background: 'var(--bg-recessed)', border: '1px solid var(--amber)', color: 'var(--text-primary)', outline: 'none' }} />
                     <button onClick={() => saveEdit(t.id)} style={{ padding: '4px 8px', background: 'rgba(212,160,68,0.1)', border: '1px solid var(--amber)', color: 'var(--amber)', cursor: 'pointer' }}><Check size={12} /></button>
                     <button onClick={() => setEditId(null)} style={{ padding: '4px 8px', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={12} /></button>
                   </div>
@@ -234,13 +283,18 @@ export default function TasksView({ userId }: { userId: string }) {
               </div>
 
               {/* Meta row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: t.status === 'open' ? 8 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: t.status === 'open' ? 8 : 0, flexWrap: 'wrap' }}>
                 <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)' }}>
                   {new Date(t.created_at).toLocaleDateString()} {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 {t.source_tx_id && (
                   <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '1px 6px', background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                     From conversation
+                  </span>
+                )}
+                {t.resolved_by && t.resolved_by !== 'user' && (
+                  <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '1px 6px', background: 'rgba(90,156,105,0.1)', border: '1px solid rgba(90,156,105,0.2)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {t.resolved_by === 'roger_auto' ? '⚡ Auto-resolved' : '✓ Approved'}
                   </span>
                 )}
                 {t.due_at && (

@@ -126,6 +126,12 @@ export async function fetchPrayerTimes(
   lng: number,
   method: number | string = 3,
 ): Promise<PrayerTimes> {
+  // Cache key includes rounded coords so moving > ~1km busts the cache
+  const coordKey = `${Math.round(lat * 100)}_${Math.round(lng * 100)}`;
+  const cacheKey = `prayer_${coordKey}`;
+  const cached = getCached<PrayerTimes>(cacheKey);
+  if (cached) return cached;
+
   const m = resolveMethod(method);
   const url = `${BASE}/prayer-times?lat=${lat}&lng=${lng}&method=${m}`;
   const res = await fetch(url);
@@ -135,7 +141,7 @@ export async function fetchPrayerTimes(
   };
 
   const t = json.data.prayer_times;
-  return {
+  const times: PrayerTimes = {
     Fajr:    t.fajr    ?? '—',
     Sunrise: t.sunrise  ?? '—',
     Dhuhr:   t.dhuhr    ?? '—',
@@ -143,6 +149,8 @@ export async function fetchPrayerTimes(
     Maghrib: t.maghrib  ?? '—',
     Isha:    t.isha     ?? '—',
   };
+  setCache(cacheKey, times);
+  return times;
 }
 
 // ── Next Prayer Computation ───────────────────────────────────────────────────

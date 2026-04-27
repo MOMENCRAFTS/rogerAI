@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Radio, MapPin, Square } from 'lucide-react';
 import { RogerIcon } from '../../components/icons';
 import { useI18n } from '../../context/I18nContext';
@@ -41,7 +41,7 @@ import {
   CLARIFICATION_EXPIRY_MS,
 } from '../../lib/clarificationContext';
 import {
-  insertReminder, insertTask, insertMemory,
+  insertReminder, insertTask, insertTaskWithDedup, insertMemory,
   fetchSurfaceQueue, updateSurfaceItem,
   subscribeToRelayMessages, deferRelayMessage, markRelayRead,
   insertConversationTurn, upsertEntityMention,
@@ -184,6 +184,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     ? (location.country ? `${location.city}, ${location.country}` : location.city)
     : hookLabel;
 
+  // ── Stabilised GPS coordinates ─────────────────────────────────────────────
+  // GPS watchPosition fires every few seconds with sub-metre jitter.
+  // Rounding to 2 decimals (~1.1 km) prevents effects that depend on lat/lng
+  // from re-running on every tick. This eliminates the reminders + prayer_prefs
+  // + prayer-times query storm visible in the network tab.
+  const stableLat = useMemo(() => Math.round((location?.latitude ?? 0) * 100) / 100, [location?.latitude]);
+  const stableLng = useMemo(() => Math.round((location?.longitude ?? 0) * 100) / 100, [location?.longitude]);
+  const hasLocation = location != null;
+
   const recorderRef  = useRef<ReturnType<typeof createAudioRecorder> extends Promise<infer T> ? T : never | null>(null);
   const holdRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const pttStartRef  = useRef<number>(0);
@@ -228,6 +237,19 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   useEffect(() => {
     const node = silentNodeRef.current;
     node.start({ userId }).catch(err => console.warn('[SilentNode] Init failed:', err));
+
+    // ── Task Automation: auto-resolve sweep on mount ──
+    import('../../lib/api').then(({ autoResolveTasks }) => {
+      autoResolveTasks(userId).then(resolved => {
+        if (resolved.length > 0) {
+          console.log(`[TaskEngine] Auto-resolved ${resolved.length} tasks`);
+          window.dispatchEvent(new CustomEvent('roger:tasks-auto-resolved', {
+            detail: { count: resolved.length, tasks: resolved }
+          }));
+        }
+      }).catch(() => {});
+    }).catch(() => {});
+
     return () => { node.stop(); };
   }, [userId]);
 
@@ -255,9 +277,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
         if (!islamicOn || !notifOn || rogerMode === 'quiet') return;
 
-        // Fetch today's prayer times based on current GPS or Riyadh fallback
-        const lat = location?.latitude  ?? 24.7136;
-        const lng = location?.longitude ?? 46.6753;
+        // Fetch today's prayer times based on stable GPS or Riyadh fallback
+        const lat = stableLat || 24.71;
+        const lng = stableLng || 46.78;
         const { fetchPrayerTimes: fpt, bearingToCardinal: btc, getQiblaDirection: gqd } =
           await import('../../lib/islamicApi');
         const times = await fpt(lat, lng).catch(() => null);
@@ -297,7 +319,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       cancelled = true;
       timerIds.forEach(id => clearTimeout(id));
     };
-  }, [userId, location?.latitude, location?.longitude, rogerMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userId, stableLat, stableLng, rogerMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
@@ -411,9 +433,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     return () => { sessionCh.unsubscribe(); };
   }, [activeTuneInSession, userId]);
 
-  // ── Geo-fence check — runs every time GPS updates (~60s) ─────────────────────
+  // ── Geo-fence check — throttled to once per 60s ────────────────────────────
+  const lastGeoCheckRef = useRef<number>(0);
   useEffect(() => {
-    if (!location) return;
+    if (!hasLocation || !location) return;
+    const now = Date.now();
+    // Throttle: skip if checked less than 60s ago
+    if (now - lastGeoCheckRef.current < 60_000) return;
+    lastGeoCheckRef.current = now;
     checkGeoFences(userId, location.latitude, location.longitude).then(triggered => {
       triggered.forEach(reminder => {
         // Mark as geo_triggered so it won't fire again
@@ -434,7 +461,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       });
     }).catch(() => {});
-  }, [location, userId]);
+  }, [stableLat, stableLng, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Proactive surface: in ACTIVE mode, pick item after 45s idle
   const triggerSurface = useCallback(async () => {
@@ -655,9 +682,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       try {
         setPttState('processing');
         const ddCtx = deepDiveRef.current;
-        const result = await processTransmission(prompt, history, userId, undefined, undefined, null,
-          ddCtx ? { topic: ddCtx.topic, depth: ddCtx.depth, coverageSummary: ddCtx.coverageSummary } : null
+        const chipTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('AI_TIMEOUT')), 25_000)
         );
+        const result = await Promise.race([
+          processTransmission(prompt, history, userId, undefined, undefined, null,
+            ddCtx ? { topic: ddCtx.topic, depth: ddCtx.depth, coverageSummary: ddCtx.coverageSummary } : null
+          ),
+          chipTimeout,
+        ]);
         setHistory(prev => [...prev, { role: 'assistant', content: result.roger_response }]);
         const isKnowledge = result.is_knowledge_query ?? false;
         const currentDepth = ddCtx?.depth ?? 0;
@@ -931,18 +964,25 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // Inject live service health into GPT-5.5 system prompt
       const serviceContext = silentNodeRef.current.getServiceContext();
 
-      const result = await processTransmission(
-        transcript, history, undefined, userId, locationContext,
-        activeClariCtx ? {
-          original_transcript: activeClariCtx.original_transcript,
-          original_intent: activeClariCtx.original_intent,
-          clarification_question: activeClariCtx.clarification_question,
-          missing_entities: activeClariCtx.missing_entities,
-          attempt: activeClariCtx.attempt,
-        } : null,
-        null, // deepDiveContext (passed separately below if active)
-        serviceContext
+      // Race against a 25s timeout so the user never gets stuck on "Processing..."
+      const aiTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI_TIMEOUT')), 25_000)
       );
+      const result = await Promise.race([
+        processTransmission(
+          transcript, history, undefined, userId, locationContext,
+          activeClariCtx ? {
+            original_transcript: activeClariCtx.original_transcript,
+            original_intent: activeClariCtx.original_intent,
+            clarification_question: activeClariCtx.clarification_question,
+            missing_entities: activeClariCtx.missing_entities,
+            attempt: activeClariCtx.attempt,
+          } : null,
+          null, // deepDiveContext (passed separately below if active)
+          serviceContext
+        ),
+        aiTimeout,
+      ]);
 
       // Append history
       setHistory(prev => [...prev.slice(-10),
@@ -1211,7 +1251,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           type: 'task',
           label: taskLabel,
           execute: () => {
-            insertTask({ user_id: userId, text: transcript, priority: 5, status: 'open', due_at: null, source_tx_id: null, is_admin_test: isTest })
+            insertTask({ user_id: userId, text: transcript, priority: 5, status: 'open', due_at: null, source_tx_id: null, is_admin_test: isTest, execution_tier: 'confirm', dedup_group: null, resolved_by: null, resolved_at: null })
               .then(() => window.dispatchEvent(new CustomEvent('roger:refresh'))).catch(() => {});
           },
         });
@@ -1319,13 +1359,16 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // Increment daily PTT usage counter (enforces Free-tier 50/day limit)
       void supabase.rpc('increment_ptt_usage', { p_user_id: userId });
 
-      // ── Auto-create proposed tasks (from every turn, not just action intents) ──
+      // ── Auto-create proposed tasks WITH dedup + tier classification ──
       if (result.proposed_tasks?.length) {
         result.proposed_tasks.forEach(pt => {
-          insertTask({
+          insertTaskWithDedup({
             user_id: userId, text: pt.text,
             priority: pt.priority ?? 5, status: 'open',
             due_at: null, source_tx_id: null, is_admin_test: isTest,
+            execution_tier: pt.execution_tier ?? 'manual',
+          }).then(({ merged }) => {
+            if (merged) console.log(`[TaskEngine] Merged duplicate: "${pt.text.slice(0, 40)}..."`);
           }).catch(() => {});
         });
       }
@@ -2286,7 +2329,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     } catch (e) {
       hapticError();
       sfxError();
-      const m = e instanceof Error && e.message.includes('abort') ? 'Signal timeout. Retry. Over.' : 'AI offline. Retry. Over.';
+      const m = e instanceof Error && e.message === 'AI_TIMEOUT'
+        ? 'Roger lost signal — transmission timed out. Hold and try again. Over.'
+        : e instanceof Error && e.message.includes('abort') ? 'Signal timeout. Retry. Over.' : 'AI offline. Retry. Over.';
       speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       setIsSpeaking(false); setPttState('responded');
     }

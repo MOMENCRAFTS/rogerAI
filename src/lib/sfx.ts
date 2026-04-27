@@ -14,6 +14,11 @@ let masterGain               = 0.35;
 let sfxEnabled               = true;
 let loading: Promise<void>  | null = null;
 
+// Cooldown gate — avoids hammering ctx.resume() when the device
+// keeps suspending the context (common on Android WebView).
+let _lastResumeFail = 0;
+const RESUME_COOLDOWN_MS = 2000;
+
 const buffers = new Map<string, AudioBuffer>();
 
 const SFX: Record<string, string> = {
@@ -26,7 +31,20 @@ const SFX: Record<string, string> = {
 
 function getCtx(): AudioContext | null {
   try {
-    if (!ctx) ctx = new AudioContext();
+    // If the AudioContext has been closed (e.g. system reclaimed it),
+    // discard and create a fresh one.
+    if (ctx && ctx.state === 'closed') {
+      ctx = null;
+    }
+    if (!ctx) {
+      ctx = new AudioContext();
+      // Auto-recover from system suspensions (screen off → on, app resume)
+      ctx.onstatechange = () => {
+        if (ctx?.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+      };
+    }
     return ctx;
   } catch { return null; }
 }
@@ -35,12 +53,25 @@ function getCtx(): AudioContext | null {
 async function ensureRunning(): Promise<AudioContext | null> {
   const c = getCtx();
   if (!c) return null;
+  if (c.state === 'running') return c;
   // Android WebView suspends AudioContext until a user gesture resumes it.
   // We must properly await resume() — fire-and-forget causes silent playback.
+  // Cooldown prevents spamming resume() when the device keeps killing it.
   if (c.state === 'suspended') {
-    try { await c.resume(); } catch { return null; }
+    const now = Date.now();
+    if (now - _lastResumeFail < RESUME_COOLDOWN_MS) return null;
+    try {
+      await c.resume();
+    } catch {
+      _lastResumeFail = now;
+      return null;
+    }
+    if ((c.state as string) !== 'running') {
+      _lastResumeFail = now;
+      return null;
+    }
   }
-  return c.state === 'running' ? c : null;
+  return (c.state as string) === 'running' ? c : null;
 }
 
 async function loadBuf(name: string, url: string): Promise<void> {

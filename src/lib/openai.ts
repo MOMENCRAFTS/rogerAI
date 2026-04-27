@@ -26,7 +26,7 @@ export interface RogerAIResponse {
   missing_entities?: string[] | null;
   reasoning: string;
   insight?: string | null;
-  proposed_tasks?: { text: string; priority: number }[];
+  proposed_tasks?: { text: string; priority: number; execution_tier?: 'auto' | 'confirm' | 'setup_required' | 'manual' }[];
   intent_options?: { intent: string; label: string }[] | null;
   is_knowledge_query?: boolean;
   subtopics?: { label: string; emoji: string }[] | null;
@@ -122,11 +122,25 @@ Resolve pronouns (him/her/it/that) from conversation history and memory context.
 Insight (max 15 words): note patterns — repeated topics, clustering deadlines, frequent people.
 
 ═══════════════════════════════════════
-PROPOSED TASKS (NEW FIELD)
+PROPOSED TASKS
 ═══════════════════════════════════════
 For EVERY response (including queries), include "proposed_tasks" — an array of 1-3 task objects
 that should be auto-created or offered to the user based on this conversation turn.
-Each task: { "text": "...", "priority": 1-10 }
+Each task: { "text": "...", "priority": 1-10, "execution_tier": "auto"|"confirm"|"setup_required"|"manual" }
+
+EXECUTION TIER RULES:
+- "auto": Roger can resolve this immediately with no user input.
+  Examples: saving a fact to memory, creating a log entry, preparing a briefing,
+  updating location/workplace context, identifying priorities from existing data.
+- "confirm": Roger CAN do this but needs explicit one-tap approval first.
+  Examples: setting up device automations/alerts, creating scheduled scenes,
+  geo-fenced reminders, commute alerts, sending messages.
+- "setup_required": Task requires an integration the user hasn't configured yet.
+  Examples: connecting SmartLife/Tuya, linking Google Calendar, enabling Spotify.
+- "manual": Only the user can do this. Roger should only remind.
+  Examples: booking a medical appointment, making a physical purchase, visiting a place.
+
+Default to "manual" if uncertain. NEVER classify destructive or irreversible actions as "auto".
 If nothing actionable, return proposed_tasks: []
 
 ═══════════════════════════════════════

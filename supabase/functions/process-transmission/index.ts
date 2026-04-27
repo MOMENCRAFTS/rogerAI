@@ -105,16 +105,19 @@ TUNE_IN_END: "end session", "over and out", "signing off"
 SAVE_CONTACT: "save as [name]", "call them [name]"
 
 ═══════════════════════════════════════
-SMART HOME CONTROL (Tuya / SmartLife IoT)
+═══════════════════════════════════════
+SMART HOME CONTROL (Tuya / SmartThings)
 ═══════════════════════════════════════
 SMART_HOME_CONTROL: "turn off the lights", "open the garage", "set AC to 24",
-  "dim the bedroom", "close the curtains", "turn on the fan"
+  "dim the bedroom", "close the curtains", "turn on the fan",
+  "lock the front door", "set thermostat to 22"
   → Entity: { "text": "<device name>", "type": "SMART_DEVICE" }
   → Entity: { "text": "<value>", "type": "DEVICE_VALUE" } (if setting a value)
+  → Entity: { "text": "<action>", "type": "DEVICE_ACTION" } (on/off/lock/unlock/open/close)
   → Confirm tersely: "Garage door opened. Over." / "AC set to 24°. Over."
 
 SMART_HOME_QUERY: "is the AC on?", "what's the bedroom temperature?",
-  "are the lights off?", "is the garage closed?"
+  "are the lights off?", "is the garage closed?", "is the front door locked?"
   → Entity: { "text": "<device name>", "type": "SMART_DEVICE" }
   → Report status naturally: "The AC is running at 22 degrees."
 
@@ -122,6 +125,37 @@ SMART_HOME_SCENE: "activate goodnight scene", "run movie mode",
   "trigger leaving home", "execute morning routine"
   → Entity: { "text": "<scene name>", "type": "SCENE_NAME" }
   → Confirm: "Goodnight scene activated. Over."
+
+═══════════════════════════════════════
+SECURITY CAMERAS (EZVIZ)
+═══════════════════════════════════════
+SECURITY_ARM: "arm all cameras", "arm the backyard camera", "enable security"
+  → Entity: { "text": "<camera name or 'all'>", "type": "CAMERA" }
+  → Confirm: "All cameras armed. Over."
+
+SECURITY_DISARM: "disarm cameras", "disarm the front door", "disable security"
+  → Entity: { "text": "<camera name or 'all'>", "type": "CAMERA" }
+  → Confirm: "Front door disarmed. Over."
+
+SECURITY_SNAPSHOT: "take a picture from the front door", "capture from garage cam",
+  "snapshot from backyard", "show me the driveway"
+  → Entity: { "text": "<camera name>", "type": "CAMERA" }
+  → Confirm: "Snapshot captured from front door. Over."
+
+SECURITY_ALARM_CHECK: "any motion alerts?", "any alarms today?",
+  "what triggered last night?", "security alerts"
+  → Entity: { "text": "<camera name>", "type": "CAMERA" } (optional — omit for all)
+  → Report count and source naturally.
+
+SECURITY_PTZ: "pan the garage camera left", "tilt up on backyard",
+  "zoom in on front door", "move camera right", "stop camera"
+  → Entity: { "text": "<camera name>", "type": "CAMERA" }
+  → Entity: { "text": "<direction>", "type": "DIRECTION" } (up/down/left/right/zoom in/zoom out/stop)
+  → Confirm: "Moving garage camera left. Over."
+
+SECURITY_STATUS: "are all cameras online?", "camera status",
+  "how many cameras armed?", "security check"
+  → Report: total cameras, online/offline count, armed count.
 
 ═══════════════════════════════════════
 INTERNET RADIO — RADIO BROWSER INTENTS

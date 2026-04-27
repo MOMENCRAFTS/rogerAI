@@ -8,7 +8,7 @@ import { supabase } from './supabase';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type ServiceId =
-  | 'spotify' | 'radio' | 'gcal' | 'tuya' | 'notion'
+  | 'spotify' | 'radio' | 'gcal' | 'tuya' | 'smartthings' | 'ezviz' | 'notion'
   | 'finnhub' | 'aviationstack' | 'google_maps'
   | 'openai' | 'whisper' | 'tts' | 'supabase'
   | 'twilio' | 'contacts' | 'islamic' | 'news';
@@ -64,6 +64,8 @@ const SERVICE_META: Record<ServiceId, { displayName: string; emoji: string; icon
   radio:          { displayName: 'Radio Browser',     emoji: '📻', iconName: 'svc-radio' },
   gcal:           { displayName: 'Google Calendar',   emoji: '📅', iconName: 'svc-gcal' },
   tuya:           { displayName: 'Tuya Smart Home',   emoji: '🏠', iconName: 'svc-tuya' },
+  smartthings:    { displayName: 'SmartThings',        emoji: '📱', iconName: 'svc-smartthings' },
+  ezviz:          { displayName: 'EZVIZ Security',     emoji: '📷', iconName: 'svc-ezviz' },
   notion:         { displayName: 'Notion',            emoji: '📝', iconName: 'svc-notion' },
   finnhub:        { displayName: 'Finnhub Finance',   emoji: '📈', iconName: 'svc-finnhub' },
   aviationstack:  { displayName: 'Flight Tracker',    emoji: '✈️', iconName: 'svc-aviation' },
@@ -147,6 +149,8 @@ class ServiceGraphImpl {
     this.updateNode('spotify',   { configured: !!sessionStorage.getItem('spotify_token') });
     this.updateNode('gcal',      { configured: !!(p?.gcal_connected) });
     this.updateNode('tuya',      { configured: !!(p?.tuya_uid) });
+    this.updateNode('smartthings',{ configured: !!(p?.smartthings_pat) });
+    this.updateNode('ezviz',      { configured: !!(p?.ezviz_uid) });
     this.updateNode('notion',    { configured: !!(p?.notion_token) });
     this.updateNode('finnhub',   { configured: !!import.meta.env.VITE_FINNHUB_API_KEY });
     this.updateNode('aviationstack', { configured: !!import.meta.env.VITE_AVIATIONSTACK_KEY });
@@ -307,6 +311,20 @@ class ServiceGraphImpl {
 
       case 'tuya': {
         if (!this.userPrefs?.tuya_uid) {
+          return { status: 'unconfigured', latencyMs: 0 };
+        }
+        return { status: 'healthy', latencyMs: performance.now() - start };
+      }
+
+      case 'smartthings': {
+        if (!this.userPrefs?.smartthings_pat) {
+          return { status: 'unconfigured', latencyMs: 0 };
+        }
+        return { status: 'healthy', latencyMs: performance.now() - start };
+      }
+
+      case 'ezviz': {
+        if (!this.userPrefs?.ezviz_uid) {
           return { status: 'unconfigured', latencyMs: 0 };
         }
         return { status: 'healthy', latencyMs: performance.now() - start };

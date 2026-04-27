@@ -240,6 +240,7 @@ function registerAllHandlers(r: IntentRegistryImpl): void {
   registerCalendarHandlers(r);
   registerMediaHandlers(r);
   registerTuneInHandlers(r);
+  registerSecurityHandlers(r);
   registerRemainingHandlers(r);
 }
 
@@ -281,66 +282,112 @@ function registerCoreHandlers(r: IntentRegistryImpl): void {
   // ── SMART_HOME_CONTROL ──────────────────────────────────────────────────
   r.register({
     intent: 'SMART_HOME_CONTROL',
-    requiredServices: ['tuya'],
+    requiredServices: [],  // We check tuya/smartthings availability inside
     confirmationGate: true,
     confirmationLabel: (result) => `Smart home: ${result.roger_response.replace(/ Over\.$/, '')}. Execute? Over.`,
     async execute(ctx) {
-      const { listTuyaDevices, matchDevice, inferCommand, controlDevice } = await import('./tuya');
-      const uid = ctx.preferences?.tuya_uid as string | undefined;
-      if (!uid) { await ctx.speak('Tuya not connected. Set up in Settings. Over.'); return; }
-      const devices = await listTuyaDevices(uid);
-      const deviceLabel = ctx.entity('SMART_DEVICE') ?? 'device';
-      const matched = matchDevice(deviceLabel, devices);
-      if (!matched) { await ctx.speak(`Could not find "${deviceLabel}" in your devices. Over.`); return; }
-      const value = ctx.entity('DEVICE_VALUE');
-      const action = ctx.entity('DEVICE_ACTION');
-      const cmd = inferCommand(ctx.result.intent, matched.category, value ? (isNaN(Number(value)) ? value : Number(value)) : undefined, action);
-      if (!cmd) { await ctx.speak('Unable to determine command. Over.'); return; }
-      await controlDevice(matched.id, [cmd]);
-      await ctx.speak(`Done. ${matched.name} ${cmd.value === true ? 'on' : cmd.value === false ? 'off' : 'updated'}. Over.`);
+      const tuyaUid = ctx.preferences?.tuya_uid as string | undefined;
+      const stPat   = ctx.preferences?.smartthings_pat as string | undefined;
+
+      if (tuyaUid) {
+        // ── Tuya path (existing) ──
+        const { listTuyaDevices, matchDevice, inferCommand, controlDevice } = await import('./tuya');
+        const devices = await listTuyaDevices(tuyaUid);
+        const deviceLabel = ctx.entity('SMART_DEVICE') ?? 'device';
+        const matched = matchDevice(deviceLabel, devices);
+        if (!matched) { await ctx.speak(`Could not find "${deviceLabel}" in your devices. Over.`); return; }
+        const value = ctx.entity('DEVICE_VALUE');
+        const action = ctx.entity('DEVICE_ACTION');
+        const cmd = inferCommand(ctx.result.intent, matched.category, value ? (isNaN(Number(value)) ? value : Number(value)) : undefined, action);
+        if (!cmd) { await ctx.speak('Unable to determine command. Over.'); return; }
+        await controlDevice(matched.id, [cmd]);
+        await ctx.speak(`Done. ${matched.name} ${cmd.value === true ? 'on' : cmd.value === false ? 'off' : 'updated'}. Over.`);
+      } else if (stPat) {
+        // ── SmartThings path (new) ──
+        const { listSmartThingsDevices, matchSmartThingsDevice, inferSmartThingsCommand, controlSmartThingsDevice } = await import('./smartthings');
+        const devices = await listSmartThingsDevices(stPat);
+        const deviceLabel = ctx.entity('SMART_DEVICE') ?? 'device';
+        const matched = matchSmartThingsDevice(deviceLabel, devices);
+        if (!matched) { await ctx.speak(`Could not find "${deviceLabel}" in SmartThings. Over.`); return; }
+        const value = ctx.entity('DEVICE_VALUE');
+        const action = ctx.entity('DEVICE_ACTION');
+        const cmd = inferSmartThingsCommand(ctx.result.intent, matched, value ? (isNaN(Number(value)) ? value : Number(value)) : undefined, action);
+        if (!cmd) { await ctx.speak('Unable to determine command for this device. Over.'); return; }
+        await controlSmartThingsDevice(stPat, matched.deviceId, [cmd]);
+        await ctx.speak(`Done. ${matched.label ?? matched.name} ${cmd.command}. Over.`);
+      } else {
+        await ctx.speak('No smart home platform connected. Set up Tuya or SmartThings in Settings. Over.');
+      }
     },
   });
 
   // ── SMART_HOME_SCENE ────────────────────────────────────────────────────
   r.register({
     intent: 'SMART_HOME_SCENE',
-    requiredServices: ['tuya'],
+    requiredServices: [],
     confirmationGate: true,
     confirmationLabel: (result) => {
       const scene = result.entities?.find(e => e.type === 'SCENE_NAME');
       return `Run scene "${scene?.text ?? 'scene'}"? Over.`;
     },
     async execute(ctx) {
-      const { listTuyaDevices, listTuyaScenes, matchScene, triggerTuyaScene } = await import('./tuya');
-      const uid = ctx.preferences?.tuya_uid as string | undefined;
-      if (!uid) { await ctx.speak('Tuya not connected. Set up in Settings. Over.'); return; }
-      const devices = await listTuyaDevices(uid);
-      if (devices.length === 0) { await ctx.speak('No homes found. Over.'); return; }
-      const homeId = String(devices[0].home_id);
-      const scenes = await listTuyaScenes(homeId);
-      const sceneName = ctx.entity('SCENE_NAME') ?? 'scene';
-      const matched = matchScene(sceneName, scenes);
-      if (!matched) { await ctx.speak(`Could not find scene "${sceneName}". Over.`); return; }
-      await triggerTuyaScene(homeId, matched.scene_id);
-      await ctx.speak(`Scene "${matched.name}" triggered. Over.`);
+      const tuyaUid = ctx.preferences?.tuya_uid as string | undefined;
+      const stPat   = ctx.preferences?.smartthings_pat as string | undefined;
+
+      if (tuyaUid) {
+        // ── Tuya path ──
+        const { listTuyaDevices, listTuyaScenes, matchScene, triggerTuyaScene } = await import('./tuya');
+        const devices = await listTuyaDevices(tuyaUid);
+        if (devices.length === 0) { await ctx.speak('No homes found. Over.'); return; }
+        const homeId = String(devices[0].home_id);
+        const scenes = await listTuyaScenes(homeId);
+        const sceneName = ctx.entity('SCENE_NAME') ?? 'scene';
+        const matched = matchScene(sceneName, scenes);
+        if (!matched) { await ctx.speak(`Could not find scene "${sceneName}". Over.`); return; }
+        await triggerTuyaScene(homeId, matched.scene_id);
+        await ctx.speak(`Scene "${matched.name}" triggered. Over.`);
+      } else if (stPat) {
+        // ── SmartThings path ──
+        const { listSmartThingsScenes, matchSmartThingsScene, executeSmartThingsScene } = await import('./smartthings');
+        const scenes = await listSmartThingsScenes(stPat);
+        const sceneName = ctx.entity('SCENE_NAME') ?? 'scene';
+        const matched = matchSmartThingsScene(sceneName, scenes);
+        if (!matched) { await ctx.speak(`Could not find scene "${sceneName}" in SmartThings. Over.`); return; }
+        await executeSmartThingsScene(stPat, matched.sceneId);
+        await ctx.speak(`Scene "${matched.sceneName}" triggered. Over.`);
+      } else {
+        await ctx.speak('No smart home platform connected. Set up in Settings. Over.');
+      }
     },
   });
 
   // ── SMART_HOME_QUERY ────────────────────────────────────────────────────
   r.register({
     intent: 'SMART_HOME_QUERY',
-    requiredServices: ['tuya'],
+    requiredServices: [],
     async execute(ctx) {
-      const { listTuyaDevices, matchDevice, getDeviceStatus } = await import('./tuya');
-      const uid = ctx.preferences?.tuya_uid as string | undefined;
-      if (!uid) return;
-      const deviceLabel = ctx.entity('SMART_DEVICE');
-      if (!deviceLabel) return;
-      const devices = await listTuyaDevices(uid);
-      const matched = matchDevice(deviceLabel, devices);
-      if (!matched) return;
-      const status = await getDeviceStatus(matched.id);
-      console.log('[SmartHome] Device status:', matched.name, status);
+      const tuyaUid = ctx.preferences?.tuya_uid as string | undefined;
+      const stPat   = ctx.preferences?.smartthings_pat as string | undefined;
+
+      if (tuyaUid) {
+        const { listTuyaDevices, matchDevice, getDeviceStatus } = await import('./tuya');
+        const deviceLabel = ctx.entity('SMART_DEVICE');
+        if (!deviceLabel) return;
+        const devices = await listTuyaDevices(tuyaUid);
+        const matched = matchDevice(deviceLabel, devices);
+        if (!matched) return;
+        const status = await getDeviceStatus(matched.id);
+        console.log('[SmartHome] Device status:', matched.name, status);
+      } else if (stPat) {
+        const { listSmartThingsDevices, matchSmartThingsDevice, getSmartThingsDeviceStatus } = await import('./smartthings');
+        const deviceLabel = ctx.entity('SMART_DEVICE');
+        if (!deviceLabel) return;
+        const devices = await listSmartThingsDevices(stPat);
+        const matched = matchSmartThingsDevice(deviceLabel, devices);
+        if (!matched) return;
+        const status = await getSmartThingsDeviceStatus(stPat, matched.deviceId);
+        console.log('[SmartHome] SmartThings status:', matched.label ?? matched.name, status);
+      }
       // GPT response already covers the query — this is supplementary data
     },
   });
@@ -1144,6 +1191,189 @@ function registerRemainingHandlers(r: IntentRegistryImpl): void {
       // No-op: CONVERSE is handled by the main TTS flow in UserHome.
       // The registry returns true to indicate it was matched, but the
       // actual speaking is done by the main PTT pipeline.
+    },
+  });
+}
+
+// ── Batch F: EZVIZ Security Cameras ─────────────────────────────────────────
+
+function registerSecurityHandlers(r: IntentRegistryImpl): void {
+  // ── SECURITY_ARM ────────────────────────────────────────────────────────
+  r.register({
+    intent: 'SECURITY_ARM',
+    requiredServices: ['ezviz'],
+    confirmationGate: true,
+    confirmationLabel: (result) => {
+      const device = result.entities?.find(e => e.type === 'SMART_DEVICE' || e.type === 'CAMERA');
+      return device ? `Arm "${device.text}"? Over.` : 'Arm all cameras? Over.';
+    },
+    async execute(ctx) {
+      const { listEzvizDevices, matchCamera, armDevice, armAll } = await import('./ezviz');
+      const deviceLabel = ctx.entity('SMART_DEVICE') ?? ctx.entity('CAMERA');
+
+      if (!deviceLabel || deviceLabel.toLowerCase().includes('all')) {
+        const count = await armAll();
+        await ctx.speak(`${count} camera${count !== 1 ? 's' : ''} armed. Over.`);
+      } else {
+        const devices = await listEzvizDevices();
+        const matched = matchCamera(deviceLabel, devices);
+        if (!matched) { await ctx.speak(`Could not find camera "${deviceLabel}". Over.`); return; }
+        await armDevice(matched.deviceSerial);
+        await ctx.speak(`${matched.deviceName} armed. Over.`);
+      }
+    },
+  });
+
+  // ── SECURITY_DISARM ─────────────────────────────────────────────────────
+  r.register({
+    intent: 'SECURITY_DISARM',
+    requiredServices: ['ezviz'],
+    confirmationGate: true,
+    confirmationLabel: (result) => {
+      const device = result.entities?.find(e => e.type === 'SMART_DEVICE' || e.type === 'CAMERA');
+      return device ? `Disarm "${device.text}"? Over.` : 'Disarm all cameras? Over.';
+    },
+    async execute(ctx) {
+      const { listEzvizDevices, matchCamera, disarmDevice, disarmAll } = await import('./ezviz');
+      const deviceLabel = ctx.entity('SMART_DEVICE') ?? ctx.entity('CAMERA');
+
+      if (!deviceLabel || deviceLabel.toLowerCase().includes('all')) {
+        const count = await disarmAll();
+        await ctx.speak(`${count} camera${count !== 1 ? 's' : ''} disarmed. Over.`);
+      } else {
+        const devices = await listEzvizDevices();
+        const matched = matchCamera(deviceLabel, devices);
+        if (!matched) { await ctx.speak(`Could not find camera "${deviceLabel}". Over.`); return; }
+        await disarmDevice(matched.deviceSerial);
+        await ctx.speak(`${matched.deviceName} disarmed. Over.`);
+      }
+    },
+  });
+
+  // ── SECURITY_SNAPSHOT ───────────────────────────────────────────────────
+  r.register({
+    intent: 'SECURITY_SNAPSHOT',
+    requiredServices: ['ezviz'],
+    async execute(ctx) {
+      const { listEzvizDevices, matchCamera, captureSnapshot } = await import('./ezviz');
+      const deviceLabel = ctx.entity('SMART_DEVICE') ?? ctx.entity('CAMERA') ?? 'camera';
+      const devices = await listEzvizDevices();
+      const matched = matchCamera(deviceLabel, devices);
+      if (!matched) { await ctx.speak(`Could not find camera "${deviceLabel}". Over.`); return; }
+
+      const url = await captureSnapshot(matched.deviceSerial);
+      if (url) {
+        ctx.addMessage({
+          id: `snap-${Date.now()}`, role: 'roger',
+          text: `📸 Snapshot from ${matched.deviceName}`,
+          ts: Date.now(), intent: 'SECURITY_SNAPSHOT', outcome: 'success',
+        });
+        await ctx.speak(`Snapshot captured from ${matched.deviceName}. Over.`);
+      } else {
+        await ctx.speak(`Could not capture snapshot from ${matched.deviceName}. Camera may be offline. Over.`);
+      }
+    },
+  });
+
+  // ── SECURITY_ALARM_CHECK ────────────────────────────────────────────────
+  r.register({
+    intent: 'SECURITY_ALARM_CHECK',
+    requiredServices: ['ezviz'],
+    async execute(ctx) {
+      const { listEzvizDevices, matchCamera, getAlarms } = await import('./ezviz');
+      const deviceLabel = ctx.entity('SMART_DEVICE') ?? ctx.entity('CAMERA');
+
+      // If no specific camera, check all
+      const devices = await listEzvizDevices();
+      const targets = deviceLabel
+        ? [matchCamera(deviceLabel, devices)].filter(Boolean) as Awaited<ReturnType<typeof listEzvizDevices>>
+        : devices.filter(d => d.status === 1);
+
+      let totalAlarms = 0;
+      const summaries: string[] = [];
+
+      for (const device of targets.slice(0, 5)) {
+        try {
+          const alarms = await getAlarms(device.deviceSerial, 24);
+          if (alarms.length > 0) {
+            totalAlarms += alarms.length;
+            summaries.push(`${device.deviceName}: ${alarms.length} alert${alarms.length > 1 ? 's' : ''}`);
+          }
+        } catch { /* skip failed */ }
+      }
+
+      if (totalAlarms === 0) {
+        await ctx.speak('No motion alerts in the last 24 hours. All clear. Over.');
+      } else {
+        ctx.addMessage({
+          id: `alarm-${Date.now()}`, role: 'roger',
+          text: `🚨 ${totalAlarms} alert${totalAlarms > 1 ? 's' : ''} in the last 24h`,
+          ts: Date.now(), intent: 'SECURITY_ALARM_CHECK', outcome: 'success',
+        });
+        await ctx.speak(`${totalAlarms} alert${totalAlarms > 1 ? 's' : ''} in the last 24 hours. ${summaries.join('. ')}. Over.`);
+      }
+    },
+  });
+
+  // ── SECURITY_PTZ ────────────────────────────────────────────────────────
+  r.register({
+    intent: 'SECURITY_PTZ',
+    requiredServices: ['ezviz'],
+    async execute(ctx) {
+      const { listEzvizDevices, matchCamera, ptzStart, ptzStop, parsePtzDirection } = await import('./ezviz');
+      const deviceLabel = ctx.entity('SMART_DEVICE') ?? ctx.entity('CAMERA') ?? 'camera';
+      const directionText = ctx.entity('DIRECTION') ?? ctx.entity('DEVICE_ACTION') ?? '';
+
+      const devices = await listEzvizDevices();
+      const matched = matchCamera(deviceLabel, devices);
+      if (!matched) { await ctx.speak(`Could not find camera "${deviceLabel}". Over.`); return; }
+
+      if (directionText.toLowerCase().includes('stop')) {
+        await ptzStop(matched.deviceSerial);
+        await ctx.speak(`${matched.deviceName} PTZ stopped. Over.`);
+        return;
+      }
+
+      const direction = parsePtzDirection(directionText);
+      if (!direction) {
+        await ctx.speak('Could not determine direction. Try saying up, down, left, right, or zoom in. Over.');
+        return;
+      }
+
+      await ptzStart(matched.deviceSerial, direction);
+      // Auto-stop after 2 seconds
+      setTimeout(() => { ptzStop(matched.deviceSerial).catch(() => {}); }, 2000);
+      await ctx.speak(`Moving ${matched.deviceName} ${directionText}. Over.`);
+    },
+  });
+
+  // ── SECURITY_STATUS ─────────────────────────────────────────────────────
+  r.register({
+    intent: 'SECURITY_STATUS',
+    requiredServices: ['ezviz'],
+    async execute(ctx) {
+      const { listEzvizDevices } = await import('./ezviz');
+      const devices = await listEzvizDevices();
+      const online = devices.filter(d => d.status === 1);
+      const offline = devices.filter(d => d.status !== 1);
+      const armed = devices.filter(d => d.defence === 1);
+
+      let msg = `${devices.length} camera${devices.length !== 1 ? 's' : ''} total. `;
+      msg += `${online.length} online`;
+      if (offline.length > 0) msg += `, ${offline.length} offline`;
+      msg += `. ${armed.length} armed. `;
+
+      if (offline.length > 0) {
+        msg += `Offline: ${offline.map(d => d.deviceName).join(', ')}. `;
+      }
+      msg += 'Over.';
+
+      ctx.addMessage({
+        id: `sec-status-${Date.now()}`, role: 'roger',
+        text: `📷 ${online.length}/${devices.length} cameras online · ${armed.length} armed`,
+        ts: Date.now(), intent: 'SECURITY_STATUS', outcome: 'success',
+      });
+      await ctx.speak(msg);
     },
   });
 }

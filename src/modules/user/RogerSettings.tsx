@@ -69,10 +69,11 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
       await fullUserReset(userId);
       // Clear all local state so the user goes through Language → Permissions → Onboarding → Orientation
       localStorage.removeItem('roger_locale');
-      localStorage.removeItem('roger_perms_granted');
-      localStorage.removeItem('roger_legal_accepted');
+      localStorage.removeItem('roger:perms_granted');
+      localStorage.removeItem('roger_legal_v3');
       localStorage.removeItem('roger_contacts_prompted');
       localStorage.removeItem('sfxVolume');
+      localStorage.removeItem('roger_splash_seen');
       // Sign out after reset so user re-enters fresh
       await signOut();
     } catch (err) {
@@ -899,6 +900,56 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           />
           <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(96,165,250,0.5)', margin: '6px 0 0', lineHeight: 1.4 }}>
             Open SmartLife app → Profile → Account and Security → copy your Account UID
+          </p>
+        </div>
+
+        {/* SmartThings */}
+        <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).smartthings_pat ? 'rgba(96,165,250,0.3)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).smartthings_pat ? 'rgba(96,165,250,0.04)' : 'var(--bg-elevated)', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>📱</span>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Samsung SmartThings</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: (prefs as Record<string, unknown>).smartthings_pat ? '#60a5fa' : 'var(--text-muted)', margin: 0 }}>
+                {(prefs as Record<string, unknown>).smartthings_pat ? '● Connected — say "lock the front door" or "run goodnight scene"' : 'Control SmartThings devices — lights, locks, thermostats, scenes'}
+              </p>
+            </div>
+          </div>
+          <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 5 }}>Personal Access Token (PAT)</label>
+          <input
+            type="password"
+            placeholder="Paste your PAT from account.smartthings.com/tokens"
+            value={(prefs as Record<string, unknown>).smartthings_pat as string ?? ''}
+            onChange={e => setPrefs(p => ({ ...p, smartthings_pat: e.target.value } as typeof p))}
+            onBlur={e => { if (e.target.value) upsertUserPreferences(userId, { smartthings_pat: e.target.value } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {}); }}
+            style={{ width: '100%', padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
+          />
+          <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(96,165,250,0.5)', margin: '6px 0 0', lineHeight: 1.4 }}>
+            Go to account.smartthings.com/tokens → Generate New Token → select all device scopes → copy token
+          </p>
+        </div>
+
+        {/* EZVIZ Security */}
+        <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).ezviz_uid ? 'rgba(239,68,68,0.3)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).ezviz_uid ? 'rgba(239,68,68,0.04)' : 'var(--bg-elevated)', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>📷</span>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>EZVIZ Security</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: (prefs as Record<string, unknown>).ezviz_uid ? '#ef4444' : 'var(--text-muted)', margin: 0 }}>
+                {(prefs as Record<string, unknown>).ezviz_uid ? '● Connected — say "arm all cameras" or "any motion alerts?"' : 'Control EZVIZ cameras — arm/disarm, snapshots, PTZ, alarm history'}
+              </p>
+            </div>
+          </div>
+          <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 5 }}>EZVIZ Account UID</label>
+          <input
+            type="text"
+            placeholder="Paste your UID from EZVIZ app → Profile"
+            value={(prefs as Record<string, unknown>).ezviz_uid as string ?? ''}
+            onChange={e => setPrefs(p => ({ ...p, ezviz_uid: e.target.value } as typeof p))}
+            onBlur={e => { if (e.target.value) upsertUserPreferences(userId, { ezviz_uid: e.target.value } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {}); }}
+            style={{ width: '100%', padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
+          />
+          <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(239,68,68,0.4)', margin: '6px 0 0', lineHeight: 1.4 }}>
+            Open EZVIZ app → Me → Account → copy your Account UID
           </p>
         </div>
       </div>

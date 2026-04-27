@@ -37,13 +37,39 @@ export async function transcribeAudio(blob: Blob, promptHint?: string): Promise<
   form.append('response_format', 'json');
   if (promptHint) form.append('prompt', promptHint);
 
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
-    method:  'POST',
-    headers: { 'Authorization': `Bearer ${token}` },
-    body:    form,
-  });
+  // Retry once on transient server errors (502/503) — these happen when
+  // OpenAI is slow or the Deno edge runtime times out temporarily.
+  const MAX_ATTEMPTS = 2;
+  let lastError: Error | null = null;
 
-  if (!res.ok) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      // Backoff: 1.5s before retry to let the server recover
+      await new Promise(r => setTimeout(r, 1500));
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body:    form,
+    });
+
+    if (res.ok) {
+      const data = await res.json() as { transcript: string; durationMs: number };
+      return {
+        transcript: data.transcript.trim(),
+        durationMs: Date.now() - t0,
+      };
+    }
+
+    // Transient server error → retry
+    if ((res.status === 502 || res.status === 503) && attempt < MAX_ATTEMPTS - 1) {
+      console.warn(`[whisper] ${res.status} on attempt ${attempt + 1}, retrying...`);
+      lastError = new Error(`whisper-transcribe error ${res.status}`);
+      continue;
+    }
+
+    // Permanent error → throw immediately
     const err = await res.json().catch(() => ({}));
     throw new Error(
       (err as { error?: string }).error ??
@@ -51,9 +77,5 @@ export async function transcribeAudio(blob: Blob, promptHint?: string): Promise<
     );
   }
 
-  const data = await res.json() as { transcript: string; durationMs: number };
-  return {
-    transcript: data.transcript.trim(),
-    durationMs: Date.now() - t0,
-  };
+  throw lastError ?? new Error('whisper-transcribe failed');
 }

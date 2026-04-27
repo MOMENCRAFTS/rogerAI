@@ -41,11 +41,18 @@ export type DbReminder = {
 };
 
 // ─── Task ─────────────────────────────────────────────────────────────────────
+export type TaskExecutionTier = 'auto' | 'confirm' | 'setup_required' | 'manual';
+
 export type DbTask = {
   id: string; user_id: string; text: string;
   priority: number; status: 'open' | 'done' | 'cancelled';
   due_at: string | null; source_tx_id: string | null;
   is_admin_test: boolean; created_at: string; updated_at: string;
+  // ── Task Automation Engine fields ──
+  execution_tier: TaskExecutionTier;
+  dedup_group: string | null;
+  resolved_by: 'user' | 'roger_auto' | 'roger_confirm' | null;
+  resolved_at: string | null;
 };
 
 // ─── Memory ───────────────────────────────────────────────────────────────────
@@ -91,6 +98,9 @@ export type DbUserPreferences = {
   gcal_token_expiry:  string        | null;
   // ── Tuya Smart Home ─────────────────────────
   tuya_uid:           string        | null;
+  // ── SmartThings + EZVIZ ─────────────────────
+  smartthings_pat:    string        | null;
+  ezviz_uid:          string        | null;
   // ── Tour ────────────────────────────────────
   tour_seen:          boolean;
   tour_version:       number        | null;
@@ -191,9 +201,87 @@ export async function insertTask(task: Omit<DbTask, 'id' | 'created_at' | 'updat
   return data;
 }
 
-export async function updateTaskStatus(id: string, status: DbTask['status']): Promise<void> {
-  const { error } = await supabase.from('tasks').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+export async function updateTaskStatus(id: string, status: DbTask['status'], resolvedBy?: DbTask['resolved_by']): Promise<void> {
+  const update: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+  if (resolvedBy) {
+    update.resolved_by = resolvedBy;
+    update.resolved_at = new Date().toISOString();
+  }
+  const { error } = await supabase.from('tasks').update(update).eq('id', id);
   if (error) throw error;
+}
+
+// ─── Task Automation Engine ───────────────────────────────────────────────────
+
+/** Jaccard word-set similarity (0-1). Cheap, no API call needed. */
+function textSimilarity(a: string, b: string): number {
+  const normalize = (s: string) =>
+    new Set(s.toLowerCase().replace(/[^a-z0-9\u0600-\u06FF\s]/g, '').split(/\s+/).filter(w => w.length > 1));
+  const setA = normalize(a);
+  const setB = normalize(b);
+  if (setA.size === 0 && setB.size === 0) return 1;
+  const intersection = new Set([...setA].filter(w => setB.has(w)));
+  const union = new Set([...setA, ...setB]);
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
+
+/** Find semantically similar open tasks for dedup check */
+export async function findSimilarTasks(userId: string, text: string, threshold = 0.55): Promise<DbTask[]> {
+  const { data } = await supabase.from('tasks').select('*')
+    .eq('user_id', userId).eq('status', 'open');
+  return (data ?? []).filter(t => textSimilarity(t.text, text) > threshold);
+}
+
+/** Insert task with dedup gate — merges if similar task exists */
+export async function insertTaskWithDedup(
+  task: Omit<DbTask, 'id' | 'created_at' | 'updated_at' | 'dedup_group' | 'resolved_by' | 'resolved_at'>,
+): Promise<{ task: DbTask; merged: boolean }> {
+  const similar = await findSimilarTasks(task.user_id, task.text);
+  if (similar.length > 0) {
+    const existing = similar[0];
+    const newPriority = Math.max(existing.priority, task.priority);
+    if (newPriority > existing.priority) {
+      await supabase.from('tasks').update({ priority: newPriority, updated_at: new Date().toISOString() }).eq('id', existing.id);
+    }
+    return { task: { ...existing, priority: newPriority }, merged: true };
+  }
+  const created = await insertTask({ ...task, execution_tier: task.execution_tier ?? 'manual' } as Omit<DbTask, 'id' | 'created_at' | 'updated_at'>);
+  return { task: created, merged: false };
+}
+
+/** Batch auto-resolve tasks that Roger can handle silently */
+export async function autoResolveTasks(userId: string): Promise<DbTask[]> {
+  const now = new Date().toISOString();
+  const { data } = await supabase.from('tasks')
+    .update({ status: 'done', resolved_by: 'roger_auto', resolved_at: now, updated_at: now })
+    .eq('user_id', userId)
+    .eq('status', 'open')
+    .eq('execution_tier', 'auto')
+    .select();
+  return data ?? [];
+}
+
+/** Fetch recently auto-resolved tasks (for the banner) */
+export async function fetchAutoResolved(userId: string): Promise<DbTask[]> {
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data } = await supabase.from('tasks').select('*')
+    .eq('user_id', userId)
+    .eq('resolved_by', 'roger_auto')
+    .gte('resolved_at', cutoff)
+    .order('resolved_at', { ascending: false });
+  return data ?? [];
+}
+
+/** Undo auto-resolved tasks (within 30-minute window) */
+export async function undoAutoResolve(userId: string): Promise<number> {
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data } = await supabase.from('tasks')
+    .update({ status: 'open', resolved_by: null, resolved_at: null, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('resolved_by', 'roger_auto')
+    .gte('resolved_at', cutoff)
+    .select();
+  return data?.length ?? 0;
 }
 
 // ─── Memories ─────────────────────────────────────────────────────────────────
@@ -950,6 +1038,8 @@ export async function fullUserReset(userId: string): Promise<void> {
     gcal_refresh_token: null,
     gcal_token_expiry: null,
     tuya_uid: null,
+    smartthings_pat: null,
+    ezviz_uid: null,
     home_address: null,
     home_lat: null,
     home_lng: null,

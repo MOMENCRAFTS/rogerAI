@@ -138,11 +138,20 @@ async function deleteEvent(token: string, titleOrId: string) {
   return { ok: true };
 }
 
+// ─── CORS headers ─────────────────────────────────────────────────────────────
+
+const CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 // ─── Main Handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  // CORS preflight — must return 200 with all three CORS headers
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
+    return new Response('ok', { status: 200, headers: CORS });
   }
 
   const authHeader = req.headers.get('Authorization') ?? '';
@@ -154,20 +163,24 @@ Deno.serve(async (req) => {
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
   }
 
   const body = await req.json() as { action: string; userId: string; daysAhead?: number; event?: object; titleOrId?: string };
   const { action, userId, daysAhead = 0 } = body;
 
   if (user.id !== userId) {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403, headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
   }
 
   const token = await getValidToken(supabase, userId);
   if (!token) {
     return new Response(JSON.stringify({ error: 'Google Calendar not connected' }), {
-      status: 400, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
     });
   }
 
@@ -176,14 +189,16 @@ Deno.serve(async (req) => {
     if (action === 'list_events') result = await listEvents(token, daysAhead);
     else if (action === 'create_event') result = await createEvent(token, body.event as Parameters<typeof createEvent>[1]);
     else if (action === 'delete_event') result = await deleteEvent(token, body.titleOrId ?? '');
-    else return new Response(JSON.stringify({ error: 'Unknown action' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    else return new Response(JSON.stringify({ error: 'Unknown action' }), {
+      status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
 
     return new Response(JSON.stringify(result), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { ...CORS, 'Content-Type': 'application/json' },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: (err as Error).message }), {
-      status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      status: 500, headers: { ...CORS, 'Content-Type': 'application/json' },
     });
   }
 });

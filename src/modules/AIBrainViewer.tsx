@@ -68,6 +68,8 @@ const EDGE_FNS: { name: string; category: string; desc: string }[] = [
   { name: 'notion-sync', category: 'Integrations', desc: 'Notion page push' },
   { name: 'twilio-sms', category: 'Integrations', desc: 'SMS via Twilio' },
   { name: 'tuya-control', category: 'Integrations', desc: 'Smart home control' },
+  { name: 'smartthings-control', category: 'Integrations', desc: 'SmartThings device control' },
+  { name: 'ezviz-control', category: 'Integrations', desc: 'EZVIZ security cameras' },
   { name: 'radio-search', category: 'Integrations', desc: 'Radio Browser proxy' },
   { name: 'tts-proxy', category: 'Integrations', desc: 'Text-to-speech proxy' },
   { name: 'whisper-transcribe', category: 'Integrations', desc: 'Whisper STT proxy' },

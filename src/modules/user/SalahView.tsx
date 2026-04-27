@@ -9,7 +9,7 @@
  *  5. Prayer Tracker — tap to mark each salah done (local state)
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Moon, Compass, BookOpen, RefreshCw, MapPin } from 'lucide-react';
 import type { UserLocation } from '../../lib/useLocation';
 import {
@@ -44,26 +44,41 @@ export default function SalahView({ location }: Props) {
   const [prayed, setPrayed]         = useState<Record<string, boolean>>({});
   const timerRef                    = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Stabilise GPS coordinates to prevent jitter-driven refetches ──────────
+  // GPS watchPosition fires every few seconds with sub-metre floating-point
+  // changes. Rounding to 2 decimals (~1.1 km) stops the loadData callback
+  // from being recreated on every GPS tick, which was causing the
+  // loading-spinner flicker.
+  const stableLat = useMemo(() => {
+    const raw = location?.latitude ?? 24.7136;
+    return Math.round(raw * 100) / 100;
+  }, [location?.latitude]);
+  const stableLng = useMemo(() => {
+    const raw = location?.longitude ?? 46.6753;
+    return Math.round(raw * 100) / 100;
+  }, [location?.longitude]);
+
   // ── Load prayer times + verse ─────────────────────────────────────────────
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isRefresh = false) => {
+    // Only show full-screen loading on the very first load —
+    // subsequent refreshes keep the existing data visible.
+    if (!isRefresh) setLoading(true);
     setError(null);
     try {
-      const lat = location?.latitude  ?? 24.7136; // Riyadh fallback
-      const lng = location?.longitude ?? 46.6753;
       const [pTimes, pVerse] = await Promise.all([
-        fetchPrayerTimes(lat, lng),
+        fetchPrayerTimes(stableLat, stableLng),
         fetchVerseOfDay(),
       ]);
       setTimes(pTimes);
       setVerse(pVerse);
-      setQibla(getQiblaDirection(lat, lng));
+      setQibla(getQiblaDirection(stableLat, stableLng));
     } catch {
-      setError('Could not load prayer times. Check your connection.');
+      // Only show error if we have no cached data to show
+      if (!times) setError('Could not load prayer times. Check your connection.');
     } finally {
       setLoading(false);
     }
-  }, [location?.latitude, location?.longitude]);
+  }, [stableLat, stableLng]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -135,7 +150,7 @@ export default function SalahView({ location }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16, padding: 24 }}>
         <Moon size={32} color={EMERALD} style={{ opacity: 0.5 }} />
         <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>{error}</p>
-        <button onClick={loadData} style={btnStyle('sm')}><RefreshCw size={12} /> Retry</button>
+        <button onClick={() => loadData()} style={btnStyle('sm')}><RefreshCw size={12} /> Retry</button>
       </div>
     );
   }
@@ -166,7 +181,7 @@ export default function SalahView({ location }: Props) {
               ? <><MapPin size={9} style={{ verticalAlign: 'middle' }} /> {location.latitude.toFixed(2)}° {location.longitude.toFixed(2)}°</>
               : 'Location unavailable — using Riyadh'}
           </span>
-          <button onClick={loadData} title="Refresh" style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-muted)', display: 'flex' }}>
+          <button onClick={() => loadData(true)} title="Refresh" style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-muted)', display: 'flex' }}>
             <RefreshCw size={12} />
           </button>
         </div>
