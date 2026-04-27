@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   MessageSquare, Search, RefreshCw, ChevronDown, ChevronUp,
-  User, Bot, Clock, Hash, Filter, AlertCircle,
+  User, Bot, Clock, Filter, AlertCircle,
 } from 'lucide-react';
 import HelpBadge from '../components/shared/HelpBadge';
 import FilterChip from '../components/shared/FilterChip';
 import {
   fetchConversationSessionList, fetchAdminSessionTurns,
-  searchAllConversations, fetchAdminUserList,
+  fetchAdminUserList,
   type DbConversationTurn, type DbAdminUser,
 } from '../lib/api';
 
@@ -22,11 +22,6 @@ function relativeTime(iso: string) {
   if (hrs < 24) return `${hrs}h AGO`;
   const days = Math.floor(hrs / 24);
   return days < 30 ? `${days}d AGO` : new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });
-}
-
-function formatTimestamp(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function durationBetween(startIso: string, endIso: string) {

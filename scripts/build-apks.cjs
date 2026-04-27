@@ -62,12 +62,79 @@ try {
   run('npm install --save-dev cross-env');
 }
 
+// ─── ApplicationId + App Name swap helpers ────────────────────────────────────
+// Allows both ADMIN and USER APKs to coexist on the same device.
+const GRADLE_FILE   = path.join(ROOT, 'android', 'app', 'build.gradle');
+const STRINGS_FILE  = path.join(ROOT, 'android', 'app', 'src', 'main', 'res', 'values', 'strings.xml');
+const RES_DIR       = path.join(ROOT, 'android', 'app', 'src', 'main', 'res');
+const USER_APP_ID   = 'com.rogerai.app';
+const ADMIN_APP_ID  = 'com.rogerai.admin';
+const USER_APP_NAME = 'Roger AI';
+const ADMIN_APP_NAME = 'Roger HQ';
+
+// Icon background colors: admin gets amber-orange, user gets dark
+const ADMIN_ICON_BG = { r: 180, g: 120, b: 30, alpha: 255 };  // amber/orange
+const USER_ICON_BG  = { r: 10, g: 12, b: 11, alpha: 255 };    // near-black (original)
+
+function swapAppId(targetId) {
+  let gradle = fs.readFileSync(GRADLE_FILE, 'utf8');
+  gradle = gradle.replace(/applicationId\s+"com\.rogerai\.\w+"/, `applicationId "${targetId}"`);
+  fs.writeFileSync(GRADLE_FILE, gradle);
+  console.log(`  → applicationId set to ${targetId}`);
+}
+
+function swapAppName(targetName) {
+  let strings = fs.readFileSync(STRINGS_FILE, 'utf8');
+  strings = strings.replace(/<string name="app_name">.*?<\/string>/, `<string name="app_name">${targetName}</string>`);
+  fs.writeFileSync(STRINGS_FILE, strings);
+  console.log(`  → app_name set to "${targetName}"`);
+}
+
+// Rewrite adaptive icon backgrounds to a specific color using sharp
+function swapIconBackground(bg) {
+  const sharp = require('sharp');
+  const ICON_SIZES = {
+    'mipmap-ldpi':    81,
+    'mipmap-mdpi':    108,
+    'mipmap-hdpi':    162,
+    'mipmap-xhdpi':   216,
+    'mipmap-xxhdpi':  324,
+    'mipmap-xxxhdpi': 432,
+  };
+  const promises = [];
+  for (const [folder, size] of Object.entries(ICON_SIZES)) {
+    const bgFile = path.join(RES_DIR, folder, 'ic_launcher_background.png');
+    if (!fs.existsSync(path.join(RES_DIR, folder))) continue;
+    promises.push(
+      sharp({ create: { width: size, height: size, channels: 4, background: bg } })
+        .png()
+        .toFile(bgFile + '.tmp')
+        .then(() => { fs.renameSync(bgFile + '.tmp', bgFile); })
+    );
+  }
+  return Promise.all(promises).then(() => {
+    console.log(`  → icon background set to rgb(${bg.r},${bg.g},${bg.b})`);
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BUILD 1: ADMIN APK
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n══════════════════════════════════════════');
 console.log('  BUILDING ADMIN APK');
 console.log('══════════════════════════════════════════');
+
+// 0. Swap applicationId + app name + icon background for admin
+swapAppId(ADMIN_APP_ID);
+swapAppName(ADMIN_APP_NAME);
+// Synchronously wait for icon swap before proceeding
+execSync('node -e "' +
+  `const sharp=require('sharp');const fs=require('fs');const path=require('path');` +
+  `const RES='${RES_DIR.replace(/\\/g, '/')}';` +
+  `const SIZES={'mipmap-ldpi':81,'mipmap-mdpi':108,'mipmap-hdpi':162,'mipmap-xhdpi':216,'mipmap-xxhdpi':324,'mipmap-xxxhdpi':432};` +
+  `(async()=>{for(const[f,s]of Object.entries(SIZES)){const p=path.join(RES,f,'ic_launcher_background.png');if(!fs.existsSync(path.join(RES,f)))continue;` +
+  `await sharp({create:{width:s,height:s,channels:4,background:{r:180,g:120,b:30,alpha:255}}}).png().toFile(p);}console.log('  → admin icon bg set')})()` +
+  '"', { cwd: ROOT, stdio: 'inherit', shell: true });
 
 // 1. Vite build with admin target
 run('npm run build:admin');
@@ -104,6 +171,18 @@ const adminApk = copyApk('ADMIN');
 console.log('\n══════════════════════════════════════════');
 console.log('  BUILDING USER APK');
 console.log('══════════════════════════════════════════');
+
+// 0. Restore applicationId + app name + icon background for user
+swapAppId(USER_APP_ID);
+swapAppName(USER_APP_NAME);
+// Restore icon backgrounds to original dark
+execSync('node -e "' +
+  `const sharp=require('sharp');const fs=require('fs');const path=require('path');` +
+  `const RES='${RES_DIR.replace(/\\/g, '/')}';` +
+  `const SIZES={'mipmap-ldpi':81,'mipmap-mdpi':108,'mipmap-hdpi':162,'mipmap-xhdpi':216,'mipmap-xxhdpi':324,'mipmap-xxxhdpi':432};` +
+  `(async()=>{for(const[f,s]of Object.entries(SIZES)){const p=path.join(RES,f,'ic_launcher_background.png');if(!fs.existsSync(path.join(RES,f)))continue;` +
+  `await sharp({create:{width:s,height:s,channels:4,background:{r:10,g:12,b:11,alpha:255}}}).png().toFile(p);}console.log('  → user icon bg set')})()` +
+  '"', { cwd: ROOT, stdio: 'inherit', shell: true });
 
 // 1. Vite build with user target
 run('npm run build:user');

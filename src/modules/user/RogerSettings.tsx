@@ -66,6 +66,12 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
     setResetting(true);
     try {
       await fullUserReset(userId);
+      // Clear all local state so the user goes through Language → Permissions → Onboarding → Orientation
+      localStorage.removeItem('roger_locale');
+      localStorage.removeItem('roger_perms_granted');
+      localStorage.removeItem('roger_legal_accepted');
+      localStorage.removeItem('roger_contacts_prompted');
+      localStorage.removeItem('sfxVolume');
       // Sign out after reset so user re-enters fresh
       await signOut();
     } catch (err) {
@@ -970,10 +976,14 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
               id="factory-reset-confirm-input"
               type="text"
               autoFocus
+              autoCapitalize="characters"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
               value={resetInput}
               onChange={e => setResetInput(e.target.value.toUpperCase())}
               placeholder="TYPE HERE..."
-              style={{ width: '100%', padding: '10px 12px', fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.15em', textTransform: 'uppercase', background: 'var(--bg-recessed)', border: `1px solid ${resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.6)' : 'var(--border-subtle)'}`, color: resetInput === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-primary)', outline: 'none', boxSizing: 'border-box', marginBottom: 10, textAlign: 'center', transition: 'border-color 200ms, color 200ms' }}
+              style={{ width: '100%', padding: '10px 12px', fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.15em', background: 'var(--bg-recessed)', border: `1px solid ${resetInput === 'RESET MY ROGER' ? 'rgba(239,68,68,0.6)' : 'var(--border-subtle)'}`, color: resetInput === 'RESET MY ROGER' ? '#ef4444' : 'var(--text-primary)', outline: 'none', boxSizing: 'border-box', marginBottom: 10, textAlign: 'center', transition: 'border-color 200ms, color 200ms' }}
             />
             <div style={{ display: 'flex', gap: 8 }}>
               <button

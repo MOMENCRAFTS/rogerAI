@@ -454,7 +454,7 @@ export async function fetchConversationSessionList(): Promise<{
 
   return Array.from(sessions.values()).map(s => {
     const sorted = s.turns.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    const userTurn = sorted.find(t => true); // first turn
+    const userTurn = sorted[0]; // first turn
     return {
       session_id: s.session_id,
       user_id: s.user_id,

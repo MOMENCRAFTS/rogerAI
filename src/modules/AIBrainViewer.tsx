@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Brain, Cpu, Zap, Search, ChevronDown, ChevronUp, BookOpen, Activity } from 'lucide-react';
+import { Brain, Zap, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import HelpBadge from '../components/shared/HelpBadge';
 import { COMMAND_PROMPT, SURFACE_PROMPT, PRIORITY_PROMPT } from '../lib/openai';
 import { getVocabPrompt, getDrillPrompt, getConversationPrompt, getProgressPrompt } from '../lib/academyPrompts';

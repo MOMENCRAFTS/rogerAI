@@ -137,6 +137,10 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       else if (op === 'memory')    await flushAllMemory(userId);
       else if (op === 'all')       await flushEverything(userId);
       if (op !== 'memory') {
+        // Clear local state so Language → Permissions → Onboarding → Orientation all re-trigger
+        localStorage.removeItem('roger_locale');
+        localStorage.removeItem('roger_perms_granted');
+        localStorage.removeItem('roger_contacts_prompted');
         setOnboarded(false);
         setOrientationSeen(null);
         setDisplayName(undefined);

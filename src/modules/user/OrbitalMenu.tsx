@@ -187,6 +187,7 @@ export default function OrbitalMenu({
             style={{
               position: 'absolute',
               bottom: `calc(120px + ${RING0_RADIUS + 48}px)`,
+              left: '50%', transform: 'translateX(-50%)',
               fontFamily: 'monospace', fontSize: 8, letterSpacing: '0.3em',
               textTransform: 'uppercase', color: 'rgba(212,160,68,0.4)',
             }}
@@ -200,6 +201,7 @@ export default function OrbitalMenu({
             style={{
               position: 'absolute',
               bottom: `calc(120px + ${RING1_RADIUS + 48}px)`,
+              left: '50%', transform: 'translateX(-50%)',
               fontFamily: 'monospace', fontSize: 8, letterSpacing: '0.3em',
               textTransform: 'uppercase', color: 'rgba(212,160,68,0.25)',
             }}
