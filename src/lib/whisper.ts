@@ -19,10 +19,11 @@ export interface WhisperResult {
 
 /**
  * Transcribe an audio blob via the whisper-transcribe Edge Function.
- * @param blob      - WebM/Opus audio blob from MediaRecorder
+ * @param blob       - WebM/Opus audio blob from MediaRecorder
  * @param promptHint - Optional vocabulary hint for Whisper (contact names, brands, etc.)
+ * @param language   - Optional ISO language code to force Whisper's transcription language
  */
-export async function transcribeAudio(blob: Blob, promptHint?: string): Promise<WhisperResult> {
+export async function transcribeAudio(blob: Blob, promptHint?: string, language?: string): Promise<WhisperResult> {
   const t0 = Date.now();
 
   const token = await getAuthToken();
@@ -36,6 +37,9 @@ export async function transcribeAudio(blob: Blob, promptHint?: string): Promise<
   form.append('model',           'whisper-1');
   form.append('response_format', 'json');
   if (promptHint) form.append('prompt', promptHint);
+  // Force Whisper to transcribe in the user's chosen language
+  // This is the hard lock: Whisper won't auto-detect/switch languages
+  if (language) form.append('language', language);
 
   // Retry once on transient server errors (502/503) — these happen when
   // OpenAI is slow or the Deno edge runtime times out temporarily.

@@ -107,6 +107,14 @@ Deno.serve(async (req) => {
       ?? 'Roger AI, ChatGPT, Gemini, Notion, Slack, Trello, WhatsApp, PC, laptop, iPhone, Android, Dubai, Sharjah, Abu Dhabi, doctor, engineer, inventor, entrepreneur';
     openaiForm.append('prompt', promptHint);
 
+    // Language lock: if the client sends a language code, force Whisper to use it
+    // This prevents auto-detection from switching languages on accented speakers
+    const langCode = formData.get('language') as string | null;
+    if (langCode) {
+      openaiForm.append('language', langCode);
+      console.log(`[whisper-transcribe] Language forced: ${langCode}`);
+    }
+
     // Forward to OpenAI Whisper with a 30s timeout
     const abortCtrl = new AbortController();
     const timeout = setTimeout(() => abortCtrl.abort(), 30_000);

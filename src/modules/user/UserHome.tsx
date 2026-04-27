@@ -117,7 +117,7 @@ type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'settings';
 
 export default function UserHome({ userId, sessionId, onTabChange, location: locationProp }: { userId: string; sessionId: string; onTabChange: (t: UserTab) => void; location?: UserLocation | null }) {
   const { checkGate } = useSubscription(userId);
-  const { t } = useI18n();
+  const { t, locale: userLocale } = useI18n();
   const [pttState, setPttState]   = useState<PTTState>('idle');
   const [messages, setMessages]   = useState<Message[]>([]);
   const [history, setHistory]     = useState<ConversationTurn[]>([]);
@@ -895,7 +895,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     try {
       const blob = await recorder.stop();
       recorder.dispose();
-      const { transcript: t } = await transcribeAudio(blob, whisperHintRef.current || undefined);
+      // Force Whisper to transcribe in the user's chosen language (hard lock)
+      const whisperLang = userLocale ? userLocale.split('-')[0] : undefined;
+      const { transcript: t } = await transcribeAudio(blob, whisperHintRef.current || undefined, whisperLang);
       transcript = t;
       const clean = transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '');
       if (!clean || clean.length < 3) {
