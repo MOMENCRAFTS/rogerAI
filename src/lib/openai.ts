@@ -863,16 +863,22 @@ export async function processTransmission(
         langHint,
         dialectContext: (() => {
           try {
-            const locale = getCurrentLocale();
+            // Read locale directly from localStorage (source of truth)
+            // to avoid stale module-level _currentLocale variable
+            const storedLocale = localStorage.getItem('roger_locale') || '';
+            const locale = (storedLocale || getCurrentLocale()) as import('./i18n').Locale;
             const dc = DIALECT_CONFIG[locale];
+            if (!dc) return ''; // Unknown locale — skip dialect injection
             const base = getBaseLanguage(locale);
+            const langName = base === 'ar' ? 'Arabic' : base === 'fr' ? 'French' : base === 'es' ? 'Spanish' : 'English';
             return [
               `=== DIALECT PERSONALITY ==="`,
               `User locale: ${locale}`,
               `Base language: ${base}`,
               dc.aiPersonality,
-              `IMPORTANT: All your responses MUST be in ${base === 'ar' ? 'Arabic' : base === 'fr' ? 'French' : base === 'es' ? 'Spanish' : 'English'}.`,
+              `CRITICAL RULE: The user chose ${langName}. ALL your responses MUST be in ${langName}. Do NOT respond in any other language unless the user explicitly asks for translation.`,
               base === 'ar' ? 'Write in Arabic script. Do NOT transliterate.' : '',
+              base === 'en' ? 'Respond ONLY in English. Even if the user speaks another language, respond in English.' : '',
             ].filter(Boolean).join('\n');
           } catch { return ''; }
         })(),
