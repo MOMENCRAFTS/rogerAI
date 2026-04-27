@@ -61,7 +61,7 @@
 
     <!-- ─── Contacts — Whisper vocabulary + voice-driven SMS/call ─── -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <!-- NOTE: WRITE_CONTACTS intentionally NOT included — Roger only reads -->
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
     <!-- ─── Feature declarations (allows install on devices with mic) -->
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
