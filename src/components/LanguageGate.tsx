@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, Mic } from 'lucide-react';
+import TwemojiFlag from './TwemojiFlag';
 import type { Locale, BaseLanguage } from '../lib/i18n';
 import { DIALECT_CONFIG, getDialectsForLanguage } from '../lib/translations/dialects';
 import { speakResponse, unlockAudio } from '../lib/tts';
@@ -298,7 +299,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
         <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:32,animation:'gfi .6s ease-out',padding:'0 24px',width:'100%',maxWidth:400 }}>
           <div style={{ minHeight:80,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center' }}>
             <div key={gi} style={{ ...mono(18,'rgba(212,160,68,.95)','.08em'),textTransform:'none',textAlign:'center',animation:morph?'gfo .4s ease-in forwards':'gmi .5s ease-out',direction:g.lang==='ar'?'rtl':'ltr' }}>
-              <span style={{ marginRight:8 }}>{g.flag}</span>{g.text}
+              <TwemojiFlag emoji={g.flag} size={28} style={{ marginRight: 8 }} />{g.text}
             </div>
           </div>
           <div style={{ ...mono(8,'rgba(255,255,255,.35)','.2em'),textAlign:'center' }}>— HOLD & SAY YOUR LANGUAGE —</div>
@@ -328,7 +329,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
                 }}
                   onPointerEnter={e=>{(e.currentTarget as HTMLButtonElement).style.background='rgba(212,160,68,.2)';(e.currentTarget as HTMLButtonElement).style.borderColor='rgba(212,160,68,.5)'}}
                   onPointerLeave={e=>{(e.currentTarget as HTMLButtonElement).style.background=showFallback?'rgba(212,160,68,.12)':'rgba(212,160,68,.06)';(e.currentTarget as HTMLButtonElement).style.borderColor=showFallback?'rgba(212,160,68,.4)':'rgba(212,160,68,.15)'}}
-                >{o.f}</button>
+                >{<TwemojiFlag emoji={o.f} size={showFallback ? 28 : 22} />}</button>
               ))}
             </div>
           </div>
@@ -377,7 +378,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
                   onPointerEnter={e=>{(e.currentTarget as HTMLButtonElement).style.background='rgba(212,160,68,.15)';(e.currentTarget as HTMLButtonElement).style.borderColor='rgba(212,160,68,.5)'}}
                   onPointerLeave={e=>{(e.currentTarget as HTMLButtonElement).style.background='rgba(212,160,68,.06)';(e.currentTarget as HTMLButtonElement).style.borderColor='rgba(212,160,68,.2)'}}
                 >
-                  <span style={{ fontSize:24 }}>{dc.flag}</span>
+                  <TwemojiFlag emoji={dc.flag} size={24} />
                   <div style={{ flex:1 }}>
                     <div style={mono(11,'rgba(212,160,68,.9)','.08em')}>{dc.displayName}</div>
                     <div style={{ ...mono(8,'rgba(255,255,255,.35)','.05em'),textTransform:'none',marginTop:4 }}>"{dc.sampleGreeting}"</div>
@@ -414,7 +415,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
         <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:24,animation:'gsi .4s ease-out',padding:'0 24px',width:'100%',maxWidth:400 }}>
           {/* Summary */}
           <div style={{ textAlign:'center' }}>
-            <span style={{ fontSize:36 }}>{DIALECT_CONFIG[locale].flag}</span>
+            <TwemojiFlag emoji={DIALECT_CONFIG[locale].flag} size={36} />
             <div style={{ ...mono(14,'rgba(212,160,68,.95)','.08em'),marginTop:8 }}>{LANG_LABELS[base]}</div>
             <div style={{ ...mono(10,'rgba(255,255,255,.5)','.08em'),marginTop:4 }}>{DIALECT_CONFIG[locale].displayName}</div>
           </div>
@@ -458,7 +459,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
       {/* ═══ LOCKED IN ═══ */}
       {step === 'locked' && locale && (
         <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:20,animation:'gsi .4s ease-out' }}>
-          <div style={{ fontSize:48,animation:'glp .6s ease-in-out' }}>{DIALECT_CONFIG[locale].flag}</div>
+          <TwemojiFlag emoji={DIALECT_CONFIG[locale].flag} size={48} style={{ animation: 'glp .6s ease-in-out' }} />
           <div style={{ ...mono(13,'rgba(212,160,68,1)','.15em'),background:'linear-gradient(90deg,rgba(212,160,68,.8),rgba(255,215,100,1),rgba(212,160,68,.8))',backgroundSize:'200% auto',animation:'gsh 2s linear infinite',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent' }}>✓ LOCKED IN</div>
           <div style={mono(9,'rgba(255,255,255,.4)','.1em')}>{DIALECT_CONFIG[locale].displayName}</div>
         </div>
