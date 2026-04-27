@@ -1649,6 +1649,30 @@ export async function upsertFeatureFlag(
   if (error) throw error;
 }
 
+export async function updateFeatureFlag(
+  id: string, patch: Partial<Pick<DbFeatureFlag, 'enabled' | 'rollout_pct' | 'environment' | 'target_users' | 'name' | 'description' | 'category'>>
+): Promise<void> {
+  const { error } = await supabase.from('feature_flags')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function insertFeatureFlag(
+  flag: Pick<DbFeatureFlag, 'key' | 'name' | 'description' | 'enabled' | 'rollout_pct' | 'environment' | 'category'>
+): Promise<DbFeatureFlag> {
+  const { data, error } = await supabase.from('feature_flags')
+    .insert({ ...flag, created_by: 'admin' })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteFeatureFlag(id: string): Promise<void> {
+  const { error } = await supabase.from('feature_flags').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ─── Admin Audit Log ──────────────────────────────────────────────────────────
 
 export type DbAdminAuditEntry = {
@@ -1758,55 +1782,7 @@ export async function deleteEncyclopediaEntry(id: string): Promise<void> {
   if (error) throw error;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FEATURE FLAGS — Full CRUD for admin panel
-// ─────────────────────────────────────────────────────────────────────────────
 
-export type DbFeatureFlag = {
-  id: string;
-  key: string;
-  name: string;
-  description: string | null;
-  enabled: boolean;
-  rollout_pct: number;
-  environment: 'development' | 'staging' | 'production';
-  target_users: string[] | null;
-  category: 'general' | 'ui' | 'ai' | 'hardware' | 'experiment';
-  created_by: string | null;
-  updated_at: string;
-  created_at: string;
-};
-
-export async function fetchFeatureFlags(): Promise<DbFeatureFlag[]> {
-  const { data, error } = await supabase.from('feature_flags').select('*')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function updateFeatureFlag(
-  id: string, patch: Partial<Pick<DbFeatureFlag, 'enabled' | 'rollout_pct' | 'environment' | 'target_users' | 'name' | 'description' | 'category'>>
-): Promise<void> {
-  const { error } = await supabase.from('feature_flags')
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) throw error;
-}
-
-export async function insertFeatureFlag(
-  flag: Pick<DbFeatureFlag, 'key' | 'name' | 'description' | 'enabled' | 'rollout_pct' | 'environment' | 'category'>
-): Promise<DbFeatureFlag> {
-  const { data, error } = await supabase.from('feature_flags')
-    .insert({ ...flag, created_by: 'admin' })
-    .select().single();
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteFeatureFlag(id: string): Promise<void> {
-  const { error } = await supabase.from('feature_flags').delete().eq('id', id);
-  if (error) throw error;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUDIT LOG — Read-only admin action journal
