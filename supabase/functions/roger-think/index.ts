@@ -11,6 +11,7 @@
 // Deploy: supabase functions deploy roger-think --no-verify-jwt
 
 import webpush from 'npm:web-push';
+import { trackUsage } from '../_shared/tokenTracker.ts';
 
 const SUPABASE_URL         = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -54,8 +55,9 @@ function topicHash(text: string): string {
   return `t_${Math.abs(h).toString(36)}`;
 }
 
-// ── GPT call helper ──────────────────────────────────────────────────────────
-async function gpt(systemPrompt: string, userPrompt: string, json = false): Promise<string> {
+// ── GPT call helper (with token tracking) ──────────────────────────────────
+async function gpt(systemPrompt: string, userPrompt: string, json = false, userId?: string): Promise<string> {
+  const start = Date.now();
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
@@ -69,7 +71,18 @@ async function gpt(systemPrompt: string, userPrompt: string, json = false): Prom
       ],
     }),
   });
-  const data = await res.json() as { choices: { message: { content: string } }[] };
+  const data = await res.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
+  // Track usage
+  await trackUsage({
+    functionName: 'roger-think',
+    model: 'gpt-5.5',
+    userId: userId ?? null,
+    promptTokens: data.usage?.prompt_tokens ?? 0,
+    completionTokens: data.usage?.completion_tokens ?? 0,
+    totalTokens: data.usage?.total_tokens ?? 0,
+    latencyMs: Date.now() - start,
+    success: !!data.choices?.[0]?.message?.content,
+  });
   return data.choices?.[0]?.message?.content ?? '';
 }
 
@@ -201,7 +214,8 @@ Respond in JSON:
   const decisionRaw = await gpt(
     'You are Roger AI\'s silent inner monologue. Think carefully. Respond in JSON only.',
     decisionPrompt,
-    true
+    true,
+    userId
   );
 
   let decision: { should_reach_out: boolean; reason: string; topic: string; tone: string };
@@ -237,7 +251,9 @@ Plain text only, no markdown.`;
 
   const spokenMessage = await gpt(
     'You are Roger AI, a trusted AI aide speaking via walkie-talkie. Be warm, direct, and genuinely useful.',
-    messagePrompt
+    messagePrompt,
+    false,
+    userId
   );
 
   if (!spokenMessage || spokenMessage.length < 20) return false;

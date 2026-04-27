@@ -2,6 +2,8 @@
 // Secure server-side GPT-5.5 proxy for Roger AI PTT processing.
 // Full COMMAND_PROMPT is embedded here — API key never leaves Supabase.
 
+import { trackOpenAIResponse, trackUsage } from '../_shared/tokenTracker.ts';
+
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 
 const CORS = {
@@ -258,6 +260,7 @@ Deno.serve(async (req: Request) => {
       if (sysMsg) dpMessages.push({ role: 'system', content: sysMsg });
       if (usrMsg) dpMessages.push({ role: 'user', content: usrMsg });
 
+      const dpStart = Date.now();
       const dpRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
@@ -270,13 +273,16 @@ Deno.serve(async (req: Request) => {
 
       if (!dpRes.ok) {
         const err = await dpRes.text();
+        await trackUsage({ functionName: 'process-transmission-direct', model: 'gpt-5.5', success: false, errorMessage: err, latencyMs: Date.now() - dpStart });
         return new Response(JSON.stringify({ error: err }), {
           status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
         });
       }
 
-      const dpData = await dpRes.json() as { choices: { message: { content: string } }[] };
+      const dpData = await dpRes.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
       const dpRaw = dpData.choices[0]?.message?.content ?? '{}';
+      // Track token usage
+      await trackOpenAIResponse('process-transmission-direct', 'gpt-5.5', dpData, null, dpStart);
       // Return the raw content string as roger_response so the client can parse it
       return new Response(JSON.stringify({ roger_response: dpRaw }), {
         headers: { ...CORS, 'Content-Type': 'application/json' },
@@ -390,6 +396,7 @@ Deno.serve(async (req: Request) => {
       content: `${langHint ?? ''}Process this PTT transmission: "${transcript}"`,
     });
 
+    const txStart = Date.now();
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
@@ -402,14 +409,18 @@ Deno.serve(async (req: Request) => {
 
     if (!res.ok) {
       const err = await res.text();
+      await trackUsage({ functionName: 'process-transmission', model: 'gpt-5.5', userId: _userId ?? null, success: false, errorMessage: err, latencyMs: Date.now() - txStart });
       return new Response(JSON.stringify({ error: err }), {
         status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
       });
     }
 
-    const data = await res.json() as { choices: { message: { content: string } }[] };
+    const data = await res.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
     const raw  = data.choices[0]?.message?.content ?? '{}';
     const parsed = JSON.parse(raw);
+
+    // Track token usage
+    await trackOpenAIResponse('process-transmission', 'gpt-5.5', data, _userId ?? null, txStart);
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...CORS, 'Content-Type': 'application/json' },

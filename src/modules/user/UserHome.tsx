@@ -3263,7 +3263,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 onClick={cycleMode}
                 style={{
                   position: 'absolute',
-                  right: 12, top: '50%', transform: 'translateY(-50%)',
+                  right: 'max(12px, calc(50% - 140px))', top: '50%', transform: 'translateY(-50%)',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
                   cursor: 'pointer',
                   userSelect: 'none', WebkitUserSelect: 'none',
@@ -3585,6 +3585,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             letterSpacing: '0.15em',
             animation: 'badgeEnter 600ms cubic-bezier(0.34, 1.56, 0.64, 1) 200ms both',
             textShadow: `0 0 20px ${activeBadge.glow}`,
+            textAlign: 'center', padding: '0 24px', maxWidth: '100%',
           }}>
             {activeBadge.title}
           </div>
@@ -3596,6 +3597,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             textTransform: 'uppercase', letterSpacing: '0.2em',
             marginTop: 8,
             animation: 'badgeEnter 600ms cubic-bezier(0.34, 1.56, 0.64, 1) 400ms both',
+            textAlign: 'center', padding: '0 24px', maxWidth: '100%',
           }}>
             {activeBadge.subtitle}
           </div>

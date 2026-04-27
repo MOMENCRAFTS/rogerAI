@@ -240,18 +240,6 @@ export async function silentExtractFields(
     return extractFieldsRegex(transcript, existing);
   }
 }
-
-// ── Generate interview turn (DEPRECATED — stub for backward compat) ─────────
-export async function generateInterviewTurn(
-  _turnNumber: number,
-  answers: OnboardingAnswers,
-  transcript?: string,
-  _previousQuestions: string[] = [],
-): Promise<InterviewTurnResult> {
-  const extracted = transcript ? await silentExtractFields(transcript, answers) : {};
-  return { script: '', extracted_fields: extracted, all_covered: true };
-}
-
 // ── Generate name confirmation ──────────────────────────────────────────────
 export async function generateNameConfirm(
   name: string,
@@ -270,13 +258,6 @@ export async function generateNameConfirm(
   }
 }
 
-// ── Generate features turn (DEPRECATED — features in orientation walkthrough)
-export async function generateFeaturesTurn(
-  _name: string,
-  _transcript?: string,
-): Promise<SimpleNodeResult> {
-  return { script: '', extracted_value: null };
-}
 
 // ── Generate Islamic mode turn ──────────────────────────────────────────────
 export async function generateIslamicTurn(
@@ -509,17 +490,20 @@ Return JSON: {"action":"confirm"|"edit","field":"<field_name or null>"}`;
 }
 
 // ── Backward compat exports ─────────────────────────────────────────────────
-export function generateNodeScript(
+export async function generateNodeScript(
   _node: OnboardingPhase,
   answers: OnboardingAnswers,
   previousTranscript?: string,
 ): Promise<NodeScriptResult> {
-  return generateInterviewTurn(1, answers, previousTranscript).then(r => ({
-    script: r.script,
-    extracted_value: r.extracted_fields.name ?? null,
+  const fields = previousTranscript
+    ? await silentExtractFields(previousTranscript, answers)
+    : {};
+  return {
+    script: '',
+    extracted_value: fields.name ?? null,
     needs_clarification: false,
     clarification_prompt: null,
-  }));
+  };
 }
 
 export function applyOnboardingAnswer(

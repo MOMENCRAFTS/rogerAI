@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Bell, CheckSquare, BookOpen, Mic, BookMarked,
@@ -65,6 +65,37 @@ function polarLayout(itemCount: number, radius: number, index: number) {
   };
 }
 
+// ── Responsive radius hook ───────────────────────────────────────────────────
+// Scale radii so the outermost items + icon width always fit within viewport.
+const BASE_RING0 = 110;
+const BASE_RING1 = 195;
+const ICON_HALF_WIDTH = 40;  // half of icon button footprint (52px icon + padding)
+const EDGE_PADDING = 24;     // minimum breathing room from screen edge
+
+function useResponsiveRadii() {
+  const [scale, setScale] = useState(() => {
+    const maxRadius = BASE_RING1 + ICON_HALF_WIDTH + EDGE_PADDING;
+    const halfScreen = (typeof window !== 'undefined' ? window.innerWidth : 420) / 2;
+    return Math.min(1, halfScreen / maxRadius);
+  });
+
+  useEffect(() => {
+    function recalc() {
+      const maxRadius = BASE_RING1 + ICON_HALF_WIDTH + EDGE_PADDING;
+      const halfScreen = window.innerWidth / 2;
+      setScale(Math.min(1, halfScreen / maxRadius));
+    }
+    window.addEventListener('resize', recalc);
+    return () => window.removeEventListener('resize', recalc);
+  }, []);
+
+  return {
+    ring0: Math.round(BASE_RING0 * scale),
+    ring1: Math.round(BASE_RING1 * scale),
+    iconSize: Math.max(40, Math.round(52 * scale)),
+  };
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 export default function OrbitalMenu({
   open, onClose, onNavigate, islamicMode, reminderCount, taskCount, t,
@@ -83,6 +114,9 @@ export default function OrbitalMenu({
     onClose();
   }, [onNavigate, onClose]);
 
+  // Responsive radii based on viewport width
+  const { ring0: RING0_RADIUS, ring1: RING1_RADIUS, iconSize } = useResponsiveRadii();
+
   // Filter items (hide salah if islamic mode off)
   const visibleItems = ORBITAL_ITEMS.filter(item => {
     if (item.key === 'salah' && !islamicMode) return false;
@@ -100,9 +134,6 @@ export default function OrbitalMenu({
   // Separate by ring
   const ring0 = itemsWithBadges.filter(i => i.ring === 0);
   const ring1 = itemsWithBadges.filter(i => i.ring === 1);
-
-  const RING0_RADIUS = 110;
-  const RING1_RADIUS = 195;
 
   // Global index counter for stagger timing
   let globalIdx = 0;
@@ -123,6 +154,7 @@ export default function OrbitalMenu({
             WebkitBackdropFilter: 'blur(20px)',
             display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            overflow: 'hidden',
           }}
           onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
@@ -194,6 +226,7 @@ export default function OrbitalMenu({
                   delay={staggerDelay}
                   onSelect={handleSelect}
                   t={t}
+                  iconSize={iconSize}
                 />
               );
             })}
@@ -211,6 +244,7 @@ export default function OrbitalMenu({
                   delay={staggerDelay}
                   onSelect={handleSelect}
                   t={t}
+                  iconSize={iconSize}
                 />
               );
             })}
@@ -248,7 +282,7 @@ export default function OrbitalMenu({
 
 // ── Individual orbital icon ──────────────────────────────────────────────────
 function OrbitalIcon({
-  item, x, y, delay, onSelect, t,
+  item, x, y, delay, onSelect, t, iconSize = 52,
 }: {
   item: OrbitalItem & { badge?: number };
   x: number;
@@ -256,9 +290,11 @@ function OrbitalIcon({
   delay: number;
   onSelect: (tab: UserTab) => void;
   t: (key: string) => string;
+  iconSize?: number;
 }) {
   const { key, label, Icon, accent, badge } = item;
   const color = accent ?? 'var(--amber)';
+  const iconInner = Math.max(16, Math.round(iconSize * 22 / 52));
 
   // Try to get translated label, fall back to static label
   const labelKeyMap: Record<string, string> = {
@@ -297,7 +333,7 @@ function OrbitalIcon({
       {/* Icon circle */}
       <div style={{
         position: 'relative',
-        width: 52, height: 52,
+        width: iconSize, height: iconSize,
         borderRadius: '50%',
         background: `${color}12`,
         border: `1.5px solid ${color}40`,
@@ -305,7 +341,7 @@ function OrbitalIcon({
         boxShadow: `0 0 20px ${color}15, inset 0 0 12px ${color}08`,
         transition: 'box-shadow 200ms, border-color 200ms',
       }}>
-        <Icon size={22} style={{ color, transition: 'color 200ms' }} />
+        <Icon size={iconInner} style={{ color, transition: 'color 200ms' }} />
 
         {/* Badge */}
         {(badge ?? 0) > 0 && (

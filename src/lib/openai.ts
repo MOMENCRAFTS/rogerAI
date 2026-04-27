@@ -5,8 +5,7 @@
 
 import { getCurrentLocale, getBaseLanguage } from './i18n';
 import { DIALECT_CONFIG } from './translations/dialects';
-
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+import { getAuthToken } from './getAuthToken';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -709,47 +708,44 @@ Classify their response as one of these actions:
 Return ONLY a JSON object: { "action": "execute", "reschedule_hint": null }
 reschedule_hint should contain any time reference they mentioned (e.g. "tomorrow morning", "next Monday") or null.`;
 
-// ─── API Helper (kept as local fallback) ────────────────────────────────────────
+// ─── API Helper (routed through edge function — no direct OpenAI calls) ─────
 
 export async function callGPT<T>(
   systemPrompt: string,
   userContent: string,
-  model: 'gpt-5.5' | 'gpt-5.4-mini' = 'gpt-5.5',
+  _model: 'gpt-5.5' | 'gpt-5.4-mini' = 'gpt-5.5',
   jsonMode = true,
-  timeoutMs = 10000
+  timeoutMs = 15000
 ): Promise<T> {
-  if (!OPENAI_API_KEY) throw new Error('OpenAI API key not configured');
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+  const token = await getAuthToken().catch(() => import.meta.env.VITE_SUPABASE_ANON_KEY as string);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
       method: 'POST',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({
-        model,
-        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-        temperature: 0.3,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: userContent },
-        ],
+        _direct_prompt: true,
+        system: systemPrompt + (jsonMode ? '\nRespond with valid JSON only. No markdown, no explanation.' : ''),
+        user: userContent,
       }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { error?: { message?: string } }).error?.message ?? `OpenAI error ${res.status}`);
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Edge function error ${res.status}: ${errText.substring(0, 200)}`);
     }
 
-    const data = await res.json() as { choices: { message: { content: string } }[] };
-    const raw = data.choices[0]?.message?.content;
-    if (!raw) throw new Error('Empty response from OpenAI');
+    const data = await res.json() as Record<string, unknown>;
+    const raw = typeof data.roger_response === 'string' ? data.roger_response : '';
+    if (!raw) throw new Error('Empty response from edge function');
 
     return jsonMode ? JSON.parse(raw) as T : raw as unknown as T;
   } finally {
