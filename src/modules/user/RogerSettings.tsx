@@ -28,7 +28,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 export default function RogerSettings({ userId, onReplayTour, onReplayOrientation }: { userId: string; onReplayTour?: () => void; onReplayOrientation?: () => void }) {
   const { user, signOut }         = useAuth();
-  const { t } = useI18n();
+  const { t, resetLocale } = useI18n();
   const [prefs, setPrefs]         = useState<Partial<DbUserPreferences>>({ roger_mode: 'active', language: 'en', briefing_time: '08:00', briefing_time2: '18:00', haptic_enabled: true, sfx_enabled: true });
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
@@ -68,7 +68,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
     try {
       await fullUserReset(userId);
       // Clear all local state so the user goes through Language → Permissions → Onboarding → Orientation
-      localStorage.removeItem('roger_locale');
+      resetLocale(); // clears both localStorage AND React state (I18nProvider is at app root)
       localStorage.removeItem('roger:perms_granted');
       localStorage.removeItem('roger_legal_v3');
       localStorage.removeItem('roger_contacts_prompted');
@@ -82,7 +82,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
       setResetting(false);
       setResetStep(0);
     }
-  }, [userId, signOut]);
+  }, [userId, signOut, resetLocale]);
 
   useEffect(() => {
     fetchUserPreferences(userId).then(p => { if (p) setPrefs(p); }).catch(() => {});
