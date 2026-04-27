@@ -212,8 +212,9 @@ export default function OrbitalMenu({
           {/* Orbital ring container — centered at bottom */}
           <div style={{
             position: 'relative',
-            width: 0, height: 0,
-            marginBottom: 120,  /* offset from bottom = above the bar */
+            width: (RING1_RADIUS + ICON_HALF_WIDTH) * 2,
+            height: RING1_RADIUS + ICON_HALF_WIDTH + 40,
+            marginBottom: 80,
           }}>
             {/* Ring 0 — inner core */}
             {ring0.map((item, i) => {
@@ -322,12 +323,13 @@ function OrbitalIcon({
       onClick={() => onSelect(key)}
       style={{
         position: 'absolute',
+        left: '50%', top: '50%',
+        marginLeft: -(iconSize / 2 + 8),   /* half icon + padding */
+        marginTop: -(iconSize / 2 + 16),   /* half icon + gap + label */
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         gap: 6,
         background: 'none', border: 'none', cursor: 'pointer',
-        transform: 'translate(-50%, -50%)',  /* center on polar coordinates */
         padding: 8,
-        /* will be overridden by motion animate */
       }}
       whileHover={{ scale: 1.15 }}
       whileTap={{ scale: 0.9 }}

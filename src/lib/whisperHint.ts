@@ -70,7 +70,7 @@ export async function buildWhisperHint(userId: string): Promise<string> {
     const { data: rogerContacts } = await supabase
       .from('roger_contacts')
       .select('display_name')
-      .eq('owner_id', userId)
+      .eq('user_id', userId)
       .limit(50);
 
     if (rogerContacts?.length) {
@@ -88,7 +88,7 @@ export async function buildWhisperHint(userId: string): Promise<string> {
     const { data: personFacts } = await supabase
       .from('memory_graph')
       .select('subject')
-      .eq('owner_id', userId)
+      .eq('user_id', userId)
       .eq('fact_type', 'person')
       .limit(50);
 
