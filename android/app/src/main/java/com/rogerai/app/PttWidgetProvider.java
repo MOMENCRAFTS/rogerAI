@@ -9,11 +9,15 @@ import android.content.SharedPreferences;
 import android.widget.RemoteViews;
 
 /**
- * PttWidgetProvider — Push-to-Talk quick-launch widget (2×2).
+ * PttWidgetProvider — True headless Push-to-Talk widget (2×2).
  *
- * A static widget that shows the RogerAI mic button. Tapping it
- * launches the main app directly to the PTT home screen.
- * Subtitle shows the last Roger response snippet from cache.
+ * Tapping the widget starts PttWidgetService — a foreground service that:
+ *   1. Captures voice via Android SpeechRecognizer
+ *   2. Sends transcription to Supabase process-transmission
+ *   3. Speaks the AI response via native TextToSpeech
+ *   4. Auto-stops — all without opening the app
+ *
+ * Widget shows live status: TAP TO TALK → LISTENING → THINKING → SPEAKING
  */
 public class PttWidgetProvider extends AppWidgetProvider {
 
@@ -33,21 +37,24 @@ public class PttWidgetProvider extends AppWidgetProvider {
 
         // Truncate to ~40 chars for widget display
         if (lastResponse.length() > 40) {
-            lastResponse = lastResponse.substring(0, 37) + "…";
+            lastResponse = lastResponse.substring(0, 37) + "\u2026";
         }
         views.setTextViewText(R.id.ptt_subtitle, lastResponse);
+        views.setTextViewText(R.id.ptt_status, "TAP TO TALK");
 
-        // Tap intent — launch app to home/PTT
-        Intent launchIntent = context.getPackageManager()
-            .getLaunchIntentForPackage(context.getPackageName());
-        if (launchIntent != null) {
-            launchIntent.putExtra("roger_target_tab", "home");
-            launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            PendingIntent pendingIntent = PendingIntent.getActivity(
-                context, 200, launchIntent,
+        // Tap intent → start PttWidgetService (headless voice pipeline)
+        Intent serviceIntent = new Intent(context, PttWidgetService.class);
+        PendingIntent pendingIntent;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            pendingIntent = PendingIntent.getForegroundService(
+                context, 200, serviceIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            views.setOnClickPendingIntent(R.id.widget_ptt_root, pendingIntent);
+        } else {
+            pendingIntent = PendingIntent.getService(
+                context, 200, serviceIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         }
+        views.setOnClickPendingIntent(R.id.widget_ptt_root, pendingIntent);
 
         manager.updateAppWidget(widgetId, views);
     }

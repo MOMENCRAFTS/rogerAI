@@ -57,8 +57,9 @@
                 android:layout_gravity="center" />
         </FrameLayout>
 
-        <!-- TAP TO TALK label -->
+        <!-- Status label (dynamic: TAP TO TALK / LISTENING / THINKING / SPEAKING) -->
         <TextView
+            android:id="@+id/ptt_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="TAP TO TALK"

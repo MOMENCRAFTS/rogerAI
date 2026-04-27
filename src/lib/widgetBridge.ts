@@ -19,6 +19,8 @@ interface WidgetConfigData {
   nextDueText?: string;
   nextDueMs?: number;
   lastResponse?: string;
+  supabaseUrl?: string;
+  supabaseAnon?: string;
 }
 
 /**

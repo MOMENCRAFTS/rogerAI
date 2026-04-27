@@ -62,6 +62,12 @@
                 android:resource="@xml/ptt_widget_info" />
         </receiver>
 
+        <!-- PTT Widget Headless Voice Service -->
+        <service
+            android:name=".PttWidgetService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <!-- Tasks & Reminders Widget (4×1) -->
         <receiver android:name=".TasksWidgetProvider"
             android:exported="true"
@@ -90,6 +96,8 @@
     <!-- ─── Speech Recognition ──────────────────────────── -->
     <!-- Enables SpeechRecognizer API on Android 13+ -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- ─── Location (GPS) ──────────────────────────────── -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

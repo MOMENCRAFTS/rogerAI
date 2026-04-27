@@ -44,6 +44,10 @@ public class WidgetConfigBridge extends Plugin {
             editor.putLong("roger_next_due_ms", (long) call.getDouble("nextDueMs", 0.0).doubleValue());
         if (call.hasOption("lastResponse"))
             editor.putString("roger_last_response", call.getString("lastResponse", "Standing by. Over."));
+        if (call.hasOption("supabaseUrl"))
+            editor.putString("roger_supabase_url", call.getString("supabaseUrl", ""));
+        if (call.hasOption("supabaseAnon"))
+            editor.putString("roger_supabase_anon", call.getString("supabaseAnon", ""));
 
         editor.apply();
 

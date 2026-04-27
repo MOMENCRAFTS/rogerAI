@@ -126,12 +126,14 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
       setSfxVolume(Number(localStorage.getItem('sfxVolume') ?? 0.35));
       const isIslamic = !!(prefs as unknown as Record<string, unknown>).islamic_mode;
       setIslamicMode(isIslamic);
-      // Sync user config to Android widgets
+      // Sync user config to Android widgets (includes Supabase creds for headless PTT)
       syncWidgetConfig({
         userId,
         islamicMode: isIslamic,
         latitude: location?.latitude ?? 24.71,
         longitude: location?.longitude ?? 46.78,
+        supabaseUrl: import.meta.env.VITE_SUPABASE_URL as string,
+        supabaseAnon: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
       });
     }).catch(() => {});
   };
