@@ -16,7 +16,6 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  *   79  = KEYCODE_HEADSETHOOK       (headset/earpiece style)
  *  228  = KEYCODE_PTT               (Motorola/Zebra dedicated PTT)
  *   24  = KEYCODE_VOLUME_UP         (budget PTT accessories)
- *   62  = KEYCODE_SPACE             (rare — keyboard emulation)
  *  164  = KEYCODE_MEDIA_PAUSE
  *  126  = KEYCODE_MEDIA_PLAY
  *
@@ -31,7 +30,8 @@ public class PttButtonPlugin extends Plugin {
         KeyEvent.KEYCODE_HEADSETHOOK,       // 79  — headset/earpiece style
         228,                                // KEYCODE_PTT — Motorola/Zebra (raw int, API 28+)
         KeyEvent.KEYCODE_VOLUME_UP,         // 24  — budget PTT accessories
-        KeyEvent.KEYCODE_SPACE,             // 62  — rare keyboard emulation
+        // NOTE: KEYCODE_SPACE (62) was here but REMOVED — it breaks typing spaces
+        // in all input fields since dispatchKeyEvent consumes it before the WebView.
         KeyEvent.KEYCODE_MEDIA_PAUSE,       // 164
         KeyEvent.KEYCODE_MEDIA_PLAY,        // 126
     };

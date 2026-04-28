@@ -39,7 +39,7 @@ const config: CapacitorConfig = {
   android: {
     // Allow cleartext for local dev server if needed
     allowMixedContent: true,
-    captureInput: true,
+    captureInput: false, // true breaks space key in inputs on Android WebView
     webContentsDebuggingEnabled: true, // Enable Chrome DevTools debugging on device
   },
 

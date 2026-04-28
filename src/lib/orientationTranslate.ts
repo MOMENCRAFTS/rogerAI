@@ -162,7 +162,7 @@ async function callTranslationLLM(system: string, user: string): Promise<string>
   const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ _direct_prompt: true, system, user }),
+    body: JSON.stringify({ _direct_prompt: true, _json_mode: true, system, user }),
   });
 
   if (!res.ok) {

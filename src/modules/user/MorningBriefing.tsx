@@ -100,7 +100,18 @@ Generate the ${timeOfDay} briefing.`;
       });
 
       const data = await res.json() as { roger_response?: string; choices?: { message: { content: string } }[] };
-      const text = data.roger_response ?? data.choices?.[0]?.message?.content ?? 'Briefing unavailable at this time. Over.';
+      let text = data.roger_response ?? data.choices?.[0]?.message?.content ?? 'Briefing unavailable at this time. Over.';
+
+      // Safety net: unwrap if GPT still wrapped plain text in {"text": "..."}
+      if (text.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed.text === 'string') text = parsed.text;
+          else if (typeof parsed.response === 'string') text = parsed.response;
+          else if (typeof parsed.briefing === 'string') text = parsed.briefing;
+        } catch { /* not JSON, keep as-is */ }
+      }
+
       setBriefingText(text);
 
       setState('speaking');

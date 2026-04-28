@@ -208,8 +208,8 @@ public class PttWidgetService extends Service {
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setRequestProperty("Authorization", "Bearer " + supabaseAnon);
-                conn.setConnectTimeout(20000);
-                conn.setReadTimeout(20000);
+                conn.setConnectTimeout(120000);
+                conn.setReadTimeout(120000);
                 conn.setDoOutput(true);
 
                 OutputStream os = conn.getOutputStream();

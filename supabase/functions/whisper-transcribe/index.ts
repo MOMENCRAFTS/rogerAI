@@ -115,9 +115,9 @@ Deno.serve(async (req) => {
       console.log(`[whisper-transcribe] Language forced: ${langCode}`);
     }
 
-    // Forward to OpenAI Whisper with a 30s timeout
+    // Forward to OpenAI Whisper with a 45s timeout
     const abortCtrl = new AbortController();
-    const timeout = setTimeout(() => abortCtrl.abort(), 30_000);
+    const timeout = setTimeout(() => abortCtrl.abort(), 45_000);
 
     let whisperRes: Response;
     try {

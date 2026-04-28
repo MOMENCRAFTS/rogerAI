@@ -19,6 +19,7 @@ import {
 } from '../../lib/sfx';
 
 import { processTransmission, extractMemoryFacts, generateSurfaceScript, compileEncyclopediaArticle, type ConversationTurn } from '../../lib/openai';
+import { attachPttHardware } from '../../lib/pttHardware';
 import { speakResponse, stopSpeaking, unlockAudio } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
 import { buildWhisperHint } from '../../lib/whisperHint';
@@ -41,7 +42,7 @@ import {
   CLARIFICATION_EXPIRY_MS,
 } from '../../lib/clarificationContext';
 import {
-  insertReminder, insertTask, insertTaskWithDedup, insertMemory,
+  insertReminder, insertMemory,
   fetchSurfaceQueue, updateSurfaceItem,
   subscribeToRelayMessages, deferRelayMessage, markRelayRead,
   insertConversationTurn, upsertEntityMention,
@@ -60,6 +61,8 @@ import {
 import { useSubscription } from '../../lib/useSubscription';
 import { getSilentNode } from '../../lib/silentNode';
 import { buildIntentContext } from '../../lib/intentRegistry';
+import { getConversationDigester } from '../../lib/conversationDigester';
+import type { DigestResult } from '../../lib/conversationDigester';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
@@ -142,6 +145,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [myCallsign, setMyCallsign] = useState<string | null>(null);
   // ── Confirmation gate ─────────────────────────────────────────────────────
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  // ── Conversation Digester state ────────────────────────────────────────────
+  const [digestResult, setDigestResult] = useState<DigestResult | null>(null);
+  const [digestChecked, setDigestChecked] = useState<Set<number>>(new Set());
   // ── Name confirm ──────────────────────────────────────────────────────────
   // ── Deep Dive Knowledge state ─────────────────────────────────────────────
   const [deepDiveState, setDeepDiveState] = useState<{
@@ -250,8 +256,24 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       }).catch(() => {});
     }).catch(() => {});
 
-    return () => { node.stop(); };
+    // ── Start ConversationDigester ────────────────────────────────────────
+    const digester = getConversationDigester();
+    digester.start(userId);
+    digester.onDigest = (result) => {
+      if (result.items.length > 0) {
+        setDigestResult(result);
+        setDigestChecked(new Set(result.items.map((_, i) => i))); // all pre-checked
+      }
+    };
+
+    return () => { node.stop(); digester.stop(); };
   }, [userId]);
+
+  // ── Feed messages to ConversationDigester ──────────────────────────────────
+  useEffect(() => {
+    const digester = getConversationDigester();
+    digester.onMessagesChanged(messages);
+  }, [messages]);
 
   // ── Alarm engine (polls due reminders every 60s, fires voice alerts) ──────
   useAlarmEngine(userId);
@@ -744,7 +766,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         setPttState('processing');
         const ddCtx = deepDiveRef.current;
         const chipTimeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI_TIMEOUT')), 45_000)
+          setTimeout(() => reject(new Error('AI_TIMEOUT')), 150_000)
         );
         const result = await Promise.race([
           processTransmission(prompt, history, userId, undefined, undefined, null,
@@ -806,6 +828,29 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const handlePTTUp = useCallback(async () => {
     if (holdRef.current) clearInterval(holdRef.current);
 
+    // ── Shared multi-tap detection helper ────────────────────────────────────
+    const detectMultiTap = (): boolean => {
+      const now = Date.now();
+      if (now - lastTapTimeRef.current < 400) {
+        tapCountRef.current += 1;
+        if (tapCountRef.current >= 3 && pendingAction) {
+          tapCountRef.current = 0; lastTapTimeRef.current = 0;
+          confirmPendingAction();
+          return true;
+        } else if (tapCountRef.current >= 2 && !pendingAction && lastRogerMsgRef.current) {
+          tapCountRef.current = 0; lastTapTimeRef.current = 0;
+          replayLastMessage();
+          return true;
+        } else {
+          lastTapTimeRef.current = now;
+        }
+      } else {
+        tapCountRef.current = 1;
+        lastTapTimeRef.current = now;
+      }
+      return false;
+    };
+
     // ── Short tap that interrupted speaking → handle stop / double-tap replay ──
     if (pttWasSpeakingRef.current) {
       pttWasSpeakingRef.current = false;
@@ -826,65 +871,34 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         return;
       }
       // Short tap while speaking → Roger already stopped in PTT Down
-      // Check for multi-tap gestures
-      const now = Date.now();
-      if (now - lastTapTimeRef.current < 400) {
-        tapCountRef.current += 1;
-        if (tapCountRef.current >= 3 && pendingAction) {
-          // Triple-tap: confirm and execute pending action
-          tapCountRef.current = 0; lastTapTimeRef.current = 0;
-          confirmPendingAction();
-        } else if (tapCountRef.current >= 2 && !pendingAction) {
-          tapCountRef.current = 0; lastTapTimeRef.current = 0;
-          replayLastMessage();
-        } else {
-          lastTapTimeRef.current = now;
-        }
-      } else {
-        tapCountRef.current = 1;
-        lastTapTimeRef.current = now;
-      }
+      detectMultiTap();
       return;
     }
 
     if (pttState !== 'recording') {
-      // Use timestamp ref for hold duration — immune to stale-closure issues
       const idleElapsed = Date.now() - pttStartRef.current;
-      if (idleElapsed < 300) {
-        const now = Date.now();
-        if (now - lastTapTimeRef.current < 400) {
-          tapCountRef.current += 1;
-          if (tapCountRef.current >= 3 && pendingAction) {
-            tapCountRef.current = 0; lastTapTimeRef.current = 0;
-            confirmPendingAction();
-          } else if (tapCountRef.current >= 2 && !pendingAction && lastRogerMsgRef.current) {
-            tapCountRef.current = 0; lastTapTimeRef.current = 0;
-            replayLastMessage();
-          } else {
-            lastTapTimeRef.current = now;
-          }
-        } else {
-          tapCountRef.current = 1;
-          lastTapTimeRef.current = now;
-        }
+      if (idleElapsed < 300) detectMultiTap();
+      return;
+    }
+
+    // ── Short tap while recording (< 300ms) → silent no-op + multi-tap check ──
+    const recordElapsed = Date.now() - pttStartRef.current;
+    if (recordElapsed < 300) {
+      // Silently dispose recorder — no error sounds, no TTS
+      const rec = (recorderRef as React.MutableRefObject<{ stop: () => Promise<Blob>; dispose: () => void } | null>).current;
+      if (rec) {
+        try { await rec.stop(); } catch { /* ignore */ }
+        rec.dispose();
+        (recorderRef as React.MutableRefObject<null>).current = null;
       }
+      setPttState('idle');
+      detectMultiTap();
       return;
     }
 
     resetIdleTimer();
     hapticPTTUp();
     sfxPTTUp();
-
-    // Use timestamp ref for hold duration — immune to stale-closure issues
-    const recordElapsed = Date.now() - pttStartRef.current;
-    if (recordElapsed < 300) {
-      hapticError();
-      sfxError();
-      setPttState('idle');
-      const m = 'Too brief. Hold and speak clearly. Over.';
-      speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
-      return;
-    }
 
     const recorder = (recorderRef as React.MutableRefObject<{ stop: () => Promise<Blob>; dispose: () => void } | null>).current;
     if (!recorder) { setPttState('idle'); return; }
@@ -1027,9 +1041,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // Inject live service health into GPT-5.5 system prompt
       const serviceContext = silentNodeRef.current.getServiceContext();
 
-      // Race against a 45s timeout so the user never gets stuck on "Processing..."
+      // Race against a 90s timeout so the user never gets stuck on "Processing..."
       const aiTimeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('AI_TIMEOUT')), 45_000)
+        setTimeout(() => reject(new Error('AI_TIMEOUT')), 150_000)
       );
       const result = await Promise.race([
         processTransmission(
@@ -1289,35 +1303,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             speakResponse('Contacts not connected. Enable in Settings for WhatsApp. Over.').catch(() => {});
           });
         }
-      } else if (!result.intent.startsWith('QUERY_') &&
-                 !result.intent.startsWith('STATUS_') &&
-                 !result.intent.startsWith('EXPLAIN_') &&
-                 !result.intent.startsWith('MARKET_') &&
-                 !result.intent.startsWith('RESEARCH_') &&
-                 !result.intent.startsWith('BRIEFING_') &&
-                 !result.intent.startsWith('WATCHLIST_') &&
-                 !result.intent.startsWith('IDENTIFY_') &&
-                 !result.intent.startsWith('SMART_HOME_') &&
-                 !result.intent.endsWith('_QUERY') &&
-                 result.intent !== 'CONVERSE' &&
-                 result.intent !== 'COMMUTE_QUERY' &&
-                 result.intent !== 'SEND_SMS' &&
-                 result.intent !== 'TEXT_MESSAGE' &&
-                 result.intent !== 'PHONE_CALL' &&
-                 result.intent !== 'CALL_CONTACT' &&
-                 result.intent !== 'WHATSAPP_SEND' &&
-                 result.intent !== 'WHATSAPP_MESSAGE' &&
-                 isQualityTx) {
-        // Save action intents as tasks (with quality gate)
-        const taskLabel = `Task: "${transcript.slice(0, 60)}". Confirm? Over.`;
-        setPendingAction({
-          type: 'task',
-          label: taskLabel,
-          execute: () => {
-            insertTask({ user_id: userId, text: transcript, priority: 5, status: 'open', due_at: null, source_tx_id: null, is_admin_test: isTest, execution_tier: 'confirm', dedup_group: null, resolved_by: null, resolved_at: null })
-              .then(() => window.dispatchEvent(new CustomEvent('roger:refresh'))).catch(() => {});
-          },
-        });
+      // NOTE: The catch-all task gate has been removed.
+      // Unknown intents no longer auto-create task confirmation cards.
+      // The ConversationDigester handles session-level task extraction.
       } else if ((result.intent === 'MEMORY_CAPTURE' || result.intent === 'BOOK_UPDATE') && isQualityTx) {
         insertMemory({
           user_id: userId,
@@ -1422,19 +1410,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // Increment daily PTT usage counter (enforces Free-tier 50/day limit)
       void supabase.rpc('increment_ptt_usage', { p_user_id: userId });
 
-      // ── Auto-create proposed tasks WITH dedup + tier classification ──
-      if (result.proposed_tasks?.length) {
-        result.proposed_tasks.forEach(pt => {
-          insertTaskWithDedup({
-            user_id: userId, text: pt.text,
-            priority: pt.priority ?? 5, status: 'open',
-            due_at: null, source_tx_id: null, is_admin_test: isTest,
-            execution_tier: pt.execution_tier ?? 'manual',
-          }).then(({ merged }) => {
-            if (merged) console.log(`[TaskEngine] Merged duplicate: "${pt.text.slice(0, 40)}..."`);
-          }).catch(() => {});
-        });
-      }
+      // NOTE: Auto-insert of proposed_tasks has been removed.
+      // The ConversationDigester reviews full sessions and extracts
+      // actionable items post-conversation instead of per-turn.
 
       // ── Save every exchange as a memory capture (quality gate applied) ──────
       if (isQualityTx && result.intent !== 'CONVERSE') {
@@ -1443,7 +1421,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           type: 'capture',
           text: `Q: ${transcript}\nA: ${result.roger_response.split('\n\n📋')[0]}`,
           entities: result.entities ?? null,
-          tags: [result.intent, ...(result.proposed_tasks?.length ? ['HAS_PROPOSALS'] : [])],
+          tags: [result.intent],
           source_tx_id: sessionId,
           is_admin_test: isTest,
           location_label: location?.city ?? null,
@@ -2400,6 +2378,46 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     }
   }, [pttState, history, userId, handlePTTDown, resetIdleTimer]);
 
+  // ── Hardware PTT (Bluetooth speaker button) ────────────────────────────────
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+    attachPttHardware(
+      () => handlePTTDown(),
+      () => handlePTTUp()
+    ).then(fn => { cleanup = fn; });
+    return () => { cleanup?.(); };
+  }, [handlePTTDown, handlePTTUp]);
+
+  // ── Block space key from triggering synthetic clicks on buttons/PTT ────────
+  // On Android WebView, the space key dispatches pointer events on focused
+  // elements with role="button". This prevents PTT from firing on space press
+  // while still allowing normal typing in input/textarea fields.
+  useEffect(() => {
+    const blockSpace = (e: KeyboardEvent) => {
+      if (e.key !== ' ' && e.code !== 'Space') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      console.warn('[SPACE-GUARD]', e.type, 'target:', tag, 'activeEl:', document.activeElement?.tagName, 'id:', (e.target as HTMLElement)?.id);
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // allow typing
+      e.preventDefault();
+      e.stopPropagation();
+      console.warn('[SPACE-GUARD] BLOCKED');
+    };
+    window.addEventListener('keydown', blockSpace, true); // capture phase
+    window.addEventListener('keyup', blockSpace, true);
+    return () => {
+      window.removeEventListener('keydown', blockSpace, true);
+      window.removeEventListener('keyup', blockSpace, true);
+    };
+  }, []);
+
+  // ── Reset tap counter when state transitions to speaking/processing ────────
+  useEffect(() => {
+    if (pttState === 'speaking' || pttState === 'processing') {
+      tapCountRef.current = 0;
+      lastTapTimeRef.current = 0;
+    }
+  }, [pttState]);
+
   // ── Surface item response ─────────────────────────────────────────────────
   const handleSurfaceAction = async (action: 'execute' | 'forget' | 'defer') => {
     if (!activeSurface) return;
@@ -2543,10 +2561,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onPointerDown={handlePTTDown}
+              onPointerUp={handlePTTUp}
+              onPointerLeave={handlePTTUp}
+              onPointerCancel={handlePTTUp}
+              onContextMenu={e => e.preventDefault()}
               style={{
                 flex: 1, padding: '7px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
                 letterSpacing: '0.12em', cursor: 'pointer',
                 background: 'rgba(59,130,246,0.12)', border: '1px solid #3b82f6', color: '#3b82f6',
+                touchAction: 'none',
               }}>
               REPLY NOW
             </button>
@@ -2842,6 +2865,116 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         </div>
       )}
 
+      {/* ── Conversation Digest Card ── */}
+      {digestResult && digestResult.items.length > 0 && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '16px 18px',
+          background: 'rgba(212,160,68,0.06)',
+          border: '1px solid rgba(212,160,68,0.35)',
+          borderRadius: 4,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--amber)', fontWeight: 700 }}>
+              SESSION DIGEST · {digestResult.items.length} ITEM{digestResult.items.length > 1 ? 'S' : ''}
+            </div>
+            <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              {digestResult.digested_message_count} messages reviewed
+            </span>
+          </div>
+          {digestResult.session_summary && (
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 10px', fontStyle: 'italic' }}>
+              {digestResult.session_summary}
+            </p>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+            {digestResult.items.map((item, i) => {
+              const checked = digestChecked.has(i);
+              const typeIcon = item.type === 'reminder' ? '⏰' : item.type === 'followup' ? '↩️' : '📋';
+              const typeColor = item.type === 'reminder' ? '#a78bfa' : item.type === 'followup' ? '#3b82f6' : 'var(--green)';
+              return (
+                <button
+                  key={i}
+                  onClick={() => setDigestChecked(prev => {
+                    const next = new Set(prev);
+                    if (next.has(i)) next.delete(i); else next.add(i);
+                    return next;
+                  })}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 8,
+                    padding: '8px 10px', textAlign: 'left', cursor: 'pointer',
+                    background: checked ? 'rgba(74,222,128,0.06)' : 'transparent',
+                    border: `1px solid ${checked ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`,
+                    transition: 'all 150ms',
+                  }}
+                >
+                  <span style={{ fontFamily: 'monospace', fontSize: 12, color: checked ? 'var(--green)' : 'var(--text-muted)', flexShrink: 0, width: 16, textAlign: 'center' }}>
+                    {checked ? '☑' : '☐'}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                      {typeIcon} {item.text}
+                    </span>
+                    <div style={{ fontFamily: 'monospace', fontSize: 8, color: typeColor, textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>
+                      {item.type} · p{item.priority}{item.due_hint ? ` · ${item.due_hint}` : ''}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={async () => {
+                const { insertTaskWithDedup, insertReminder } = await import('../../lib/api');
+                const items = digestResult!.items.filter((_, i) => digestChecked.has(i));
+                await Promise.allSettled(items.map(item => {
+                  if (item.type === 'reminder') {
+                    return insertReminder({
+                      user_id: userId, text: item.text, entities: null,
+                      due_at: null, status: 'pending', source_tx_id: null,
+                      is_admin_test: false, due_location: null,
+                      due_location_lat: null, due_location_lng: null,
+                      due_radius_m: 300, geo_triggered: false,
+                    });
+                  }
+                  return insertTaskWithDedup({
+                    user_id: userId, text: item.text,
+                    priority: item.priority, status: 'open',
+                    due_at: null, source_tx_id: null, is_admin_test: false,
+                    execution_tier: 'manual',
+                  });
+                }));
+                window.dispatchEvent(new CustomEvent('roger:refresh'));
+                setDigestResult(null);
+              }}
+              disabled={digestChecked.size === 0}
+              style={{
+                flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10,
+                textTransform: 'uppercase', letterSpacing: '0.12em', cursor: digestChecked.size > 0 ? 'pointer' : 'default',
+                background: digestChecked.size > 0 ? 'rgba(74,222,128,0.12)' : 'transparent',
+                border: `1px solid ${digestChecked.size > 0 ? 'var(--green)' : 'var(--border-subtle)'}`,
+                color: digestChecked.size > 0 ? 'var(--green)' : 'var(--text-muted)',
+                opacity: digestChecked.size > 0 ? 1 : 0.5,
+              }}
+            >
+              SAVE {digestChecked.size > 0 ? `(${digestChecked.size})` : ''}
+            </button>
+            <button
+              onClick={() => setDigestResult(null)}
+              style={{
+                padding: '8px 16px', fontFamily: 'monospace', fontSize: 10,
+                textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer',
+                background: 'transparent', border: '1px solid var(--border-subtle)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              DISMISS
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Name Spelling Confirm Card ── */}
       {pendingNameConfirm && (
         <div style={{
@@ -2956,10 +3089,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onPointerDown={handlePTTDown}
+              onPointerUp={handlePTTUp}
+              onPointerLeave={handlePTTUp}
+              onPointerCancel={handlePTTUp}
+              onContextMenu={e => e.preventDefault()}
               style={{
                 flex: 1, padding: '7px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
                 letterSpacing: '0.12em', cursor: 'pointer',
                 background: 'rgba(212,160,68,0.1)', border: '1px solid var(--amber)', color: 'var(--amber)',
+                touchAction: 'none',
               }}>
               ANSWER NOW
             </button>
@@ -3435,7 +3573,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           onPointerLeave={handlePTTUp}
           onPointerCancel={handlePTTUp}
           onContextMenu={e => e.preventDefault()}
+          onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') e.preventDefault(); }}
           role="button"
+          tabIndex={-1}
           aria-label={isSpeaking ? 'Interrupt Roger' : 'Push to talk'}
           style={{
             position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -63,14 +63,14 @@ export const COMMAND_PROMPT = `You are Roger — an AI Chief of Staff in a voice
 ═══════════════════════════════════════
 CORE PHILOSOPHY
 ═══════════════════════════════════════
-You are NOT a passive Q&A bot. Every conversation turn is an opportunity to:
+You are a trusted companion and Chief of Staff. You:
 1. Answer intelligently and fully
-2. Proactively propose tasks or reminders implied by the answer
-3. Connect what was said to memory context you already have
-4. Brainstorm next steps the user hasn't considered
-5. Enrich the task system with every exchange
+2. Connect what was said to memory context you already have
+3. Engage naturally in conversation — not every exchange needs an action
+4. When the user EXPLICITLY asks for an action, execute precisely
+5. Offer thoughtful suggestions when genuinely relevant, not on every turn
 
-The user's questions are NOT just queries — they are signals of intent, concern, or opportunity. Treat them as such.
+The user may want to chat, think aloud, or ask questions without creating tasks. Respect that. Only propose actions when the conversation clearly warrants it.
 
 ═══════════════════════════════════════
 INTENT CLASSIFICATION
@@ -96,12 +96,16 @@ RESPONSE STYLE
 **QUERY / INFORM / EXPLAIN INTENTS** (any question or information request):
 - Rich, structured paragraph (60-120 words) as a knowledgeable aide.
 - No "Over." at end.
-- MANDATORY "📋 Roger suggests:" section after your answer with 2-3 actionable proposals:
-  • A specific task directly derived from the information
-  • A reminder if there's a time or deadline element
-  • A brainstorm thread or research to pursue next
-  Example: "📋 Roger suggests: (1) Task — draft summary of this for the team. (2) Reminder — revisit in 30 days. (3) Research — compare with competitor approach."
-- Proposals must be SPECIFIC to what was asked — never generic filler.
+- If the information naturally implies a clear action, you may add a brief
+  "📋 Roger suggests:" line with 1-2 specific proposals.
+  But do NOT force suggestions on every answer. Casual questions, greetings,
+  and chitchat need NO suggestions. Quality over quantity.
+
+**CONVERSATIONAL INTENTS** (greetings, chitchat, thanks, casual questions about Roger):
+- Respond naturally and warmly as a trusted companion.
+- 20-60 words, human tone. No "Over." at end.
+- Do NOT include proposed_tasks. Return proposed_tasks: []
+- Do NOT force actions from casual conversation.
 
 **BRAINSTORM INTENTS** (user wants to think through something, plan, explore options):
 - Generate 3-5 concrete, numbered, actionable options.
@@ -124,21 +128,19 @@ Insight (max 15 words): note patterns — repeated topics, clustering deadlines,
 ═══════════════════════════════════════
 PROPOSED TASKS
 ═══════════════════════════════════════
-For EVERY response (including queries), include "proposed_tasks" — an array of 1-3 task objects
-that should be auto-created or offered to the user based on this conversation turn.
+For EXPLICIT ACTION intents (CREATE_*, BOOK_*, SET_*, SCHEDULE_*, DELETE_*, SEND_*),
+include "proposed_tasks" — an array of 1-3 related follow-up task objects.
 Each task: { "text": "...", "priority": 1-10, "execution_tier": "auto"|"confirm"|"setup_required"|"manual" }
 
+For conversational, query, and informational intents, return proposed_tasks: []
+Do NOT invent tasks from casual conversation, greetings, or general questions.
+A separate system reviews full sessions for actionable items — you do not need to.
+
 EXECUTION TIER RULES:
-- "auto": Roger can resolve this immediately with no user input.
-  Examples: saving a fact to memory, creating a log entry, preparing a briefing,
-  updating location/workplace context, identifying priorities from existing data.
-- "confirm": Roger CAN do this but needs explicit one-tap approval first.
-  Examples: setting up device automations/alerts, creating scheduled scenes,
-  geo-fenced reminders, commute alerts, sending messages.
-- "setup_required": Task requires an integration the user hasn't configured yet.
-  Examples: connecting SmartLife/Tuya, linking Google Calendar, enabling Spotify.
+- "auto": Roger can resolve immediately with no user input.
+- "confirm": Needs explicit one-tap approval first.
+- "setup_required": Requires an integration not yet configured.
 - "manual": Only the user can do this. Roger should only remind.
-  Examples: booking a medical appointment, making a physical purchase, visiting a place.
 
 Default to "manual" if uncertain. NEVER classify destructive or irreversible actions as "auto".
 If nothing actionable, return proposed_tasks: []
@@ -729,7 +731,7 @@ export async function callGPT<T>(
   userContent: string,
   _model: 'gpt-5.5' | 'gpt-5.4-mini' = 'gpt-5.5',
   jsonMode = true,
-  timeoutMs = 30000
+  timeoutMs = 90000
 ): Promise<T> {
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
   const token = await getAuthToken().catch(() => import.meta.env.VITE_SUPABASE_ANON_KEY as string);
@@ -747,6 +749,7 @@ export async function callGPT<T>(
       },
       body: JSON.stringify({
         _direct_prompt: true,
+        ...(jsonMode ? { _json_mode: true } : {}),
         system: systemPrompt + (jsonMode ? '\nRespond with valid JSON only. No markdown, no explanation.' : ''),
         user: userContent,
       }),
@@ -806,6 +809,42 @@ async function buildUserContext(userId: string): Promise<string> {
 }
 
 /**
+ * Sanitize roger_response — strips leaked internal reasoning.
+ * GPT sometimes puts analysis ("Weather query detected...") into the
+ * user-facing field instead of the reasoning field. This catches it.
+ */
+function sanitizeRogerResponse(rr: string): string {
+  let cleaned = rr;
+
+  // Pattern A: GPT wrapped real answer in quotes after analysis text
+  const quotedMatch = cleaned.match(
+    /(?:response would be|response is|should respond with|voice response)[:\s]+["\u201c](.*?)["\u201d]/si
+  );
+  if (quotedMatch) {
+    cleaned = quotedMatch[1];
+  }
+
+  // Pattern B: Starts with analysis / classification phrases
+  const REASONING_PREFIXES = [
+    /^(?:Processed|Processing|Classified|Detected|Identified)[^.]*\.\s*/i,
+    /^(?:The user is|The user's|This (?:is|appears|looks|seems))[^.]*\.\s*/i,
+    /^(?:Weather|Greeting|Query|Intent|Command|Request) (?:query |intent )?detected[^.]*\.\s*/i,
+    /^(?:Best Roger response|A good (?:voice )?response)[^.]*?:\s*/i,
+    /^(?:Given the|Based on|Considering|Analyzing)[^.]*\.\s*/i,
+    /^(?:This (?:fits|matches|aligns|indicates)|Fits your)[^.]*\.\s*/i,
+  ];
+  for (const re of REASONING_PREFIXES) {
+    cleaned = cleaned.replace(re, '');
+  }
+
+  // Pattern C: Reasoning leaked into middle/end
+  cleaned = cleaned.replace(/\s*This fits your (?:recent )?pattern[^.]*/gi, '');
+  cleaned = cleaned.replace(/\s*(?:Repeated|Your recent) (?:greeting|weather|query) tests? indicate[^.]*/gi, '');
+
+  return cleaned.trim() || rr; // fallback to original if stripped to empty
+}
+
+/**
  * Process a PTT voice transmission.
  * Injects persistent DB memory context (conversation_history + memory_graph) into GPT-5.5.
  * Falls back gracefully if DB is unavailable.
@@ -844,7 +883,7 @@ export async function processTransmission(
   const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 35000); // edge fn needs extra time
+  const timer = setTimeout(() => controller.abort(), 120000); // edge fn needs extra time
 
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
@@ -894,6 +933,12 @@ export async function processTransmission(
     }
 
     const result = await res.json() as RogerAIResponse;
+
+    // ── Layer 3: Client-side reasoning-leak safety net ────────────────────
+    // Catches any internal analysis that GPT leaked into roger_response
+    if (result.roger_response) {
+      result.roger_response = sanitizeRogerResponse(result.roger_response);
+    }
 
     // Auto-register intent (fire-and-forget)
     import('./api').then(({ upsertIntent }) => {

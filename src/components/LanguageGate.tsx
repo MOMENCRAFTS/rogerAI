@@ -94,7 +94,7 @@ async function classifyGate(transcript: string, node: 'node1' | 'node2' | 'node3
   const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ _direct_prompt: true, system, user }),
+    body: JSON.stringify({ _direct_prompt: true, _json_mode: true, system, user }),
   });
 
   const data = await res.json() as Record<string, unknown>;
@@ -307,7 +307,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
           <div style={{ ...mono(8,'rgba(255,255,255,.35)','.2em'),textAlign:'center' }}>— HOLD & SAY YOUR LANGUAGE —</div>
 
           {/* PTT */}
-          <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
+          <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerLeave={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
             style={{ width:120,height:120,borderRadius:'50%',border:ptt?'3px solid rgba(212,160,68,.8)':'2.5px solid rgba(212,160,68,.3)',background:ptt?'radial-gradient(circle,rgba(212,160,68,.25) 0%,rgba(212,160,68,.08) 100%)':'radial-gradient(circle,rgba(212,160,68,.1) 0%,rgba(212,160,68,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
             {ptt && <><div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(212,160,68,.4)',animation:'grp 1.5s ease-out infinite' }} /><div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(212,160,68,.3)',animation:'grp 1.5s ease-out infinite .5s' }} /></>}
             <Radio size={36} color={ptt?'rgba(212,160,68,1)':'rgba(212,160,68,.6)'} />
@@ -362,7 +362,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
           <div style={{ ...mono(8,'rgba(255,255,255,.35)','.15em'),textAlign:'center' }}>— HOLD & SAY YOUR ACCENT —</div>
 
           {/* PTT */}
-          <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
+          <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerLeave={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
             style={{ width:120,height:120,borderRadius:'50%',border:ptt?'3px solid rgba(212,160,68,.8)':'2.5px solid rgba(212,160,68,.3)',background:ptt?'radial-gradient(circle,rgba(212,160,68,.25) 0%,rgba(212,160,68,.08) 100%)':'radial-gradient(circle,rgba(212,160,68,.1) 0%,rgba(212,160,68,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
             {ptt && <><div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(212,160,68,.4)',animation:'grp 1.5s ease-out infinite' }} /></>}
             <Radio size={36} color={ptt?'rgba(212,160,68,1)':'rgba(212,160,68,.6)'} />
@@ -425,7 +425,7 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
           <div style={{ ...mono(8,'rgba(255,255,255,.35)','.15em'),textAlign:'center' }}>— HOLD PTT: CONFIRM OR CHANGE —</div>
 
           {/* PTT */}
-          <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
+          <button onPointerDown={pttDown} onPointerUp={pttUp} onPointerLeave={pttUp} onPointerCancel={pttUp} onContextMenu={e=>e.preventDefault()}
             style={{ width:120,height:120,borderRadius:'50%',border:ptt?'3px solid rgba(16,185,129,.8)':'2.5px solid rgba(16,185,129,.3)',background:ptt?'radial-gradient(circle,rgba(16,185,129,.25) 0%,rgba(16,185,129,.08) 100%)':'radial-gradient(circle,rgba(16,185,129,.1) 0%,rgba(16,185,129,.03) 100%)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',transition:'all .2s',animation:ptt?'gbr 1.2s ease-in-out infinite':'gp 3s ease-in-out infinite',WebkitTapHighlightColor:'transparent',touchAction:'none' }}>
             {ptt && <div style={{ position:'absolute',inset:-4,borderRadius:'50%',border:'1px solid rgba(16,185,129,.4)',animation:'grp 1.5s ease-out infinite' }} />}
             <Radio size={36} color={ptt?'rgba(16,185,129,1)':'rgba(16,185,129,.6)'} />

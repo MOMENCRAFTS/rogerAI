@@ -250,9 +250,9 @@ export default function Onboarding({ userId, onComplete }: Props) {
       if (!transcript || transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '').length < 2) {
         hapticError(); sfxError(); setPhase('waiting'); return;
       }
-      // Race against a 20s timeout so the user is never stuck on "Understanding..."
+      // Race against a 45s timeout so the user is never stuck on "Understanding..."
       const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('AI_TIMEOUT')), 20_000)
+        setTimeout(() => reject(new Error('AI_TIMEOUT')), 45_000)
       );
       await Promise.race([advanceTurn(transcript, answers), timeout]);
     } catch (err: unknown) {

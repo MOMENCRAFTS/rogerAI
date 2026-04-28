@@ -18,14 +18,16 @@ const COMMAND_PROMPT = `You are Roger — an AI Chief of Staff in a voice-first 
 ═══════════════════════════════════════
 CORE PHILOSOPHY
 ═══════════════════════════════════════
-You are NOT a passive Q&A bot. Every conversation turn is an opportunity to:
-1. Answer intelligently and fully
-2. Proactively propose tasks or reminders implied by the answer
-3. Connect what was said to memory context you already have
-4. Brainstorm next steps the user hasn't considered
-5. Enrich the task system with every exchange
+You are a trusted companion and strategic aide. Your primary role is to CONVERSE naturally.
+Not every turn needs a task. Not every question needs an action plan.
 
-The user's questions are NOT just queries — they are signals of intent, concern, or opportunity. Treat them as such.
+1. If the user is chatting, chat back — warmly, naturally, concisely.
+2. If the user asks a question, answer it fully.
+3. ONLY propose tasks when the conversation genuinely implies actionable work.
+4. Connect relevant memory context when it adds value.
+5. Reserve proactive suggestions for moments where they're clearly useful.
+
+Greetings like "hey", "what's up?", "how are you?" are CASUAL — respond warmly in 1-2 sentences. Do NOT analyze them, do NOT propose tasks from them.
 
 ═══════════════════════════════════════
 INTENT CLASSIFICATION
@@ -44,6 +46,29 @@ SCORING:
 RESPONSE STYLE
 ═══════════════════════════════════════
 
+███ CRITICAL RULE: "roger_response" vs "reasoning" ███
+
+"roger_response" is SPOKEN VERBATIM to the user via text-to-speech.
+It must contain ONLY what you would say OUT LOUD to the user.
+
+"reasoning" is your INTERNAL thought process. The user NEVER sees this.
+
+NEVER put analysis, classification notes, or meta-commentary in roger_response.
+NEVER start roger_response with phrases like:
+  - "Weather query detected..."
+  - "The user is asking..."
+  - "This appears to be..."
+  - "Processing... detected intent..."
+  - "A good response would be..."
+  - "Classified as..."
+
+✔️ CORRECT:
+  roger_response: "Today's weather in Riyadh: 42°C, clear skies, high of 44. Light winds. Stay hydrated. Over."
+  reasoning: "Weather query detected. User said 'Andrea' but likely addressing Roger. Location context: Riyadh."
+
+❌ WRONG:
+  roger_response: "Weather query detected. The user is asking for today's weather. A good response would be: 'Today's weather in Riyadh...'"
+
 **ACTION INTENTS** (CREATE_*, DELETE_*, SEND_*, UPDATE_*, BOOK_*, SET_*, CALL_*, SCHEDULE_*):
 - Terse radio style. Confirm the action. Under 35 words. End with "Over."
 - After confirming, add 1 proactive line: suggest a related follow-up task or reminder.
@@ -51,12 +76,16 @@ RESPONSE STYLE
 **QUERY / INFORM / EXPLAIN INTENTS** (any question or information request):
 - Rich, structured paragraph (60-120 words) as a knowledgeable aide.
 - No "Over." at end.
-- MANDATORY "📋 Roger suggests:" section after your answer with 2-3 actionable proposals.
-- Proposals must be SPECIFIC to what was asked — never generic filler.
+- OPTIONALLY include "📋 Roger suggests:" section ONLY if 2-3 genuinely actionable follow-ups exist.
+- If the query is purely informational ("what's gold at?", "what time is it in Tokyo?"), just answer. No suggestions needed.
+- Proposals, when included, must be SPECIFIC to what was asked — never generic filler.
 
-**BRAINSTORM INTENTS** (user wants to think through something, plan, explore options):
-- Generate 3-5 concrete, numbered, actionable options.
-- End with: "Want me to convert any of these into tasks? Over."
+**GREETING / CHITCHAT INTENTS** ("hey", "what's up?", "how are you?", "good morning", casual conversation):
+- Respond warmly and naturally in 1-2 sentences like a trusted colleague.
+- Do NOT add "Roger suggests" section.
+- Do NOT propose tasks.
+- Do NOT analyze the greeting.
+- Intent should be GREETING_CHECKIN or similar.
 
 ═══════════════════════════════════════
 GEO-TRIGGERED REMINDERS
@@ -73,11 +102,11 @@ Resolve pronouns (him/her/it/that) from conversation history and memory context.
 Insight (max 15 words): note patterns — repeated topics, clustering deadlines, frequent people.
 
 ═══════════════════════════════════════
-PROPOSED TASKS (REQUIRED FIELD)
+PROPOSED TASKS (CONDITIONAL FIELD)
 ═══════════════════════════════════════
-For EVERY response (including queries), include "proposed_tasks" — an array of 1-3 task objects.
+Include "proposed_tasks" ONLY for explicit action intents (CREATE_*, BOOK_*, SET_*, SCHEDULE_*, SEND_*).
+For casual conversation, greetings, and purely informational queries, return proposed_tasks: []
 Each task: { "text": "...", "priority": 1-10 }
-If nothing actionable, return proposed_tasks: []
 
 ═══════════════════════════════════════
 PTT NETWORK — RELAY INTENTS
@@ -264,9 +293,9 @@ Return ONLY valid JSON matching this schema:
   "ambiguity": 0-100,
   "outcome": "success" | "clarification" | "error",
   "entities": [{ "text": "string", "type": "string", "confidence": 0-100 }],
-  "roger_response": "string",
+  "roger_response": "string — THIS IS SPOKEN ALOUD. Only natural speech. No analysis. No meta-commentary.",
   "clarification_question": null | "string",
-  "reasoning": "string",
+  "reasoning": "string — Your internal analysis. Classification logic. The user NEVER sees this.",
   "insight": null | "string",
   "proposed_tasks": [{ "text": "string", "priority": 1-10 }],
   "intent_options": null | [{ "intent": "string", "label": "string" }],
@@ -284,6 +313,7 @@ Deno.serve(async (req: Request) => {
     if (body._direct_prompt) {
       const sysMsg = (body.system as string) ?? '';
       const usrMsg = (body.user as string) ?? '';
+      const jsonMode = !!body._json_mode; // Caller explicitly requests JSON format
       if (!sysMsg && !usrMsg) {
         return new Response(JSON.stringify({ error: 'system or user message required' }), {
           status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
@@ -300,7 +330,7 @@ Deno.serve(async (req: Request) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
         body: JSON.stringify({
           model: 'gpt-5.5',
-          response_format: { type: 'json_object' },
+          ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
           messages: dpMessages,
         }),
       });
@@ -314,10 +344,22 @@ Deno.serve(async (req: Request) => {
       }
 
       const dpData = await dpRes.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
-      const dpRaw = dpData.choices[0]?.message?.content ?? '{}';
+      let dpRaw = dpData.choices[0]?.message?.content ?? '';
       // Track token usage
       await trackOpenAIResponse('process-transmission-direct', 'gpt-5.5', dpData, null, dpStart);
-      // Return the raw content string as roger_response so the client can parse it
+
+      // Unwrap if GPT still wrapped plain text in {"text": "..."} JSON
+      if (!jsonMode && dpRaw.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(dpRaw);
+          if (typeof parsed.text === 'string') dpRaw = parsed.text;
+          else if (typeof parsed.response === 'string') dpRaw = parsed.response;
+          else if (typeof parsed.roger_response === 'string') dpRaw = parsed.roger_response;
+          else if (typeof parsed.briefing === 'string') dpRaw = parsed.briefing;
+        } catch { /* not JSON, keep as-is */ }
+      }
+
+      // Return the content as roger_response so the client can use it
       return new Response(JSON.stringify({ roger_response: dpRaw }), {
         headers: { ...CORS, 'Content-Type': 'application/json' },
       });
@@ -452,6 +494,41 @@ Deno.serve(async (req: Request) => {
     const data = await res.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
     const raw  = data.choices[0]?.message?.content ?? '{}';
     const parsed = JSON.parse(raw);
+
+    // ── Layer 2: Server-side reasoning-leak sanitizer ────────────────────────
+    if (typeof parsed.roger_response === 'string') {
+      let rr = parsed.roger_response;
+
+      // Pattern A: GPT wrapped the real answer in quotes after analysis
+      // e.g. "Weather query detected... A good voice response would be: \"Today's weather...\""
+      const quotedMatch = rr.match(/(?:response would be|response is|should respond with|voice response)[:\s]+[\u201c"](.*?)[\u201d"]/si);
+      if (quotedMatch) {
+        rr = quotedMatch[1];
+      }
+
+      // Pattern B: Starts with analysis phrases — strip them
+      const REASONING_PREFIXES = [
+        /^(?:Processed|Processing|Classified|Detected|Identified)[^.]*\.\s*/i,
+        /^(?:The user is|The user's|This (?:is|appears|looks|seems))[^.]*\.\s*/i,
+        /^(?:Weather|Greeting|Query|Intent|Command|Request) (?:query |intent )?detected[^.]*\.\s*/i,
+        /^(?:Best Roger response|A good (?:voice )?response)[^.]*?:\s*/i,
+        /^(?:Given the|Based on|Considering|Analyzing)[^.]*\.\s*/i,
+        /^(?:This (?:fits|matches|aligns|indicates)|Fits your)[^.]*\.\s*/i,
+      ];
+      for (const re of REASONING_PREFIXES) {
+        rr = rr.replace(re, '');
+      }
+
+      // Pattern C: Reasoning leaked into middle — "... This fits your pattern of..."
+      rr = rr.replace(/\s*This fits your (?:recent )?pattern[^.]*\./gi, '');
+      rr = rr.replace(/\s*(?:Repeated|Your recent) (?:greeting|weather|query) tests? indicate[^.]*\./gi, '');
+
+      // Move leaked analysis to reasoning field if we stripped anything
+      if (rr !== parsed.roger_response) {
+        parsed.reasoning = (parsed.reasoning || '') + ' [SANITIZED — original roger_response contained analysis]';
+        parsed.roger_response = rr.trim();
+      }
+    }
 
     // Track token usage
     await trackOpenAIResponse('process-transmission', 'gpt-5.5', data, _userId ?? null, txStart);
