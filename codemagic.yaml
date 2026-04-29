@@ -27,6 +27,19 @@ workflows:
           npm install @rollup/rollup-darwin-arm64 --no-save 2>/dev/null || true
           echo "✓ Dependencies installed"
 
+      # ── 1b. Patch @capacitor-community/contacts for Capacitor 8 SPM ─────
+      - name: Patch contacts plugin SPM
+        script: |
+          # @capacitor-community/contacts v7.2.0 pins capacitor-swift-pm to 7.x
+          # but our project uses 8.x — patch it to accept 8.0.0+
+          CONTACTS_PKG="node_modules/@capacitor-community/contacts/Package.swift"
+          if [ -f "$CONTACTS_PKG" ]; then
+            sed -i '' 's/from: "7.0.0"/from: "8.0.0"/g' "$CONTACTS_PKG"
+            echo "✓ Patched contacts Package.swift: $(grep capacitor-swift-pm "$CONTACTS_PKG")"
+          else
+            echo "⚠ contacts Package.swift not found — skipping patch"
+          fi
+
       # ── 2. Write .env.local from Codemagic secrets ───────────────────────
       - name: Write environment file
         script: |
