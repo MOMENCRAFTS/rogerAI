@@ -38,6 +38,10 @@ export type DbReminder = {
   due_location_lng: number  | null;
   due_radius_m:     number;
   geo_triggered:    boolean;
+  // Recurrence fields (added in migration 039)
+  recurrence_rule:  'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom' | null;
+  recurrence_time:  string | null;   // 'HH:MM'
+  recurrence_days:  number[] | null; // ISO weekdays for 'custom': 1=Mon … 7=Sun
 };
 
 // ─── Task ─────────────────────────────────────────────────────────────────────
@@ -108,6 +112,8 @@ export type DbUserPreferences = {
   talkative_enabled:    boolean;
   talkative_frequency:  'thoughtful' | 'active_talk' | 'always_on';
   talkative_delivery:   'auto_speak' | 'ptt_pulse';
+  // ── Briefing Interests ───────────────────
+  briefing_interests:   string[]      | null;
 };
 
 // ─── Intent Registry ──────────────────────────────────────────────────────────
@@ -182,6 +188,19 @@ export async function insertReminder(reminder: Omit<DbReminder, 'id' | 'created_
 
 export async function updateReminderStatus(id: string, status: DbReminder['status']): Promise<void> {
   const { error } = await supabase.from('reminders').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function updateReminderRecurrence(
+  id: string,
+  recurrence_rule: DbReminder['recurrence_rule'],
+  recurrence_time: string | null = null,
+  recurrence_days: number[] | null = null,
+): Promise<void> {
+  const { error } = await supabase.from('reminders').update({
+    recurrence_rule, recurrence_time, recurrence_days,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id);
   if (error) throw error;
 }
 
@@ -1955,4 +1974,131 @@ export async function fetchUserStats(userId: string): Promise<{
     transmissions: tx.count ?? 0,
     conversations: conv.count ?? 0,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER AUDIT — Deep inspection functions for admin testing/QA
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DbUserConversation = {
+  id: string; role: string; content: string; created_at: string;
+};
+
+/** Fetch a user's conversation history (admin inspection) */
+export async function fetchUserConversations(userId: string, limit = 100): Promise<DbUserConversation[]> {
+  const { data, error } = await supabase
+    .from('conversation_history')
+    .select('id, role, content, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export type DbUserTransmission = {
+  id: string; transcript: string; roger_response: string | null;
+  intent: string | null; outcome: string | null; created_at: string;
+};
+
+/** Fetch a user's PTT transmissions with intent + response (admin inspection) */
+export async function fetchUserTransmissions(userId: string, limit = 100): Promise<DbUserTransmission[]> {
+  const { data, error } = await supabase
+    .from('transmissions')
+    .select('id, transcript, roger_response, intent, outcome, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export type DbUserTask = {
+  id: string; text: string; priority: number; status: string;
+  due_at: string | null; created_at: string;
+};
+
+/** Fetch a user's tasks (admin inspection) */
+export async function fetchUserTaskList(userId: string): Promise<DbUserTask[]> {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('id, text, priority, status, due_at, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export type DbUserReminder = {
+  id: string; text: string; status: string;
+  due_at: string | null; due_location: string | null;
+  created_at: string;
+};
+
+/** Fetch a user's reminders (admin inspection) */
+export async function fetchUserReminderList(userId: string): Promise<DbUserReminder[]> {
+  const { data, error } = await supabase
+    .from('reminders')
+    .select('id, text, status, due_at, due_location, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export type DbUserMemory = {
+  id: string; fact: string; category: string | null;
+  confidence: number | null; created_at: string;
+};
+
+/** Fetch a user's memory facts (admin inspection) */
+export async function fetchUserMemories(userId: string, limit = 100): Promise<DbUserMemory[]> {
+  const { data, error } = await supabase
+    .from('memories')
+    .select('id, fact, category, confidence, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN ACTIONS — Destructive operations (admin panel only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Wipe all memories and conversation history for a user (keeps profile intact) */
+export async function flushAllMemory(userId: string): Promise<void> {
+  const [m, c] = await Promise.all([
+    supabase.from('memories').delete().eq('user_id', userId),
+    supabase.from('conversation_history').delete().eq('user_id', userId),
+  ]);
+  if (m.error) throw m.error;
+  if (c.error) throw c.error;
+}
+
+/** Full factory reset — deletes all user data rows across every table, then
+ *  resets user_preferences to fresh defaults so the user goes through onboarding again. */
+export async function fullUserReset(userId: string): Promise<void> {
+  await Promise.all([
+    supabase.from('memories').delete().eq('user_id', userId),
+    supabase.from('conversation_history').delete().eq('user_id', userId),
+    supabase.from('reminders').delete().eq('user_id', userId),
+    supabase.from('tasks').delete().eq('user_id', userId),
+    supabase.from('transmissions').delete().eq('user_id', userId),
+    supabase.from('user_encyclopedia').delete().eq('user_id', userId),
+    supabase.from('errand_list').delete().eq('user_id', userId),
+    supabase.from('parking_logs').delete().eq('user_id', userId),
+  ]);
+  // Reset preferences row to defaults (keeps the row so the user can re-onboard)
+  await supabase.from('user_preferences').update({
+    display_name: null,
+    roger_mode: 'quiet',
+    language: 'en',
+    timezone: 'UTC',
+    onboarding_complete: false,
+    islamic_mode: false,
+    tour_seen: false,
+    updated_at: new Date().toISOString(),
+  }).eq('user_id', userId);
 }

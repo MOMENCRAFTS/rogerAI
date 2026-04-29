@@ -18,6 +18,7 @@ export default function UserRegistry() {
   const [sel, setSel] = useState<DbUserProfile | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sLoad, setSLoad] = useState(false);
   const [confirm, setConfirm] = useState<'flush' | 'reset' | null>(null);
@@ -25,7 +26,13 @@ export default function UserRegistry() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetchAllUserProfiles().then(d => { setUsers(d); setLoading(false); }).catch(() => setLoading(false));
+    setError(null);
+    fetchAllUserProfiles()
+      .then(d => { setUsers(d); setLoading(false); })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Failed to load users');
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -74,6 +81,7 @@ export default function UserRegistry() {
         {/* List */}
         <div style={{ width: 320, borderRight: '1px solid var(--border-subtle)', overflowY: 'auto', flexShrink: 0 }}>
           {loading && <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', padding: 16 }}>Loading…</p>}
+          {error && <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#f87171', padding: '8px 16px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.2)', wordBreak: 'break-all' }}>⚠ {error}</p>}
           {filtered.map(u => {
             const act = sel?.user_id === u.user_id;
             return (
