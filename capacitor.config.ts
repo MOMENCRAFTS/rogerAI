@@ -14,8 +14,8 @@ const config: CapacitorConfig = {
 
   plugins: {
     SplashScreen: {
-      launchShowDuration: 0,        // We control splash from the web layer
-      launchAutoHide: false,        // Don't auto-hide — web SplashScreen component controls dismissal
+      launchShowDuration: 1500,      // Show for 1.5s then auto-hide
+      launchAutoHide: true,          // Always auto-hide — prevents permanent black screen
       backgroundColor: '#0d0d0a',   // Matches --bg-primary dark background
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
@@ -46,8 +46,14 @@ const config: CapacitorConfig = {
     contentInset: 'automatic',
     scrollEnabled: true,
     limitsNavigationsToAppBoundDomains: false,
-    // Custom URL scheme for Supabase OAuth callback
-    scheme: 'com.rogerai.app',
+    // NOTE: Do NOT set scheme here — it conflicts with our
+    // com.rogerai.app:// OAuth deep-link URL scheme in Info.plist.
+    // Capacitor serves the app via capacitor:// by default on iOS.
+    allowNavigation: [
+      '*.supabase.co',
+      'accounts.google.com',
+      '*.googleapis.com',
+    ],
   },
 };
 
