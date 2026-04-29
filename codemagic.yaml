@@ -127,8 +127,8 @@ workflows:
               | jq -r '.[].id? // empty' \
               | while read -r CID; do
                   echo "  Revoking $CERT_TYPE cert: $CID"
-                  app-store-connect certificates revoke "$CID" 2>&1 || \
-                    echo "  (Could not revoke $CID — skipping)"
+                  app-store-connect certificates delete "$CID" 2>&1 || \
+                    echo "  (Could not delete $CID — skipping)"
                 done
           done
           echo "=== Revocation complete ==="
