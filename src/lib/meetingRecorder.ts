@@ -3,25 +3,25 @@
  *
  * Architecture:
  *  - MediaRecorder runs continuously in 60-second rolling chunks
- *  - Each chunk → Whisper transcription (language auto-detected)
+ *  - Each chunk → Whisper transcription (1 retry on failure)
+ *  - After each successful chunk: checkpoint-upsert transcript to DB (crash-safe)
  *  - Accumulates full rolling transcript in memory
  *  - On stop() → generate-meeting-notes edge fn (GPT-5.5) → structured notes
- *  - Saves to meeting_recordings table + feeds key participants into memory_graph
+ *  - Updates the existing in_progress row to done (no duplicate inserts)
+ *  - Feeds key participants into memory_graph
  *
  * Usage:
- *   const recorder = createMeetingRecorder({ onChunk, onComplete, onError });
- *   const sessionId = await recorder.start('Q2 Budget Review');
+ *   const recorder = createMeetingRecorder(userId, { onChunk, onComplete, onError });
+ *   await recorder.start('Q2 Budget Review');
  *   // ...
  *   const notes = await recorder.stop();
  */
 
-const CHUNK_INTERVAL_MS = 60_000; // 60-second rolling chunks
+const CHUNK_INTERVAL_MS   = 60_000; // 60-second rolling chunks
+const WHISPER_RETRY_DELAY = 2_000;  // ms before retrying a failed chunk
 
-const SUPABASE_URL      = (typeof import.meta !== 'undefined')
+const SUPABASE_URL = (typeof import.meta !== 'undefined')
   ? (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL ?? ''
-  : '';
-const SUPABASE_ANON_KEY = (typeof import.meta !== 'undefined')
-  ? (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ?? ''
   : '';
 
 import { getAuthToken } from './getAuthToken';
@@ -74,7 +74,7 @@ export interface MeetingRecorder {
 const PREFERRED_MIME = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg'];
 function getMime() { return PREFERRED_MIME.find(m => MediaRecorder.isTypeSupported(m)) ?? ''; }
 
-async function transcribeBlob(blob: Blob): Promise<string> {
+async function transcribeBlob(blob: Blob, attempt = 1): Promise<string> {
   try {
     const token = await getAuthToken();
     const form  = new FormData();
@@ -85,45 +85,66 @@ async function transcribeBlob(blob: Blob): Promise<string> {
       headers: { 'Authorization': `Bearer ${token}` },
       body:    form,
     });
-    if (!res.ok) return '';
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json() as { transcript: string };
     return data.transcript ?? '';
-  } catch {
+  } catch (err) {
+    if (attempt < 2) {
+      // One retry after a short delay
+      await new Promise(r => setTimeout(r, WHISPER_RETRY_DELAY));
+      return transcribeBlob(blob, 2);
+    }
+    console.warn('[MeetingRecorder] Whisper failed after retry:', err);
     return '';
   }
 }
 
 async function generateNotes(transcript: string, title?: string): Promise<MeetingNotes> {
+  // ✅ Use user JWT — not the anon key — so the edge fn can verify the caller
+  const token = await getAuthToken();
   const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-meeting-notes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
-    body: JSON.stringify({ transcript, title }),
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body:    JSON.stringify({ transcript, title }),
   });
-  if (!res.ok) throw new Error(`Edge fn ${res.status}`);
+  if (!res.ok) throw new Error(`generate-meeting-notes ${res.status}`);
   return res.json() as Promise<MeetingNotes>;
 }
 
-async function saveToDB(userId: string, result: MeetingResult): Promise<string | null> {
+/** Upsert the in_progress checkpoint row after each chunk — crash-safe recovery. */
+async function checkpointToDB(sessionId: string, userId: string, title: string, transcript: string, chunkCount: number): Promise<void> {
   try {
     const { supabase } = await import('./supabase');
-    const { data, error } = await supabase.from('meeting_recordings').insert({
-      user_id:      userId,
-      title:        result.title,
-      transcript:   result.transcript,
-      summary:      result.notes.summary,
+    await supabase.from('meeting_recordings').upsert({
+      id:          sessionId,
+      user_id:     userId,
+      title,
+      transcript,
+      chunk_count: chunkCount,
+      status:      'in_progress',
+    }, { onConflict: 'id' });
+  } catch { /* silent — checkpoint is best-effort */ }
+}
+
+/** Finalise the session row: write notes and mark as done. */
+async function finaliseToDB(sessionId: string, userId: string, result: MeetingResult): Promise<void> {
+  try {
+    const { supabase } = await import('./supabase');
+    await supabase.from('meeting_recordings').upsert({
+      id:          sessionId,
+      user_id:     userId,
+      title:       result.title,
+      transcript:  result.transcript,
+      summary:     result.notes.summary,
       action_items: result.notes.action_items,
-      decisions:    result.notes.decisions,
+      decisions:   result.notes.decisions,
       participants: result.notes.participants,
-      chunk_count:  result.chunks.length,
-      duration_s:   result.durationS,
-      ended_at:     new Date().toISOString(),
-      status:       'done',
-    }).select('id').single();
-    if (error) return null;
-    return data?.id ?? null;
-  } catch {
-    return null;
-  }
+      chunk_count: result.chunks.length,
+      duration_s:  result.durationS,
+      ended_at:    new Date().toISOString(),
+      status:      'done',
+    }, { onConflict: 'id' });
+  } catch { /* silent */ }
 }
 
 async function feedParticipantsToMemory(userId: string, participants: MeetingParticipant[], title: string) {
@@ -155,6 +176,8 @@ export function createMeetingRecorder(
   let recorder: MediaRecorder | null = null;
   let active = false;
   let title = 'Meeting';
+  // Stable session UUID created at start() — used for checkpoint upserts
+  let sessionId = crypto.randomUUID();
   let chunkIndex = 0;
   let startedAt = 0;
   let totalWords = 0;
@@ -173,6 +196,7 @@ export function createMeetingRecorder(
     const chunkStart = Date.now();
 
     try {
+      // transcribeBlob includes 1 automatic retry on failure
       const transcript = await transcribeBlob(blob);
       if (!transcript.trim()) return;
 
@@ -183,6 +207,9 @@ export function createMeetingRecorder(
       const chunk: MeetingChunk = { index: idx, startedAt: chunkStart, transcript, wordCount: words };
       chunks.push(chunk);
       opts.onChunkTranscribed?.(chunk);
+
+      // ✅ Checkpoint: persist rolling transcript to DB so a crash loses at most 1 chunk
+      checkpointToDB(sessionId, userId, title, transcriptParts.join('\n\n'), chunks.length).catch(() => {});
     } catch (e) {
       opts.onError?.(`Chunk ${idx} transcription failed: ${String(e)}`);
     }
@@ -195,12 +222,16 @@ export function createMeetingRecorder(
       return false;
     }
 
-    title = meetingTitle ?? 'Meeting';
-    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    title     = meetingTitle ?? 'Meeting';
+    sessionId = crypto.randomUUID(); // fresh UUID per session
+    recorder  = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     recorder.ondataavailable = (e) => { if (e.data.size > 0) currentBlobs.push(e.data); };
     recorder.start(500);
-    active = true;
+    active    = true;
     startedAt = Date.now();
+
+    // ✅ Create the in_progress row immediately so crash recovery knows a session started
+    checkpointToDB(sessionId, userId, title, '', 0).catch(() => {});
 
     chunkTimer = setInterval(() => { flushChunk().catch(() => {}); }, CHUNK_INTERVAL_MS);
     progressTimer = setInterval(() => {
@@ -242,12 +273,12 @@ export function createMeetingRecorder(
     }
 
     const result: MeetingResult = {
-      dbId: null, title: notes.title || title,
+      dbId: sessionId, title: notes.title || title,
       notes, transcript: fullTranscript, chunks, durationS,
     };
 
-    // Save to DB + feed memory (fire-and-forget)
-    saveToDB(userId, result).then(id => { result.dbId = id; }).catch(() => {});
+    // ✅ Finalise the existing row (upsert to done) + feed memory (fire-and-forget)
+    finaliseToDB(sessionId, userId, result).catch(() => {});
     feedParticipantsToMemory(userId, notes.participants, notes.title || title).catch(() => {});
 
     opts.onComplete?.(result);

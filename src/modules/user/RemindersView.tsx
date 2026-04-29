@@ -1,18 +1,30 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, CheckCircle2, X, Clock, MapPin, Plus, ChevronUp, Pencil, Check } from 'lucide-react';
-import { fetchReminders, updateReminderStatus, subscribeToReminders, insertReminder, type DbReminder } from '../../lib/api';
+import { Bell, CheckCircle2, X, Clock, MapPin, Plus, ChevronUp, Pencil, Check, Repeat } from 'lucide-react';
+import { fetchReminders, updateReminderStatus, updateReminderRecurrence, subscribeToReminders, insertReminder, type DbReminder } from '../../lib/api';
 import { useI18n } from '../../context/I18nContext';
 
-type Filter = 'all' | 'pending' | 'geo' | 'done' | 'dismissed';
+type Filter = 'all' | 'pending' | 'geo' | 'recurring' | 'done' | 'dismissed';
+type RecurrenceRule = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom' | null;
+const RECURRENCE_OPTIONS: { value: RecurrenceRule; label: string }[] = [
+  { value: null,       label: 'None' },
+  { value: 'daily',    label: 'Daily' },
+  { value: 'weekdays', label: 'Weekdays' },
+  { value: 'weekly',   label: 'Weekly' },
+  { value: 'monthly',  label: 'Monthly' },
+  { value: 'custom',   label: 'Custom Days' },
+];
+const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
 interface NewReminder {
   text: string;
   due_date: string;
   due_time: string;
   due_location: string;
+  recurrence_rule: RecurrenceRule;
+  recurrence_days: number[];
 }
 
-const EMPTY_NEW: NewReminder = { text: '', due_date: '', due_time: '', due_location: '' };
+const EMPTY_NEW: NewReminder = { text: '', due_date: '', due_time: '', due_location: '', recurrence_rule: null, recurrence_days: [] };
 
 export default function RemindersView({ userId }: { userId: string }) {
   const { t: _t } = useI18n();
@@ -48,10 +60,12 @@ export default function RemindersView({ userId }: { userId: string }) {
   }, [showForm]);
 
   const filtered = (() => {
-    if (filter === 'geo')  return reminders.filter(r => !!r.due_location);
-    if (filter === 'all')  return reminders;
+    if (filter === 'geo')       return reminders.filter(r => !!r.due_location);
+    if (filter === 'recurring') return reminders.filter(r => !!r.recurrence_rule);
+    if (filter === 'all')       return reminders;
     return reminders.filter(r => r.status === filter);
   })();
+  const recurringCount = reminders.filter(r => !!r.recurrence_rule && r.status === 'pending').length;
 
   const pendingCount = reminders.filter(r => r.status === 'pending').length;
   const geoWatching  = reminders.filter(r => !!r.due_location && !r.geo_triggered && r.status === 'pending').length;
@@ -79,12 +93,20 @@ export default function RemindersView({ userId }: { userId: string }) {
         due_location: newR.due_location.trim() || null,
         due_location_lat: null, due_location_lng: null,
         due_radius_m: 300, geo_triggered: false,
+        recurrence_rule: newR.recurrence_rule,
+        recurrence_time: newR.due_time || null,
+        recurrence_days: newR.recurrence_rule === 'custom' && newR.recurrence_days.length > 0 ? newR.recurrence_days : null,
       });
       if (created) setReminders(prev => [created, ...prev]);
     } catch { /* silent */ }
     setNewR(EMPTY_NEW);
     setShowForm(false);
     setSaving(false);
+  };
+
+  const stopRecurring = async (id: string) => {
+    await updateReminderRecurrence(id, null, null, null).catch(() => {});
+    setReminders(prev => prev.map(r => r.id === id ? { ...r, recurrence_rule: null, recurrence_time: null, recurrence_days: null } : r));
   };
 
   const startEdit = (r: DbReminder) => { setEditId(r.id); setEditText(r.text); };
@@ -101,6 +123,7 @@ export default function RemindersView({ userId }: { userId: string }) {
     { key: 'all',       label: 'All' },
     { key: 'pending',   label: 'Pending' },
     { key: 'geo',       label: `Geo${geoWatching > 0 ? ` (${geoWatching})` : ''}` },
+    { key: 'recurring', label: `Recurring${recurringCount > 0 ? ` (${recurringCount})` : ''}` },
     { key: 'done',      label: 'Done' },
     { key: 'dismissed', label: 'Dismissed' },
   ];
@@ -165,6 +188,34 @@ export default function RemindersView({ userId }: { userId: string }) {
             </label>
             <input type="text" value={newR.due_location} onChange={e => setNewR(p => ({ ...p, due_location: e.target.value }))} placeholder="e.g. Office, Supermarket..." style={inputStyle} />
           </div>
+          {/* ── Recurrence Picker ── */}
+          <div>
+            <label style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 4 }}>
+              <Repeat size={9} style={{ display: 'inline', marginRight: 3 }} />Repeat
+            </label>
+            <select
+              value={newR.recurrence_rule ?? ''}
+              onChange={e => setNewR(p => ({ ...p, recurrence_rule: (e.target.value || null) as RecurrenceRule, recurrence_days: [] }))}
+              style={{ ...inputStyle, cursor: 'pointer' }}
+            >
+              {RECURRENCE_OPTIONS.map(o => (
+                <option key={o.value ?? ''} value={o.value ?? ''}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          {newR.recurrence_rule === 'custom' && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {DAY_LABELS.map((label, i) => {
+                const dayNum = i + 1; // 1=Mon … 7=Sun
+                const isOn = newR.recurrence_days.includes(dayNum);
+                return (
+                  <button key={dayNum} type="button" onClick={() => setNewR(p => ({ ...p, recurrence_days: isOn ? p.recurrence_days.filter(d => d !== dayNum) : [...p.recurrence_days, dayNum] }))}
+                    style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: 10, border: `1px solid ${isOn ? 'var(--amber)' : 'var(--border-subtle)'}`, background: isOn ? 'rgba(212,160,68,0.15)' : 'transparent', color: isOn ? 'var(--amber)' : 'var(--text-muted)', cursor: 'pointer' }}
+                  >{label}</button>
+                );
+              })}
+            </div>
+          )}
           <button
             onClick={handleCreate}
             disabled={saving || !newR.text.trim()}
@@ -184,9 +235,9 @@ export default function RemindersView({ userId }: { userId: string }) {
             <button key={key} onClick={() => setFilter(key)} style={{
               flexShrink: 0, padding: '4px 12px', fontFamily: 'monospace', fontSize: 10,
               textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
-              border: `1px solid ${isActive && isGeo ? 'rgba(74,222,128,0.6)' : isActive ? 'var(--amber)' : 'var(--border-subtle)'}`,
-              background: isActive && isGeo ? 'rgba(74,222,128,0.1)' : isActive ? 'rgba(212,160,68,0.1)' : 'transparent',
-              color: isActive && isGeo ? '#4ade80' : isActive ? 'var(--amber)' : 'var(--text-muted)',
+              border: `1px solid ${(isActive && isGeo) ? 'rgba(74,222,128,0.6)' : (isActive && key === 'recurring') ? 'rgba(147,130,255,0.6)' : isActive ? 'var(--amber)' : 'var(--border-subtle)'}`,
+              background: (isActive && isGeo) ? 'rgba(74,222,128,0.1)' : (isActive && key === 'recurring') ? 'rgba(147,130,255,0.1)' : isActive ? 'rgba(212,160,68,0.1)' : 'transparent',
+              color: (isActive && isGeo) ? '#4ade80' : (isActive && key === 'recurring') ? '#9382ff' : isActive ? 'var(--amber)' : 'var(--text-muted)',
             }}>
               {label}
             </button>
@@ -288,15 +339,30 @@ export default function RemindersView({ userId }: { userId: string }) {
                 </div>
               )}
 
+              {/* Recurrence badge */}
+              {r.recurrence_rule && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <Repeat size={10} style={{ color: '#9382ff' }} />
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#9382ff', padding: '2px 7px', border: '1px solid rgba(147,130,255,0.4)', background: 'rgba(147,130,255,0.08)' }}>
+                    🔁 {r.recurrence_rule}{r.recurrence_time ? ` · ${r.recurrence_time}` : ''}
+                  </span>
+                </div>
+              )}
+
               {/* Actions */}
               {r.status === 'pending' && !isEditing && (
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => markDone(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', background: 'transparent', border: '1px solid var(--green-border)', color: 'var(--green)', cursor: 'pointer' }}>
                     <CheckCircle2 size={10} /> Done
                   </button>
                   <button onClick={() => markDismiss(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>
                     <X size={10} /> Dismiss
                   </button>
+                  {r.recurrence_rule && (
+                    <button onClick={() => stopRecurring(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', background: 'transparent', border: '1px solid rgba(147,130,255,0.4)', color: '#9382ff', cursor: 'pointer' }}>
+                      <Repeat size={10} /> Stop Recurring
+                    </button>
+                  )}
                 </div>
               )}
             </div>

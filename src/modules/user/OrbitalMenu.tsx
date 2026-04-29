@@ -3,12 +3,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Bell, CheckSquare, BookOpen, Mic, BookMarked,
   BarChart3, MapPin, Car, Crown, Moon, Lightbulb,
-  GraduationCap, X,
+  GraduationCap, X, TrendingUp,
 } from 'lucide-react';
 import type { ComponentType, SVGProps } from 'react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'market' | 'settings';
 
 interface OrbitalItem {
   key: UserTab;
@@ -41,6 +41,7 @@ const ORBITAL_ITEMS: OrbitalItem[] = [
 
   // Outer ring — lifestyle & intelligence (ring 1)
   { key: 'analytics', label: 'Stats',     Icon: BarChart3,      ring: 1 },
+  { key: 'market',    label: 'Market',    Icon: TrendingUp,     ring: 1, accent: '#10b981' },
   { key: 'location',  label: 'Location',  Icon: MapPin,         ring: 1 },
   { key: 'commute',   label: 'Drive',     Icon: Car,            ring: 1 },
   { key: 'salah',     label: 'Salah',     Icon: Moon,           ring: 1, accent: '#10b981' },
@@ -167,7 +168,7 @@ export default function OrbitalMenu({
             onClick={onClose}
             aria-label="Close modules"
             style={{
-              position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', right: 16,
+              position: 'absolute', top: 'max(48px, env(safe-area-inset-top, 48px))', right: 16,
               width: 44, height: 44,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: 'rgba(255,255,255,0.06)',

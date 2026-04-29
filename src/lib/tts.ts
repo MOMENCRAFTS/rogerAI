@@ -89,34 +89,85 @@ export function stopSpeaking(): void {
   } catch { /* ignore */ }
 }
 
+// ─── Text chunker ─────────────────────────────────────────────────────────────
+// OpenAI TTS rejects input > 4096 chars. Long Roger responses (briefings, deep
+// dives) regularly exceed this. We split on sentence boundaries so each chunk
+// is under the limit, then play them sequentially without any gap.
+const TTS_CHUNK_LIMIT = 4000; // leave headroom below the 4096 hard cap
+
+function chunkText(text: string): string[] {
+  if (text.length <= TTS_CHUNK_LIMIT) return [text];
+
+  // Split on sentence-ending punctuation followed by whitespace
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const sentence of sentences) {
+    // Single sentence is itself too long — hard-split at word boundary
+    if (sentence.length > TTS_CHUNK_LIMIT) {
+      if (current) { chunks.push(current.trim()); current = ''; }
+      const words = sentence.split(' ');
+      let wordChunk = '';
+      for (const word of words) {
+        if ((wordChunk + ' ' + word).trim().length > TTS_CHUNK_LIMIT) {
+          chunks.push(wordChunk.trim());
+          wordChunk = word;
+        } else {
+          wordChunk = (wordChunk + ' ' + word).trim();
+        }
+      }
+      if (wordChunk) current = wordChunk;
+      continue;
+    }
+
+    const candidate = current ? current + ' ' + sentence : sentence;
+    if (candidate.length > TTS_CHUNK_LIMIT) {
+      chunks.push(current.trim());
+      current = sentence;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
 /**
  * Speak text using OpenAI TTS.
- * Now uses native fetch (CapacitorHttp disabled) so binary audio arrives intact.
+ * Automatically chunks text > 4000 chars into sentence-boundary segments and
+ * plays them sequentially — so long briefings / deep-dive responses are always
+ * heard in full rather than silently failing at the 4096-char proxy limit.
  * Includes built-in retry: if AudioContext fails on first attempt, resets and retries once.
  * AbortErrors are NOT retried — they mean stopSpeaking() was called intentionally.
  */
 export async function speakResponse(text: string): Promise<void> {
-  try {
-    return await _speakResponseInner(text);
-  } catch (firstErr) {
-    // AbortError = intentional cancellation (stopSpeaking called) → don't retry
-    if (firstErr instanceof DOMException && firstErr.name === 'AbortError') {
-      console.log('[TTS] Aborted (intentional), not retrying');
-      return;
-    }
-    // Genuine failure (stale AudioContext, decode error) → retry once
-    console.warn('[TTS] First attempt failed, retrying with fresh AudioContext:', firstErr);
-    resetAudioContext();
+  const chunks = chunkText(text);
+  console.log(`[TTS] ${chunks.length} chunk(s) for ${text.length} chars`);
+
+  for (const chunk of chunks) {
+    // If stopSpeaking() was called mid-sequence, bail out immediately
+    if (_abortController?.signal.aborted) return;
+
     try {
-      return await _speakResponseInner(text);
-    } catch (retryErr) {
-      // AbortError on retry — bail silently
-      if (retryErr instanceof DOMException && (retryErr as DOMException).name === 'AbortError') return;
-      // ── Web Speech API fallback ──────────────────────────────────────
-      // Both OpenAI TTS attempts failed — fall back to browser-native speech.
-      // This eliminates the need for 70+ identical .catch() blocks in callers.
-      console.warn('[TTS] OpenAI TTS retry failed, using Web Speech fallback:', retryErr);
-      return _webSpeechFallback(text);
+      await _speakResponseInner(chunk);
+    } catch (firstErr) {
+      // AbortError = intentional cancellation → stop the whole sequence
+      if (firstErr instanceof DOMException && firstErr.name === 'AbortError') {
+        console.log('[TTS] Aborted (intentional), stopping sequence');
+        return;
+      }
+      // Genuine failure → retry once with fresh AudioContext
+      console.warn('[TTS] Chunk failed, retrying with fresh AudioContext:', firstErr);
+      resetAudioContext();
+      try {
+        await _speakResponseInner(chunk);
+      } catch (retryErr) {
+        if (retryErr instanceof DOMException && (retryErr as DOMException).name === 'AbortError') return;
+        // Both OpenAI TTS attempts failed for this chunk — Web Speech fallback
+        console.warn('[TTS] OpenAI TTS retry failed, using Web Speech fallback:', retryErr);
+        await _webSpeechFallback(chunk);
+      }
     }
   }
 }

@@ -30,7 +30,7 @@ const KNOWN: Record<string, string> = {
   'microsoft': 'MSFT', 'amazon':  'AMZN', 'meta':      'META',  'facebook': 'META',
   'nvidia':    'NVDA', 'netflix': 'NFLX', 'spotify':   'SPOT',  'coinbase': 'COIN',
   'uber':      'UBER', 'airbnb':  'ABNB', 'bitcoin':   'BTC',
-  'aramco':    'ARMCO', 'starbucks': 'SBUX', 'disney':  'DIS',
+  'aramco':    '2222.SR', 'starbucks': 'SBUX', 'disney':  'DIS',
 };
 
 /** Extract a stock ticker from natural voice text. */

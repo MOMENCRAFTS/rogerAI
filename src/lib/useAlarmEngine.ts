@@ -16,6 +16,17 @@ const ALERT_WINDOW_MS  = 2 * 60_000; // fire if due within 2 minutes
 /** IDs we've already alerted this session so we don't double-fire */
 const alertedIds = new Set<string>();
 
+/** Map recurrence_rule to a human-readable suffix for TTS */
+function recurrenceSuffix(rule: string | null, time: string | null): string {
+  if (!rule) return '';
+  const timeLabel = time ? ` at ${time}` : '';
+  const ruleLabels: Record<string, string> = {
+    daily: 'tomorrow', weekdays: 'next weekday', weekly: 'next week',
+    monthly: 'next month', custom: 'next scheduled day',
+  };
+  return ` Recurring — next: ${ruleLabels[rule] ?? 'next occurrence'}${timeLabel}.`;
+}
+
 export function useAlarmEngine(userId: string) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -33,14 +44,16 @@ export function useAlarmEngine(userId: string) {
             alertedIds.add(r.id);
             hapticGeoAlert();
             const minLeft = Math.max(0, Math.round(diff / 60_000));
+            const suffix = recurrenceSuffix(r.recurrence_rule, r.recurrence_time);
             const msg = minLeft === 0
-              ? `Reminder now due: ${r.text}. Over.`
-              : `Reminder in ${minLeft} minute${minLeft > 1 ? 's' : ''}: ${r.text}. Over.`;
+              ? `Reminder now due: ${r.text}.${suffix} Over.`
+              : `Reminder in ${minLeft} minute${minLeft > 1 ? 's' : ''}: ${r.text}.${suffix} Over.`;
             speakResponse(msg).catch(() => {
               window.speechSynthesis.cancel();
               window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
             });
             // Mark as done so it won't fire again
+            // (server-side check-reminders cron will spawn next occurrence for recurring)
             Promise.resolve(
               supabase.from('reminders').update({ status: 'done' }).eq('id', r.id)
             ).then(() => {}).catch(() => {});
@@ -57,3 +70,4 @@ export function useAlarmEngine(userId: string) {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [userId]);
 }
+

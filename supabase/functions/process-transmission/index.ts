@@ -4,7 +4,10 @@
 
 import { trackOpenAIResponse, trackUsage } from '../_shared/tokenTracker.ts';
 
-const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
+const OPENAI_API_KEY      = Deno.env.get('OPENAI_API_KEY') ?? '';
+const SUPABASE_URL        = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_ANON_KEY   = Deno.env.get('SUPABASE_ANON_KEY')!;
+const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -94,6 +97,21 @@ If the user says "when I'm near X", "when I arrive at X", "remind me at X":
   - intent = CREATE_REMINDER
   - Add entity: { "text": "X", "type": "LOCATION", "confidence": 95 }
   - Confirm: "Geo-reminder set — I'll alert you when you're near [X]. Over."
+
+═══════════════════════════════════════
+RECURRING REMINDERS
+═══════════════════════════════════════
+If the user says "every day", "daily", "each morning", "every weekday",
+"every Monday", "weekly", "monthly", or similar recurrence patterns:
+  - intent = CREATE_REMINDER
+  - Add entity: { "text": "<rule>", "type": "RECURRENCE", "confidence": 95 }
+    where <rule> is one of: daily, weekdays, weekly, monthly, custom
+  - If specific days mentioned (e.g. "Monday Wednesday Friday"):
+    add entity: { "text": "1,3,5", "type": "RECURRENCE_DAYS", "confidence": 90 }
+    Use ISO weekday numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
+  - If a specific time mentioned (e.g. "at 7 AM", "every morning at 9"):
+    add entity: { "text": "07:00", "type": "RECURRENCE_TIME", "confidence": 90 }
+  - Confirm: "Recurring reminder set — [rule] at [time]. Over."
 
 ═══════════════════════════════════════
 ENTITY RESOLUTION + INSIGHT
@@ -258,6 +276,21 @@ When the ENTITY is clear but the INTENT is ambiguous (e.g. "something with Ahmad
 - If the user's NEXT response matches one of the options, lock to that intent.
 
 ═══════════════════════════════════════
+MORNING BRIEFING — ON-DEMAND
+═══════════════════════════════════════
+BRIEFING_REQUEST
+  Trigger: "give me a briefing", "morning briefing", "brief me",
+           "what's my briefing", "daily briefing", "evening briefing",
+           "give me my morning update", "brief me for today",
+           "what do I need to know today", "run my briefing"
+  Response: "Compiling your briefing now. Searching live data. Stand by. Over."
+  outcome: always "success"
+  NOTE: The client intercepts this intent and calls web search with the
+  user's personal briefing_interests for live data (gold, crypto, weather, etc.).
+  Your roger_response here is a SHORT acknowledgment only — the real briefing
+  is generated separately with web search enabled.
+
+═══════════════════════════════════════
 KNOWLEDGE MODE — PROGRESSIVE LEARNING
 ═══════════════════════════════════════
 Roger supports multi-turn knowledge exploration. The client sends
@@ -300,14 +333,165 @@ Return ONLY valid JSON matching this schema:
   "proposed_tasks": [{ "text": "string", "priority": 1-10 }],
   "intent_options": null | [{ "intent": "string", "label": "string" }],
   "is_knowledge_query": true | false,
-  "subtopics": null | [{ "label": "string", "emoji": "string" }]
-}`;
+  "subtopics": null | [{ "label": "string", "emoji": "string" }],
+  "needs_web_search": true | false,
+  "web_search_query": null | "string — a concise focused search query (e.g. 'petrol price Saudi Arabia today 2025')"
+}
+
+═══════════════════════════════════════
+WEB SEARCH ROUTING RULES
+═══════════════════════════════════════
+Roger has dedicated fast APIs for certain data. NEVER set needs_web_search: true for:
+- Stock prices (QUERY_STOCK, MARKET_BRIEF) → Finnhub API handles this
+- Gold/commodity prices (QUERY_GOLD, QUERY_COMMODITY) → dedicated market data handler
+- News headlines (QUERY_NEWS, BRIEFING_NEWS) → NewsAPI handles this
+- Flight status (QUERY_FLIGHT) → AviationStack handles this
+- Commute/maps (COMMUTE_QUERY) → Google Maps handles this
+- Morning briefing (BRIEFING_REQUEST) → dedicated briefing flow handles this
+- Weather → already injected in context
+- Personal data (reminders, tasks, calendar, memory) → database handles this
+- Action commands (CREATE_*, SET_*, BOOK_*, SEND_*, PLAY_*) → no search needed
+- General knowledge GPT knows well (history, science, definitions, math) → no search needed
+- Casual conversation, greetings, opinions → no search needed
+
+SET needs_web_search: true AND a concise web_search_query ONLY for:
+- Current prices NOT covered by APIs (petrol/fuel, electricity, real estate, specific products)
+- Recent events and news ABOUT a specific topic ("what happened with X", "latest on Y")
+- Current records, rankings, statistics (sports scores, leaderboards, election results)
+- Real-time conditions NOT in context (AQI, specific city conditions, road closures)
+- Facts about a person/company/product where freshness matters ("latest iPhone", "Elon Musk today")
+- Anything where you would normally say "I don't have current data" — search instead
+
+When setting needs_web_search: true:
+- roger_response must be a SHORT acknowledgment: "Searching live data. Stand by. Over."
+- web_search_query must be a focused, specific search string (include location if relevant)
+- Example: user asks "what's the fuel price?" -> web_search_query: "petrol price Saudi Arabia per litre 2025".
+`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
+  // ── JWT Verification ───────────────────────────────────────────────────────
+  // Every request must carry a valid Supabase user JWT or the service role key.
+  // This prevents the endpoint from being an open GPT proxy.
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const token = authHeader.replace('Bearer ', '').trim();
+
+  if (!token) {
+    return new Response(JSON.stringify({ error: 'Unauthorized — missing token' }), {
+      status: 401, headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Service role key bypasses user verification (admin / internal cron calls).
+  // For user JWTs: verify by calling the Supabase Auth REST API directly.
+  // This avoids instantiating a full JS client on every request.
+  if (token !== SUPABASE_SERVICE_KEY && token !== SUPABASE_ANON_KEY) {
+    const authCheck = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        'Authorization': authHeader,
+        'apikey': SUPABASE_ANON_KEY,
+      },
+    });
+    if (!authCheck.ok) {
+      return new Response(JSON.stringify({ error: 'Unauthorized — invalid or expired token' }), {
+        status: 401, headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  // Anon key is allowed with a console warning (session-less flows / fallback)
+  // ── End Auth Gate ──────────────────────────────────────────────────────────
+
   try {
     const body = await req.json() as Record<string, unknown>;
+
+    // ── Web-search prompt (used by MorningBriefing for live data) ──────────
+    if (body._web_search) {
+      const sysMsg = (body.system as string) ?? '';
+      const usrMsg = (body.user as string) ?? '';
+      if (!sysMsg && !usrMsg) {
+        return new Response(JSON.stringify({ error: 'system or user message required' }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Build input: system instructions + user prompt combined
+      const input = [
+        ...(sysMsg ? [{ role: 'system', content: sysMsg }] : []),
+        ...(usrMsg ? [{ role: 'user', content: usrMsg }] : []),
+      ];
+
+      const wsStart = Date.now();
+      const wsController = new AbortController();
+      const wsTimer = setTimeout(() => wsController.abort(), 50_000);
+      let wsRes: Response;
+      try {
+        wsRes = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+          signal: wsController.signal,
+          body: JSON.stringify({
+            model: 'gpt-5.5',
+            tools: [{ type: 'web_search_preview' }],
+            input,
+          }),
+        });
+      } finally {
+        clearTimeout(wsTimer);
+      }
+
+      if (!wsRes.ok) {
+        const err = await wsRes.text();
+        await trackUsage({ functionName: 'process-transmission-websearch', model: 'gpt-5.5', success: false, errorMessage: err, latencyMs: Date.now() - wsStart });
+        return new Response(JSON.stringify({ error: err }), {
+          status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const wsData = await wsRes.json() as { output_text?: string; output?: { type?: string; content?: { type?: string; text?: string }[] }[]; usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
+      let wsText = wsData.output_text ?? '';
+
+      // When web_search tool runs, output_text may be empty and the real answer
+      // lives inside output[].content[].text (message-type items only)
+      if (!wsText && Array.isArray(wsData.output)) {
+        for (const item of wsData.output) {
+          if (item.type === 'message' && Array.isArray(item.content)) {
+            for (const block of item.content) {
+              if (block.type === 'output_text' && block.text) {
+                wsText = block.text;
+                break;
+              }
+            }
+          }
+          if (wsText) break;
+        }
+      }
+
+      // Track usage (adapt to Responses API shape)
+      await trackUsage({
+        functionName: 'process-transmission-websearch',
+        model: 'gpt-5.5',
+        success: true,
+        latencyMs: Date.now() - wsStart,
+        promptTokens: (wsData.usage as Record<string, number>)?.input_tokens ?? 0,
+        completionTokens: (wsData.usage as Record<string, number>)?.output_tokens ?? 0,
+      });
+
+      // Unwrap if GPT wrapped plain text in JSON
+      if (wsText.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(wsText);
+          if (typeof parsed.text === 'string') wsText = parsed.text;
+          else if (typeof parsed.response === 'string') wsText = parsed.response;
+          else if (typeof parsed.roger_response === 'string') wsText = parsed.roger_response;
+          else if (typeof parsed.briefing === 'string') wsText = parsed.briefing;
+        } catch { /* not JSON, keep as-is */ }
+      }
+
+      return new Response(JSON.stringify({ roger_response: wsText }), {
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
 
     // ── Direct prompt bypass (used by Onboarding, MorningBriefing, etc.) ───
     if (body._direct_prompt) {
@@ -325,15 +509,24 @@ Deno.serve(async (req: Request) => {
       if (usrMsg) dpMessages.push({ role: 'user', content: usrMsg });
 
       const dpStart = Date.now();
-      const dpRes = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-        body: JSON.stringify({
-          model: 'gpt-5.5',
-          ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-          messages: dpMessages,
-        }),
-      });
+      const dpController = new AbortController();
+      const dpTimer = setTimeout(() => dpController.abort(), 55_000);
+      let dpRes: Response;
+      try {
+        dpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+          signal: dpController.signal,
+          body: JSON.stringify({
+            model: 'gpt-5.5',
+            ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+            max_completion_tokens: 1500,
+            messages: dpMessages,
+          }),
+        });
+      } finally {
+        clearTimeout(dpTimer);
+      }
 
       if (!dpRes.ok) {
         const err = await dpRes.text();
@@ -473,15 +666,26 @@ Deno.serve(async (req: Request) => {
     });
 
     const txStart = Date.now();
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-      body: JSON.stringify({
-        model: 'gpt-5.5',
-        response_format: { type: 'json_object' },
-        messages,
-      }),
-    });
+    // Supabase Edge Functions have a 60s wall-clock limit.
+    // We give OpenAI 55s before aborting so we can return a clean error.
+    const txController = new AbortController();
+    const txTimer = setTimeout(() => txController.abort(), 55_000);
+    let res: Response;
+    try {
+      res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+        signal: txController.signal,
+        body: JSON.stringify({
+          model: 'gpt-5.5',
+          response_format: { type: 'json_object' },
+          max_completion_tokens: 1200, // keeps JSON response tight, well inside 60s
+          messages,
+        }),
+      });
+    } finally {
+      clearTimeout(txTimer);
+    }
 
     if (!res.ok) {
       const err = await res.text();

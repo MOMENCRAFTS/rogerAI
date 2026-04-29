@@ -1,5 +1,7 @@
 // ─── Roger AI — Conversational Onboarding Flow ──────────────────────────────
 import { getAuthToken } from './getAuthToken';
+import { getLockedBaseLanguage, getLockedLocale } from './i18n';
+import { DIALECT_CONFIG } from './translations/dialects';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
@@ -53,15 +55,42 @@ export const PHASE_LABELS: Record<OnboardingPhase, string> = {
 };
 
 // ── For backward compat with Onboarding.tsx imports ─────────────────────────
+/**
+ * buildLanguageDirective() — HARDCODED locale enforcement directive.
+ * Reads getLockedBaseLanguage() — the user's confirmed selection from
+ * localStorage — NOT navigator.language (which reflects OS, not user choice).
+ *
+ * This directive is structurally prepended to EVERY LLM system prompt so
+ * that language compliance is a code-level guarantee, not a prompt hint.
+ */
 function buildLanguageDirective(): string {
-  try {
-    const locale = (typeof navigator !== 'undefined' && navigator.language) || 'en';
-    const base = locale.split('-')[0];
-    if (base === 'ar') return 'Respond ONLY in Arabic (فصحى). All output in Arabic script.';
-    if (base === 'fr') return 'Respond ONLY in French.';
-    if (base === 'es') return 'Respond ONLY in Spanish.';
-    return 'Respond in English.';
-  } catch { return 'Respond in English.'; }
+  const base = getLockedBaseLanguage();
+  if (base === 'ar') return 'Respond ONLY in Arabic (فصحى). All output MUST be in Arabic script. Never use Latin characters for Arabic words.';
+  if (base === 'fr') return 'Respond ONLY in French. All output MUST be in French.';
+  if (base === 'es') return 'Respond ONLY in Spanish. All output MUST be in Spanish.';
+  return 'Respond ONLY in English.';
+}
+
+/**
+ * buildDialectContext() — Full dialect personality block injected into LLM calls.
+ * Reads getLockedLocale() for the full dialect (e.g. ar-gulf vs ar-egypt).
+ * Prepended structurally to callLLM() system prompts.
+ */
+function buildDialectContext(): string {
+  const locale = getLockedLocale();
+  if (!locale) return buildLanguageDirective(); // fallback: at least enforce base language
+  const dc = DIALECT_CONFIG[locale as keyof typeof DIALECT_CONFIG];
+  if (!dc) return buildLanguageDirective();
+  const base = getLockedBaseLanguage();
+  const langName = base === 'ar' ? 'Arabic' : base === 'fr' ? 'French' : base === 'es' ? 'Spanish' : 'English';
+  return [
+    `=== DIALECT PERSONALITY ===`,
+    `User locale: ${locale} | Base language: ${base}`,
+    dc.aiPersonality,
+    `CRITICAL: The user selected ${langName}. ALL responses MUST be in ${langName}.`,
+    base === 'ar' ? 'Write in Arabic script only. Do NOT transliterate.' : '',
+    base !== 'ar' ? `Respond ONLY in ${langName}. Never switch languages unless asked to translate.` : '',
+  ].filter(Boolean).join('\n');
 }
 
 // ── Utility: which fields are still missing? ────────────────────────────────
@@ -79,22 +108,22 @@ export function getMissingFields(answers: OnboardingAnswers): string[] {
   return missing;
 }
 
-// ── Welcome script ──────────────────────────────────────────────────────────
-export const WELCOME_SCRIPT =
-  "Roger AI online. I'm your AI chief of staff — here to manage your day, your tasks, and your intel. Tell me about yourself — your name, what you do, where you're based, anything you want me to know. Over.";
+// ── Hardcoded welcome scripts per locale ─────────────────────────────────────
+// These are never LLM-generated — the first words Roger speaks are hardcoded
+// to guarantee they come out in the correct language regardless of any API
+// latency or LLM behaviour. Keyed by base language.
+const WELCOME_SCRIPTS: Record<string, string> = {
+  ar: 'روجر AI جاهز. أنا رئيس أركانك الرقمي — أدير يومك، مهامك، ومعلوماتك. عرّفني عن نفسك — اسمك، شغلك، وين مقرّك، وأي شي تبي أعرفه عنك. تفضّل.',
+  fr: "Roger AI en ligne. Je suis votre chef de cabinet IA. Parlez-moi de vous — votre nom, ce que vous faites, où vous êtes basé, tout ce que je devrais savoir. À vous.",
+  es: "Roger AI en línea. Soy tu jefe de gabinete IA. Cuéntame sobre ti — tu nombre, a qué te dedicas, dónde estás, lo que quieras que sepa. Adelante.",
+  en: "Roger AI online. I'm your AI chief of staff — here to manage your day, your tasks, and your intel. Tell me about yourself — your name, what you do, where you're based, anything you want me to know. Over.",
+};
+
+export const WELCOME_SCRIPT = WELCOME_SCRIPTS.en;
 
 export function getWelcomeScript(): string {
-  try {
-    const locale = (typeof navigator !== 'undefined' && navigator.language) || 'en';
-    const base = locale.split('-')[0];
-    if (base === 'ar')
-      return 'روجر AI جاهز. أنا رئيس أركانك الرقمي — أدير يومك، مهامك، ومعلوماتك. عرّفني عن نفسك — اسمك، شغلك، وين مقرّك، وأي شي تبي أعرفه عنك. تفضّل.';
-    if (base === 'fr')
-      return "Roger AI en ligne. Je suis votre chef de cabinet IA. Parlez-moi de vous — votre nom, ce que vous faites, où vous êtes basé, tout ce que je devrais savoir. À vous.";
-    if (base === 'es')
-      return "Roger AI en línea. Soy tu jefe de gabinete IA. Cuéntame sobre ti — tu nombre, a qué te dedicas, dónde estás, lo que quieras que sepa. Adelante.";
-  } catch { /* fall through */ }
-  return WELCOME_SCRIPT;
+  const base = getLockedBaseLanguage();
+  return WELCOME_SCRIPTS[base] ?? WELCOME_SCRIPTS.en;
 }
 
 // ── Name confirm prompt (with phonetic variants) ────────────────────────────
@@ -180,11 +209,16 @@ async function callLLM(system: string, user: string): Promise<string> {
   const token = await getAuthToken().catch(() => null);
   if (!token) throw new Error('No auth token');
 
+  // Structurally enforce language on EVERY LLM call in the onboarding path.
+  // The dialect context is prepended unconditionally — the LLM cannot ignore it.
+  const dialectBlock = buildDialectContext();
+  const enforcedSystem = dialectBlock ? `${dialectBlock}\n\n${system}` : system;
+
   console.log('[callLLM] Sending _direct_prompt request...');
   const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ _direct_prompt: true, _json_mode: true, system, user }),
+    body: JSON.stringify({ _direct_prompt: true, _json_mode: true, system: enforcedSystem, user }),
   });
 
   if (!res.ok) {

@@ -1,7 +1,8 @@
 // ─── Roger AI — Morning Briefing Edge Function ────────────────────────────────
 // Generates a personalised spoken briefing for each user at their preferred
 // briefing time (stored in user_preferences.briefing_time).
-// Sends via Web Push notification — tapping opens the app.
+// Uses OpenAI Responses API with web_search tool to fetch live data
+// for each user's personal briefing interests (gold, crypto, weather, etc.).
 //
 // Deploy: supabase functions deploy morning-briefing --no-verify-jwt
 // Cron:   supabase functions schedule morning-briefing "*/30 * * * *"
@@ -25,8 +26,13 @@ async function sb(path: string) {
   return res.json();
 }
 
-async function generateBriefing(userId: string, displayName: string, timeOfDay: string): Promise<string> {
-  // Fetch context in parallel
+async function generateBriefing(
+  userId: string,
+  displayName: string,
+  timeOfDay: string,
+  interests: string[]
+): Promise<string> {
+  // Fetch internal context in parallel
   const [history, facts, reminders, tasks, surface, academyStreak] = await Promise.all([
     sb(`conversation_history?user_id=eq.${userId}&order=created_at.desc&limit=6&select=role,content`),
     sb(`memory_graph?user_id=eq.${userId}&order=confidence.desc&limit=8&select=subject,predicate,object`),
@@ -48,44 +54,66 @@ async function generateBriefing(userId: string, displayName: string, timeOfDay: 
     ? `Language learning: ${streakData.current_streak}-day streak, ${streakData.total_words} words learned (${streakData.target_locale}), ${Math.round(streakData.accuracy_pct)}% accuracy, ${streakData.streak_freezes} streak freeze${streakData.streak_freezes !== 1 ? 's' : ''} available`
     : '';
 
-  const prompt = `You are Roger AI delivering a ${timeOfDay} briefing to ${displayName ?? 'Commander'}.
-Generate a crisp spoken briefing (90–140 words). Be warm, direct, like a trusted aide.
+  // Build the interests section for web search
+  const interestsSection = interests.length > 0
+    ? `LIVE DATA INTERESTS (search the web for current, real-time data on each):\n${interests.map((i, idx) => `${idx + 1}. ${i}`).join('\n')}`
+    : '';
 
-USER FACTS: ${factLines || 'none yet'}
+  const systemPrompt = `You are Roger AI delivering a ${timeOfDay} briefing to ${displayName ?? 'Commander'}.
+You have access to web search. Use it to fetch CURRENT, REAL-TIME data for the user's interests listed below.
 
-PENDING REMINDERS:
-${remLines || 'none'}
+${interestsSection}
 
-OPEN TASKS (by priority):
-${taskLines || 'none'}
+INTERNAL CONTEXT (from Roger's memory):
+User facts: ${factLines || 'none yet'}
+Pending reminders: ${remLines || 'none'}
+Open tasks (by priority): ${taskLines || 'none'}
+Surface items: ${surfaceLines || 'none'}
+Recent conversation: ${histLines || 'none'}
+Language Academy: ${academyLine || 'not enrolled'}
 
-SURFACE ITEMS:
-${surfaceLines || 'none'}
-
-RECENT CONVERSATION:
-${histLines || 'none'}
-
-LANGUAGE ACADEMY:
-${academyLine || 'not enrolled'}
-
-Rules:
+BRIEFING RULES:
+- Generate a crisp spoken briefing (120–180 words)
+- Be warm, direct, like a trusted aide
 - Start with a warm ${timeOfDay} opener using their name
-- Cover 2-3 most important items
+- Cover live data from interests FIRST with specific numbers and prices
+- Then cover 2-3 most important internal items (tasks, reminders)
 - End with ONE proactive suggestion
 - Close with "Standing by. Over."
-- Plain text only, no markdown`;
+- Plain text only, no markdown, no headers, no bullet points
+- This is SPOKEN ALOUD via text-to-speech — write it as natural speech`;
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const userPrompt = `Generate the ${timeOfDay} briefing now. Search the web for the latest data on each interest.`;
+
+  // Use Responses API with web_search tool for live data
+  const res = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
     body: JSON.stringify({
       model: 'gpt-5.5',
-      temperature: 0.5,
-      messages: [{ role: 'user', content: prompt }],
+      tools: [{ type: 'web_search' }],
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
     }),
   });
-  const data = await res.json() as { choices: { message: { content: string } }[] };
-  return data.choices[0]?.message?.content ?? `Good ${timeOfDay}, ${displayName}. Standing by. Over.`;
+
+  const data = await res.json() as { output_text?: string };
+  let text = data.output_text ?? `Good ${timeOfDay}, ${displayName}. Standing by. Over.`;
+
+  // Unwrap if GPT wrapped in JSON
+  if (text.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed.text === 'string') text = parsed.text;
+      else if (typeof parsed.response === 'string') text = parsed.response;
+      else if (typeof parsed.roger_response === 'string') text = parsed.roger_response;
+      else if (typeof parsed.briefing === 'string') text = parsed.briefing;
+    } catch { /* not JSON, keep as-is */ }
+  }
+
+  return text;
 }
 
 Deno.serve(async () => {
@@ -98,7 +126,7 @@ Deno.serve(async () => {
 
     // Fetch users whose briefing time matches current 30-min window
     const prefs = await sb(
-      `user_preferences?onboarding_complete=eq.true&select=user_id,display_name,briefing_time,briefing_time2,timezone`
+      `user_preferences?onboarding_complete=eq.true&select=user_id,display_name,briefing_time,briefing_time2,timezone,briefing_interests`
     );
 
     if (!Array.isArray(prefs) || prefs.length === 0) {
@@ -106,7 +134,7 @@ Deno.serve(async () => {
     }
 
     let sent = 0;
-    for (const pref of prefs as { user_id: string; display_name: string; briefing_time: string; briefing_time2: string }[]) {
+    for (const pref of prefs as { user_id: string; display_name: string; briefing_time: string; briefing_time2: string; briefing_interests: string[] | null }[]) {
       // Check if this user's briefing time matches current window (±15 min)
       const isTime = [pref.briefing_time, pref.briefing_time2].some(t => t && t.slice(0,5) === hhmm);
       if (!isTime) continue;
@@ -115,8 +143,11 @@ Deno.serve(async () => {
       const subs = await sb(`push_subscriptions?user_id=eq.${pref.user_id}&select=endpoint,p256dh,auth`);
       if (!Array.isArray(subs) || subs.length === 0) continue;
 
-      // Generate briefing
-      const briefingText = await generateBriefing(pref.user_id, pref.display_name, timeOfDay);
+      // User's personal briefing interests (default to empty if not set)
+      const interests = Array.isArray(pref.briefing_interests) ? pref.briefing_interests : [];
+
+      // Generate briefing with live web data
+      const briefingText = await generateBriefing(pref.user_id, pref.display_name, timeOfDay, interests);
 
       // Truncate for notification body (Web Push limit)
       const notifBody = briefingText.slice(0, 180) + (briefingText.length > 180 ? '...' : '');

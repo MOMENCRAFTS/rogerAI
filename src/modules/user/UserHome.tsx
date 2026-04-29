@@ -66,7 +66,7 @@ import type { DigestResult } from '../../lib/conversationDigester';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
-type PTTState = 'idle' | 'recording' | 'transcribing' | 'processing' | 'speaking' | 'responded' | 'awaiting_answer';
+type PTTState = 'idle' | 'recording' | 'transcribing' | 'processing' | 'speaking' | 'searching' | 'responded' | 'awaiting_answer';
 
 // ── Badge celebration ────────────────────────────────────────────────────────
 interface BadgeCelebration {
@@ -114,7 +114,7 @@ interface PendingAction {
   execute: () => void;    // the actual DB write
 }
 
-interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; isKnowledge?: boolean; subtopics?: { label: string; emoji: string }[]; deepDiveDepth?: number; translationSource?: string; translationTarget?: string; translationTargetLang?: string; translationRomanized?: string; }
+interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; isKnowledge?: boolean; subtopics?: { label: string; emoji: string }[]; deepDiveDepth?: number; translationSource?: string; translationTarget?: string; translationTargetLang?: string; translationRomanized?: string; searching?: boolean; webSearchUsed?: boolean; }
 
 type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'settings';
 
@@ -1110,11 +1110,18 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         // ── Confirmation gate for reminders ────────────────────────────────
         const locEntity = result.entities?.find(e => e.type === 'LOCATION' || e.type === 'PLACE');
         const timeEntity = result.entities?.find(e => e.type === 'TIME' || e.type === 'DATE' || e.type === 'MEETING_TIME');
-        const confirmLabel = `Set reminder: "${transcript.slice(0, 60)}"${timeEntity ? ` at ${timeEntity.text}` : ''}${locEntity ? ` near ${locEntity.text}` : ''}. Confirm? Over.`;
+        const recurrenceEntity = result.entities?.find(e => e.type === 'RECURRENCE');
+        const recurrenceTimeEntity = result.entities?.find(e => e.type === 'RECURRENCE_TIME');
+        const recurrenceDaysEntity = result.entities?.find(e => e.type === 'RECURRENCE_DAYS');
+        const recurrencePart = recurrenceEntity ? ` (${recurrenceEntity.text}${recurrenceTimeEntity ? ` at ${recurrenceTimeEntity.text}` : ''})` : '';
+        const confirmLabel = `Set reminder: "${transcript.slice(0, 60)}"${timeEntity ? ` at ${timeEntity.text}` : ''}${locEntity ? ` near ${locEntity.text}` : ''}${recurrencePart}. Confirm? Over.`;
         setPendingAction({
           type: 'reminder',
           label: confirmLabel,
           execute: () => {
+            const recRule = recurrenceEntity?.text as 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom' | undefined;
+            const recTime = recurrenceTimeEntity?.text ?? null;
+            const recDays = recurrenceDaysEntity ? recurrenceDaysEntity.text.split(',').map(Number).filter(n => n >= 1 && n <= 7) : null;
             insertReminder({
               user_id: userId, text: transcript, entities: result.entities ?? null,
               due_at: null, status: 'pending', source_tx_id: null, is_admin_test: isTest,
@@ -1123,6 +1130,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               due_location_lng: null,
               due_radius_m:     300,
               geo_triggered:    false,
+              recurrence_rule:  recRule ?? null,
+              recurrence_time:  recTime,
+              recurrence_days:  recDays,
             }).then(() => window.dispatchEvent(new CustomEvent('roger:refresh'))).catch(() => {});
             if (locEntity) {
               geocodePlace(locEntity.text, location?.latitude, location?.longitude).then(coords => {
@@ -1763,6 +1773,45 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }).catch(() => {});
       }
 
+      // ── QUERY_GOLD — live gold price in SAR ──────────────────────────────────
+      const isGoldQuery = result.intent === 'QUERY_GOLD' ||
+        result.intent === 'QUERY_COMMODITY' ||
+        (result.intent === 'QUERY_STOCK' && result.entities?.some(e =>
+          /gold|ذهب|xau|خام/i.test(e.text)
+        ));
+
+      if (isGoldQuery) {
+        try {
+          // 1. Try cached market data first (morning briefing may have already fetched it)
+          const { getCachedMarketData, cacheAgeMinutes, fetchMarketData } = await import('../../lib/marketData');
+          const { getAuthToken } = await import('../../lib/getAuthToken');
+          const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+          let gold = getCachedMarketData()?.gold;
+
+          // 2. Cache too old or missing — fetch live via web search
+          if (!gold || cacheAgeMinutes() > 60) {
+            const token = await getAuthToken().catch(() => SUPABASE_ANON_KEY);
+            const data = await fetchMarketData(['gold'], undefined, undefined, token);
+            gold = data.gold;
+          }
+
+          if (gold) {
+            const msg = `Gold prices in Saudi Riyal per gram: 24 karat ${gold.karat24} SAR, 22 karat ${gold.karat22} SAR, 18 karat ${gold.karat18} SAR. Over.`;
+            setMessages(prev => [...prev, {
+              id: `gold-${Date.now()}`, role: 'roger' as const,
+              text: `🥇 Gold · 24K ${gold!.karat24} SAR/g · 22K ${gold!.karat22} SAR/g`,
+              ts: Date.now(), intent: result.intent, outcome: 'success',
+            }]);
+            speakResponse(msg).catch(() => { console.warn('[TTS] gold speak failed'); });
+          } else {
+            speakResponse(result.roger_response).catch(() => {});
+          }
+        } catch {
+          speakResponse(result.roger_response).catch(() => {});
+        }
+        // Gold handled — don't fall through to QUERY_STOCK
+      } else {
+
       // ── QUERY_STOCK — live stock quote ──────────────────────────────────────
       if (result.intent === 'QUERY_STOCK' || result.intent === 'MARKET_BRIEF') {
         const tickerEnt = result.entities?.find(e => e.type === 'STOCK_TICKER');
@@ -1790,6 +1839,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }).catch(() => {});
         }
       }
+
+      } // end else (not gold query)
 
       // ── QUERY_FLIGHT — live flight status ────────────────────────────────────
       if (result.intent === 'QUERY_FLIGHT') {
@@ -2311,6 +2362,103 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       setIsSpeaking(false);
       sfxRogerOut();
 
+      // ── Phase 2: Auto Web Search (fires AFTER Phase 1 is spoken) ───────────
+      // If GPT flagged this query as needing live data, fire a background web-search
+      // and deliver the result as a second Roger transmission — no timeouts, no blocking.
+      const WEB_SEARCH_EXCLUDED = new Set([
+        'QUERY_NEWS', 'BRIEFING_NEWS', 'NEWS_BRIEF', 'BRIEFING_REQUEST',
+        'QUERY_GOLD', 'QUERY_COMMODITY',
+        'QUERY_STOCK', 'MARKET_BRIEF', 'TRACK_PORTFOLIO',
+        'QUERY_FLIGHT', 'COMMUTE_QUERY', 'QUERY_WEATHER',
+      ]);
+
+      if (
+        result.needs_web_search === true &&
+        result.web_search_query &&
+        !WEB_SEARCH_EXCLUDED.has(result.intent ?? '')
+      ) {
+        const searchId = `ws-${Date.now()}`;
+        const SUPABASE_URL_WS = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY_WS = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+        // Show searching bubble immediately
+        setPttState('searching');
+        setMessages(prev => [...prev, {
+          id: searchId, role: 'roger',
+          text: '🔍 Searching live data...',
+          ts: Date.now(), intent: result.intent, searching: true,
+        }]);
+
+        // Fire web-search in background
+        (async () => {
+          try {
+            const { getAuthToken } = await import('../../lib/getAuthToken');
+            const token = await getAuthToken().catch(() => SUPABASE_ANON_KEY_WS);
+
+            const wsController = new AbortController();
+            const wsTimer = setTimeout(() => wsController.abort(), 45_000);
+
+            const systemPrompt = [
+              'You are Roger — a trusted voice assistant delivering a spoken answer.',
+              'Search the web for the latest information on the query.',
+              'Answer in 2-4 natural spoken sentences like a knowledgeable aide.',
+              'Include specific numbers, dates, or facts. No markdown. No headers.',
+              'End with "Over." — this is a radio-style PTT response.',
+              locationContext ? `User location context: ${locationContext}` : '',
+            ].filter(Boolean).join(' ');
+
+            let wsRes: Response;
+            try {
+              wsRes = await fetch(`${SUPABASE_URL_WS}/functions/v1/process-transmission`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                signal: wsController.signal,
+                body: JSON.stringify({
+                  _web_search: true,
+                  system: systemPrompt,
+                  user: result.web_search_query,
+                }),
+              });
+            } finally {
+              clearTimeout(wsTimer);
+            }
+
+            if (!wsRes.ok) throw new Error(`web-search ${wsRes.status}`);
+            const wsData = await wsRes.json() as { roger_response?: string };
+            const liveText = wsData.roger_response?.trim();
+
+            if (liveText) {
+              // Replace the searching bubble with live result
+              setMessages(prev => prev.map(m =>
+                m.id === searchId
+                  ? { ...m, text: liveText, searching: false, webSearchUsed: true }
+                  : m
+              ));
+
+              // Speak the live result as second transmission
+              hapticRogerSpeaking();
+              sfxRogerIn();
+              setPttState('speaking'); setIsSpeaking(true);
+              try { await speakResponse(liveText); }
+              catch { window.speechSynthesis.speak(new SpeechSynthesisUtterance(liveText)); }
+              setIsSpeaking(false);
+              sfxRogerOut();
+            } else {
+              // No result — remove the searching bubble silently
+              setMessages(prev => prev.filter(m => m.id !== searchId));
+            }
+          } catch {
+            // Web search failed — remove searching bubble, Phase 1 answer stands
+            setMessages(prev => prev.filter(m => m.id !== searchId));
+          } finally {
+            setPttState('responded');
+          }
+        })();
+
+        // Don't fall through to the normal outcome handling — searching handles its own state
+        return;
+      }
+
       if (result.outcome === 'clarification') {
         setPttState('awaiting_answer');
         // Store the question Roger asked for the overlay
@@ -2370,6 +2518,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     } catch (e) {
       hapticError();
       sfxError();
+      console.error('[PTT] handlePTTUp error:', e instanceof Error ? e.message : String(e), e);
       const m = e instanceof Error && e.message === 'AI_TIMEOUT'
         ? 'Roger lost signal — transmission timed out. Hold and try again. Over.'
         : e instanceof Error && e.message.includes('abort') ? 'Signal timeout. Retry. Over.' : 'AI offline. Retry. Over.';
@@ -2936,6 +3085,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                       is_admin_test: false, due_location: null,
                       due_location_lat: null, due_location_lng: null,
                       due_radius_m: 300, geo_triggered: false,
+                      recurrence_rule: null, recurrence_time: null, recurrence_days: null,
                     });
                   }
                   return insertTaskWithDedup({
@@ -3187,20 +3337,50 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             <div style={{
               maxWidth: '88%',
               padding: '10px 14px',
-              background: msg.role === 'user'
+              background: msg.searching
+                ? 'rgba(59,130,246,0.06)'
+                : msg.role === 'user'
                 ? 'rgba(212,160,68,0.08)'
                 : msg.outcome === 'clarification'
                   ? 'rgba(212,160,68,0.05)'
                   : 'rgba(255,255,255,0.04)',
-              borderLeft: msg.role === 'roger' ? `3px solid ${intentColor(msg.intent)}` : 'none',
+              borderLeft: msg.role === 'roger' ? `3px solid ${msg.searching ? '#3b82f6' : intentColor(msg.intent)}` : 'none',
               borderRight: msg.role === 'user' ? '3px solid rgba(212,160,68,0.5)' : 'none',
               border: `1px solid ${
-                msg.role === 'user' ? 'rgba(212,160,68,0.18)'
+                msg.searching ? 'rgba(59,130,246,0.25)'
+                : msg.role === 'user' ? 'rgba(212,160,68,0.18)'
                 : msg.outcome === 'clarification' ? 'rgba(212,160,68,0.2)'
                 : 'rgba(255,255,255,0.08)'
               }`,
+              animation: msg.searching ? 'pulse 1.5s ease-in-out infinite' : undefined,
             }}>
-              <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+              {msg.searching ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12 }}>🔍</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#60a5fa', letterSpacing: '0.08em' }}>
+                    Searching live data...
+                  </span>
+                  <span style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
+                    {[0,1,2].map(i => (
+                      <span key={i} style={{
+                        width: 4, height: 4, borderRadius: '50%', background: '#3b82f6',
+                        display: 'inline-block',
+                        animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+                      }} />
+                    ))}
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+                  {msg.webSearchUsed && (
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 9 }}>🌐</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'rgba(96,165,250,0.6)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Live data</span>
+                    </div>
+                  )}
+                </>
+              )}
               {/* ── Translation Dual-Line Bubble ── */}
               {msg.translationTarget && (
                 <div style={{

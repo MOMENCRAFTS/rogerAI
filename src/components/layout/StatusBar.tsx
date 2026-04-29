@@ -62,7 +62,7 @@ export default function StatusBar({ onMenuToggle, menuOpen }: StatusBarProps) {
 
   return (
     <header
-      style={{ background: 'var(--bg-recessed)', borderBottom: '1px solid var(--border-subtle)' }}
+      style={{ background: 'var(--bg-recessed)', borderBottom: '1px solid var(--border-subtle)', paddingTop: 'env(safe-area-inset-top, 0px)' }}
       className="flex items-center justify-between px-4 py-3 shrink-0 z-50"
     >
       {/* ── Left ── */}

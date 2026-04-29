@@ -312,7 +312,7 @@ QUERY_GOLD
            "24 karat gold", "22 karat", "gold per gram"
   Response: "Fetching live gold prices in Saudi Riyal. One moment. Over."
   outcome: always "success"
-  NOTE: The client intercepts this and fetches live SAR/gram prices (24K, 22K, 18K) via web search.
+  NOTE: The intent registry handles this — fetches live SAR/gram prices (24K, 22K, 18K) via the market data cache.
 
 QUERY_COMMODITY
   Trigger: "oil price", "silver price", "platinum", "crude oil", "barrel price",
@@ -320,6 +320,7 @@ QUERY_COMMODITY
   Extract: COMMODITY entity — the commodity name (e.g. "gold", "silver", "oil", "crude")
   Response: "Looking up [commodity] prices now. Over."
   outcome: always "success"
+  NOTE: The intent registry handles this via the market data web-search path.
 
 MARKET_BRIEF
   Trigger: "market brief", "how's the market", "market update", "what's the market doing",
@@ -909,6 +910,24 @@ export async function processTransmission(
   const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
   const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
+  // Fetch the live user JWT. Use getSession() directly to avoid a throw on missing
+  // session — fall back to anon key only as last resort (server will log the warning).
+  let authToken: string;
+  try {
+    const { supabase } = await import('./supabase');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      authToken = session.access_token;
+    } else {
+      // Session missing — try a forced refresh before giving up
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      authToken = refreshed.session?.access_token ?? SUPABASE_ANON_KEY;
+    }
+  } catch {
+    authToken = SUPABASE_ANON_KEY;
+  }
+
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120000); // edge fn needs extra time
 
@@ -918,7 +937,7 @@ export async function processTransmission(
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${authToken}`,
       },
       body: JSON.stringify({
         transcript,
@@ -1053,10 +1072,18 @@ export async function extractMemoryFacts(
   try {
     const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
     const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+    let authToken: string;
+    try {
+      const { supabase } = await import('./supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      authToken = session?.access_token ?? SUPABASE_ANON_KEY;
+    } catch {
+      authToken = SUPABASE_ANON_KEY;
+    }
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/extract-memory-facts`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
       body: JSON.stringify({ transcript, rogerResponse }),
     });
 

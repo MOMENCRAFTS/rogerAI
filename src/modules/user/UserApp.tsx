@@ -23,6 +23,7 @@ import SubscriptionView  from './SubscriptionView';
 import SalahView        from './SalahView';
 import SmartHomeView    from './SmartHomeView';
 import AcademyView      from './AcademyView';
+import MarketDashboard  from './MarketDashboard';
 import PermissionGate from '../../components/PermissionGate';
 import LegalDisclaimer, { hasAcceptedLegal } from '../../components/LegalDisclaimer';
 import { fetchOnboardingState, flushOnboarding, flushAllMemory, flushEverything, fetchUserPreferences, fetchReminders, fetchTasks, hasOrientationBeenSeen, markOrientationSeen } from '../../lib/api';
@@ -33,7 +34,7 @@ import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
 import { hasGrantedPermissions, markPermissionsGranted } from '../../lib/audioPermission';
 import { syncWidgetConfig } from '../../lib/widgetBridge';
 
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'market' | 'settings';
 type FlushOp = 'onboarding' | 'memory' | 'all' | null;
 
 interface UserAppProps {
@@ -239,7 +240,6 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%',
       overflow: 'hidden', position: 'relative',
-      paddingTop: 'env(safe-area-inset-top, 56px)',
     }}>
 
       {/* ── Confirm dialog ── */}
@@ -358,6 +358,11 @@ export default function UserApp({ userId, userEmail }: UserAppProps) {
         {mountedTabs.has('academy') && (
           <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'academy' ? 'block' : 'none' }}>
             <AcademyView userId={userId} />
+          </div>
+        )}
+        {mountedTabs.has('market') && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: tab === 'market' ? 'block' : 'none' }}>
+            <MarketDashboard userId={userId} location={location} />
           </div>
         )}
         {mountedTabs.has('settings') && (

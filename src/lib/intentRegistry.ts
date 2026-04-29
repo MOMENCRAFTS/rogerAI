@@ -255,18 +255,28 @@ function registerCoreHandlers(r: IntentRegistryImpl): void {
     confirmationLabel: (result, transcript) => {
       const loc = result.entities?.find(e => e.type === 'LOCATION' || e.type === 'PLACE');
       const time = result.entities?.find(e => e.type === 'TIME' || e.type === 'DATE' || e.type === 'MEETING_TIME');
-      return `Set reminder: "${transcript.slice(0, 60)}"${time ? ` at ${time.text}` : ''}${loc ? ` near ${loc.text}` : ''}. Confirm? Over.`;
+      const recurrence = result.entities?.find(e => e.type === 'RECURRENCE');
+      const recurrenceTime = result.entities?.find(e => e.type === 'RECURRENCE_TIME');
+      const recurrencePart = recurrence ? ` (${recurrence.text}${recurrenceTime ? ` at ${recurrenceTime.text}` : ''})` : '';
+      return `Set reminder: "${transcript.slice(0, 60)}"${time ? ` at ${time.text}` : ''}${loc ? ` near ${loc.text}` : ''}${recurrencePart}. Confirm? Over.`;
     },
     async execute(ctx) {
       const { insertReminder } = await import('./api');
       const { geocodePlace } = await import('./geoFence');
       const { supabase } = await import('./supabase');
       const loc = ctx.entity('LOCATION') ?? ctx.entity('PLACE');
+      const recurrenceRule = ctx.entity('RECURRENCE') as 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom' | undefined;
+      const recurrenceTime = ctx.entity('RECURRENCE_TIME') ?? null;
+      const recurrenceDaysRaw = ctx.entity('RECURRENCE_DAYS');
+      const recurrenceDays = recurrenceDaysRaw ? recurrenceDaysRaw.split(',').map(Number).filter(n => n >= 1 && n <= 7) : null;
       await insertReminder({
         user_id: ctx.userId, text: ctx.transcript, entities: ctx.result.entities ?? null,
         due_at: null, status: 'pending', source_tx_id: null, is_admin_test: ctx.isTest,
         due_location: loc ?? null, due_location_lat: null, due_location_lng: null,
         due_radius_m: 300, geo_triggered: false,
+        recurrence_rule: recurrenceRule ?? null,
+        recurrence_time: recurrenceTime,
+        recurrence_days: recurrenceDays,
       });
       window.dispatchEvent(new CustomEvent('roger:refresh'));
       if (loc && ctx.location) {
@@ -417,7 +427,98 @@ function registerCoreHandlers(r: IntentRegistryImpl): void {
     },
   });
 
-  // ── QUERY_FLIGHT ────────────────────────────────────────────────────────
+  // ── QUERY_GOLD / QUERY_COMMODITY ───────────────────────────────────────────────
+  r.register({
+    intent: ['QUERY_GOLD', 'QUERY_COMMODITY'],
+    requiredServices: ['openai'],
+    async execute(ctx) {
+      const {
+        fetchMarketData, getCachedMarketData, cacheAgeMinutes,
+      } = await import('./marketData');
+      const { supabase: sb } = await import('./supabase');
+
+      // Re-use 30-min cache to avoid a GPT web-search call if data is fresh
+      const cached = getCachedMarketData();
+      let mktData = (cached && cacheAgeMinutes() < 30) ? cached : null;
+
+      if (!mktData) {
+        const { data: { session } } = await sb.auth.getSession();
+        const token = session?.access_token ?? SUPABASE_ANON_KEY;
+        mktData = await fetchMarketData(
+          ['gold price in SAR per gram (24K, 22K, 18K)', 'Bitcoin, Ethereum prices'],
+          ctx.location?.latitude,
+          ctx.location?.longitude,
+          token,
+        );
+      }
+
+      if (ctx.result.intent === 'QUERY_GOLD' && mktData?.gold) {
+        const g = mktData.gold;
+        ctx.addMessage({
+          id: `gold-${Date.now()}`,
+          role: 'roger',
+          text: `🥇 Gold · 24K: ${g.karat24} ${g.currency} · 22K: ${g.karat22} · 18K: ${g.karat18}`,
+          ts: Date.now(),
+          intent: ctx.result.intent,
+          outcome: 'success',
+        });
+        await ctx.speak(
+          `Gold is currently at ${g.karat24} ${g.currency} per gram for 24 karat, ` +
+          `${g.karat22} for 22 karat, and ${g.karat18} for 18 karat. Over.`
+        );
+      } else {
+        // Commodity fallback — use GPT response from the intent classification
+        await ctx.speak(
+          ctx.result.roger_response || 'Live commodity data is not available right now. Try again in a moment. Over.'
+        );
+      }
+    },
+    async fallback(ctx) {
+      await ctx.speak('Market data service is not available right now. Over.');
+    },
+  });
+
+  // ── TRACK_PORTFOLIO ───────────────────────────────────────────────────
+  r.register({
+    intent: 'TRACK_PORTFOLIO',
+    requiredServices: ['finnhub'],
+    async execute(ctx) {
+      const ticker = ctx.entity('STOCK_TICKER');
+      if (!ticker) {
+        await ctx.speak('Could not identify the stock ticker. Try saying the company name clearly. Over.');
+        return;
+      }
+
+      // Persist to user_preferences.finnhub_tickers
+      const { fetchUserPreferences, upsertUserPreferences } = await import('./api');
+
+      const prefs = await fetchUserPreferences(ctx.userId).catch(() => null);
+      const existing: string[] = (prefs as Record<string, unknown>)?.finnhub_tickers as string[] ?? [];
+
+      if (existing.includes(ticker)) {
+        await ctx.speak(`${ticker} is already on your watchlist. Over.`);
+        return;
+      }
+
+      const updated = [...existing, ticker];
+      await upsertUserPreferences(ctx.userId, { finnhub_tickers: updated } as Parameters<typeof upsertUserPreferences>[1]);
+
+      ctx.addMessage({
+        id: `watchlist-${Date.now()}`,
+        role: 'roger',
+        text: `📈 Watching ${ticker} — added to your portfolio tracker`,
+        ts: Date.now(),
+        intent: ctx.result.intent,
+        outcome: 'success',
+      });
+      await ctx.speak(`${ticker} added to your watchlist. I'll surface notable moves during your briefing. Over.`);
+    },
+    async fallback(ctx) {
+      await ctx.speak('Finnhub service is not available. Check your API key. Over.');
+    },
+  });
+
+  // ── QUERY_FLIGHT ────────────────────────────────────────────────────────────
   r.register({
     intent: 'QUERY_FLIGHT',
     requiredServices: ['aviationstack'],
@@ -1141,6 +1242,7 @@ function registerRemainingHandlers(r: IntentRegistryImpl): void {
           due_at: null, status: 'pending', source_tx_id: null, is_admin_test: ctx.isTest,
           due_location: ctx.entity('LOCATION') ?? null, due_location_lat: null, due_location_lng: null,
           due_radius_m: 300, geo_triggered: false,
+          recurrence_rule: null, recurrence_time: null, recurrence_days: null,
         });
         await ctx.speak('Errand added. Over.');
       } else {

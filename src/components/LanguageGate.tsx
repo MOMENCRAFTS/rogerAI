@@ -267,7 +267,15 @@ export default function LanguageGate({ onLocaleSelected }: Props) {
     try {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SR) { setHint('Voice not supported — tap below'); setPtt(false); return; }
-      const r = new SR(); r.lang = 'en-US'; r.interimResults = false; r.maxAlternatives = 3;
+      const r = new SR(); r.interimResults = false; r.maxAlternatives = 3;
+      // Node 1: always en-US — user hasn't selected a language yet.
+      // Nodes 2 & 3: use the language they chose so STT correctly handles
+      // Arabic, French, or Spanish input without misrecognition.
+      r.lang = step === 'node1' ? 'en-US'
+             : base === 'ar'   ? 'ar-SA'
+             : base === 'fr'   ? 'fr-FR'
+             : base === 'es'   ? 'es-ES'
+             : 'en-US';
       recRef.current = r;
       r.onresult = (e: any) => {
         const tx = e.results[0][0].transcript;

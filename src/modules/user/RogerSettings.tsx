@@ -519,6 +519,131 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </div>
       )}
 
+      {/* ── Briefing Interests ── */}
+      <div style={{ marginBottom: 28 }}>
+        <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>Briefing Interests</p>
+        <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '0 0 12px', opacity: 0.6 }}>
+          Roger searches the web for live data on each interest during your briefing.
+        </p>
+
+        {/* Current interests as tag chips */}
+        {((prefs as Record<string, unknown>).briefing_interests as string[] | null)?.length ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+            {((prefs as Record<string, unknown>).briefing_interests as string[]).map((interest, idx) => (
+              <span key={idx} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '5px 10px', fontFamily: 'monospace', fontSize: 10,
+                background: 'rgba(212,160,68,0.08)', border: '1px solid rgba(212,160,68,0.25)',
+                color: 'var(--amber)',
+              }}>
+                {interest}
+                <button
+                  onClick={() => {
+                    const current = ((prefs as Record<string, unknown>).briefing_interests as string[]) ?? [];
+                    const next = current.filter((_: string, i: number) => i !== idx);
+                    const updated = { ...prefs, briefing_interests: next } as typeof prefs;
+                    setPrefs(updated);
+                    upsertUserPreferences(userId, { briefing_interests: next } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                  }}
+                  style={{
+                    background: 'none', border: 'none', color: 'rgba(212,160,68,0.5)',
+                    cursor: 'pointer', padding: 0, fontSize: 13, lineHeight: 1,
+                  }}
+                  title="Remove"
+                >×</button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 12px', opacity: 0.5 }}>
+            No interests set — add topics Roger should search for in your briefing.
+          </p>
+        )}
+
+        {/* Add new interest */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <input
+            id="briefing-interest-input"
+            type="text"
+            placeholder="e.g. Gold price in SAR per gram"
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const input = e.currentTarget;
+                const val = input.value.trim();
+                if (!val) return;
+                const current = ((prefs as Record<string, unknown>).briefing_interests as string[]) ?? [];
+                if (current.includes(val)) return;
+                const next = [...current, val];
+                const updated = { ...prefs, briefing_interests: next } as typeof prefs;
+                setPrefs(updated);
+                upsertUserPreferences(userId, { briefing_interests: next } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                input.value = '';
+              }
+            }}
+            style={{
+              flex: 1, padding: '8px 10px', fontFamily: 'monospace', fontSize: 11,
+              background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)',
+              color: 'var(--text-primary)', outline: 'none',
+            }}
+          />
+          <button
+            onClick={() => {
+              const input = document.getElementById('briefing-interest-input') as HTMLInputElement;
+              const val = input?.value?.trim();
+              if (!val) return;
+              const current = ((prefs as Record<string, unknown>).briefing_interests as string[]) ?? [];
+              if (current.includes(val)) return;
+              const next = [...current, val];
+              const updated = { ...prefs, briefing_interests: next } as typeof prefs;
+              setPrefs(updated);
+              upsertUserPreferences(userId, { briefing_interests: next } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+              input.value = '';
+            }}
+            style={{
+              padding: '8px 14px', fontFamily: 'monospace', fontSize: 10,
+              textTransform: 'uppercase', letterSpacing: '0.1em',
+              background: 'rgba(212,160,68,0.1)', border: '1px solid rgba(212,160,68,0.3)',
+              color: 'var(--amber)', cursor: 'pointer',
+            }}
+          >Add</button>
+        </div>
+
+        {/* Preset suggestions */}
+        {!((prefs as Record<string, unknown>).briefing_interests as string[] | null)?.length && (
+          <div>
+            <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Quick add:</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {[
+                'Gold price in SAR per gram (24K, 22K, 18K)',
+                'Bitcoin, Ethereum, Solana prices',
+                'Riyadh weather and temperature',
+                'Riyadh traffic conditions',
+              ].map(preset => (
+                <button
+                  key={preset}
+                  onClick={() => {
+                    const current = ((prefs as Record<string, unknown>).briefing_interests as string[]) ?? [];
+                    if (current.includes(preset)) return;
+                    const next = [...current, preset];
+                    const updated = { ...prefs, briefing_interests: next } as typeof prefs;
+                    setPrefs(updated);
+                    upsertUserPreferences(userId, { briefing_interests: next } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
+                  }}
+                  style={{
+                    padding: '4px 10px', fontFamily: 'monospace', fontSize: 9,
+                    background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)',
+                    color: 'rgba(99,102,241,0.8)', cursor: 'pointer',
+                    transition: 'background 150ms',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.12)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.06)')}
+                >+ {preset}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── Talkative Mode ── */}
       <div style={{ marginBottom: 28 }}>
         <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Talkative Mode</p>

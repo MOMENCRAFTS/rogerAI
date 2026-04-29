@@ -54,7 +54,7 @@ export function getLocaleName(locale: Locale): string {
   return names[locale];
 }
 
-// ── Persistence ─────────────────────────────────────────────────────────────
+// ── Persistence ────────────────────────────────────────────────────────────────────────
 
 export function getSavedLocale(): Locale | null {
   try {
@@ -62,6 +62,29 @@ export function getSavedLocale(): Locale | null {
     if (val && ALL_LOCALES.includes(val as Locale)) return val as Locale;
   } catch { /* SSR / restricted storage */ }
   return null;
+}
+
+/**
+ * getLockedLocale() — THE single authoritative source for the user's locale.
+ * Always reads directly from localStorage so it is accurate at any point in
+ * the app lifecycle, even before the React I18nProvider effect has fired.
+ * Falls back to null (no locale selected yet — LanguageGate should show).
+ *
+ * Use this instead of getCurrentLocale() in any code path that must not
+ * guess or use a module-level default.
+ */
+export function getLockedLocale(): Locale | null {
+  try {
+    const val = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (val && ALL_LOCALES.includes(val as Locale)) return val as Locale;
+  } catch { /* SSR / restricted storage */ }
+  return null;
+}
+
+/** Convenience: returns the base language of the locked locale, or 'en' fallback. */
+export function getLockedBaseLanguage(): BaseLanguage {
+  const locale = getLockedLocale();
+  return locale ? (locale.split('-')[0] as BaseLanguage) : 'en';
 }
 
 export function saveLocale(locale: Locale): void {
@@ -81,7 +104,14 @@ export function clearLocale(): void {
 export type TranslationDict = Record<string, string>;
 
 let _currentDict: TranslationDict = {};
-let _currentLocale: Locale = 'en-us';
+// Eagerly seed from localStorage so getCurrentLocale() is never stale before I18nProvider fires
+let _currentLocale: Locale = (() => {
+  try {
+    const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (saved && ALL_LOCALES.includes(saved as Locale)) return saved as Locale;
+  } catch { /* SSR */ }
+  return 'en-us';
+})();
 
 // Lazy-load dictionaries to avoid bundling all languages upfront
 const DICT_LOADERS: Record<BaseLanguage, () => Promise<{ default: TranslationDict }>> = {
