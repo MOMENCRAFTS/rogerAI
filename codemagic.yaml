@@ -121,19 +121,28 @@ workflows:
 
           # Revoke ALL existing Distribution certificates so we can create
           # a fresh one that matches our newly generated private key.
+          # (Apple limits active Distribution certs to 2)
           echo "=== Revoking old Distribution certificates ==="
           app-store-connect certificates list \
-            --type DISTRIBUTION \
-            --state ISSUED \
-            --save 2>/dev/null || true
-
-          app-store-connect certificates list --type DISTRIBUTION 2>/dev/null | \
-            awk '/serial:/ {print $2}' | while read SERIAL; do
-              echo "Revoking cert serial: $SERIAL"
-              app-store-connect certificates revoke "$SERIAL" 2>/dev/null || \
-                echo "  (Could not revoke $SERIAL)"
+            --type IOS_DISTRIBUTION \
+            --state ISSUED 2>/dev/null | \
+            grep -oE '[A-Z0-9]{10,20}' | sort -u | while read CID; do
+              echo "Revoking certificate: $CID"
+              app-store-connect certificates revoke "$CID" 2>/dev/null || \
+                echo "  (Could not revoke $CID — may be in use)"
             done || echo "No certificates to revoke"
 
+          # Also try DISTRIBUTION type (covers both old and new API types)
+          app-store-connect certificates list \
+            --type DISTRIBUTION \
+            --state ISSUED 2>/dev/null | \
+            grep -oE '[A-Z0-9]{10,20}' | sort -u | while read CID; do
+              echo "Revoking certificate: $CID"
+              app-store-connect certificates revoke "$CID" 2>/dev/null || \
+                echo "  (Could not revoke $CID — may be in use)"
+            done || echo "No DISTRIBUTION certificates to revoke"
+
+          echo "=== Fetching/creating signing files ==="
           # Fetch or CREATE distribution cert + provisioning profile
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
