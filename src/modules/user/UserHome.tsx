@@ -183,6 +183,38 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [meetingTitle, setMeetingTitle]             = useState('');
   const meetingRecorderRef = useRef<ReturnType<typeof createMeetingRecorder> | null>(null);
 
+  // ── Startup: detect interrupted meeting sessions and alert Roger ──────────
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      try {
+        const { supabase: sb } = await import('../../lib/supabase');
+        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+        const { data } = await sb
+          .from('meeting_recordings')
+          .select('id, title, chunk_count, started_at')
+          .eq('user_id', userId)
+          .eq('status', 'in_progress')
+          .lt('started_at', twoMinutesAgo) // only sessions that are clearly crashed
+          .order('started_at', { ascending: false })
+          .limit(1);
+        if (data && data.length > 0) {
+          const interrupted = data[0] as { id: string; title: string | null; chunk_count: number };
+          const chunkInfo = interrupted.chunk_count > 0
+            ? `I saved ${interrupted.chunk_count} chunk${interrupted.chunk_count !== 1 ? 's' : ''} of transcript to your Meeting Archive.`
+            : 'Unfortunately no transcript was captured before the crash.';
+          const alertMsg = `Heads up — your last meeting session "${interrupted.title || 'Meeting'}" was interrupted. ${chunkInfo} Check your Meeting Archive. Over.`;
+          // Slight delay so app UI is ready before Roger speaks
+          setTimeout(() => {
+            speakResponse(alertMsg).catch(() => {
+              window.speechSynthesis.speak(new SpeechSynthesisUtterance(alertMsg));
+            });
+          }, 3000);
+        }
+      } catch { /* silent — crash detection is best-effort */ }
+    })();
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Use prop location if provided (lifted from UserApp), fall back to own hook for standalone use
   const { location: hookLocation, locationLabel: hookLabel } = useLocation(userId);
   const location = locationProp !== undefined ? locationProp : hookLocation;
@@ -2253,7 +2285,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                   ts: Date.now(), intent: 'END_MEETING', outcome: 'success',
                 }]);
               },
-              onError: (err) => console.warn('[Meeting]', err),
+              onError: (err) => {
+                const errMsg = `Meeting recording error: ${err.replace('Chunk', 'Chunk').slice(0, 60)}. Over.`;
+                speakResponse(errMsg).catch(() => { console.warn('[Meeting onError]', err); });
+              },
             },
           );
 

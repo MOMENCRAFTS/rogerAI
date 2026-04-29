@@ -45,10 +45,12 @@ function formatDate(iso: string) {
 
 export default function MeetingRecorderView({ userId }: Props) {
   const { t: _t } = useI18n();
-  const [meetings, setMeetings]     = useState<MeetingRecord[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [expanded, setExpanded]     = useState<string | null>(null);
-  const [showTx, setShowTx]         = useState<string | null>(null);
+  const [meetings, setMeetings]         = useState<MeetingRecord[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [expanded, setExpanded]         = useState<string | null>(null);
+  const [showTx, setShowTx]             = useState<string | null>(null);
+  // Track dismissed crash-recovery banners so user can close them
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
 
   const load = async () => {
     setLoading(true);
@@ -108,25 +110,57 @@ export default function MeetingRecorderView({ userId }: Props) {
       )}
 
       {meetings.map(m => {
-        const isExpanded = expanded === m.id;
-        const actionItems: ActionItem[]  = Array.isArray(m.action_items)  ? m.action_items  : [];
-        const decisions:   Decision[]    = Array.isArray(m.decisions)     ? m.decisions     : [];
+        const isExpanded  = expanded === m.id;
+        const isInterrupted = m.status === 'in_progress' && !dismissedAlerts.has(m.id);
+        const actionItems: ActionItem[]   = Array.isArray(m.action_items)  ? m.action_items  : [];
+        const decisions:   Decision[]     = Array.isArray(m.decisions)     ? m.decisions     : [];
         const participants: Participant[] = Array.isArray(m.participants)  ? m.participants  : [];
 
         return (
           <div key={m.id} style={{
-            background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+            background: 'var(--bg-elevated)',
+            border: isInterrupted ? '1px solid rgba(239,120,68,0.5)' : '1px solid var(--border-subtle)',
             borderRadius: 6, marginBottom: 12, overflow: 'hidden',
             boxShadow: isExpanded ? '0 0 0 1px rgba(212,160,68,0.2)' : 'none',
             transition: 'box-shadow 150ms',
           }}>
+
+            {/* ⚠ Crash recovery banner */}
+            {isInterrupted && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 14px',
+                background: 'rgba(239,120,68,0.10)',
+                borderBottom: '1px solid rgba(239,120,68,0.25)',
+              }}>
+                <span style={{ fontSize: 13 }}>⚠️</span>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.15em', color: '#f97316' }}>
+                    Session interrupted
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginLeft: 8 }}>
+                    {m.chunk_count > 0
+                      ? `${m.chunk_count} chunk${m.chunk_count !== 1 ? 's' : ''} of transcript recovered`
+                      : 'No transcript recovered — session crashed before first chunk'}
+                  </span>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDismissedAlerts(prev => new Set([...prev, m.id])); }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '2px 4px', lineHeight: 1 }}
+                  title="Dismiss alert"
+                >✕</button>
+              </div>
+            )}
             {/* Row header */}
             <div
               onClick={() => setExpanded(isExpanded ? null : m.id)}
               style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 3 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {m.status === 'in_progress' && (
+                    <span style={{ fontSize: 9, padding: '1px 5px', background: 'rgba(239,120,68,0.15)', border: '1px solid rgba(239,120,68,0.4)', color: '#f97316', borderRadius: 3, letterSpacing: '0.1em', fontFamily: 'monospace' }}>INTERRUPTED</span>
+                  )}
                   {m.title || 'Untitled Meeting'}
                 </div>
                 <div style={{ fontSize: 9, color: 'var(--text-muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>

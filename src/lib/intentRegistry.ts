@@ -167,8 +167,8 @@ class IntentRegistryImpl {
       if (handler.fallback) {
         await handler.fallback(ctx);
       } else {
-        const names = blocked.map(s => graph.getDisplayName(s)).join(', ');
-        await ctx.speak(`${names} not available right now. Check Settings. Over.`);
+        // Universal fallback — let GPT answer rather than going silent
+        await _universalGptFallback(ctx);
       }
       return true;
     }
@@ -198,7 +198,13 @@ class IntentRegistryImpl {
       for (const s of handler.requiredServices) {
         graph.reportFailure(s, errMsg);
       }
-      await ctx.speak(`Something went wrong: ${errMsg}. Over.`);
+      console.warn('[Registry] Handler failed, invoking GPT fallback:', errMsg);
+      if (handler.fallback) {
+        await handler.fallback(ctx);
+      } else {
+        // Universal fallback — GPT answers the question instead of an error message
+        await _universalGptFallback(ctx);
+      }
     }
 
     return true;
@@ -231,6 +237,120 @@ export function getIntentRegistry(): IntentRegistryImpl {
 }
 
 export type { IntentRegistryImpl as IntentRegistry };
+
+// ─── Universal GPT Fallback ───────────────────────────────────────────────────
+// Invoked by dispatch() when any intent handler fails at the API level
+// and no handler-specific fallback is defined.
+//
+// Strategy:
+//   1. If the GPT classification already produced a substantive answer
+//      (not a "Stand by / Searching..." filler), speak it directly.
+//   2. Otherwise fire a fresh _web_search call with the original transcript
+//      so GPT can answer the question in real-time.
+//
+// This ensures Roger NEVER goes silent after a failed API call.
+
+const STANDBY_PHRASES = [
+  'stand by', 'one moment', 'fetching', 'searching', 'looking up',
+  'checking', 'pulling', 'let me get', 'getting that',
+];
+
+function _isStandbyResponse(text: string): boolean {
+  const lower = text.toLowerCase();
+  return STANDBY_PHRASES.some(p => lower.includes(p));
+}
+
+async function _universalGptFallback(ctx: IntentContext): Promise<void> {
+  // If GPT already generated a useful answer during classification, just use it
+  const existing = ctx.result.roger_response ?? '';
+  if (existing && !_isStandbyResponse(existing)) {
+    await ctx.speak(`${existing} Over.`);
+    return;
+  }
+
+  // Otherwise: fire a fresh web-search call with the original transcript
+  try {
+    const { supabase: sb } = await import('./supabase');
+    const { data: { session } } = await sb.auth.getSession();
+    const token = session?.access_token ?? SUPABASE_ANON_KEY;
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        _web_search: true,
+        user: ctx.transcript,
+      }),
+    });
+
+    const data = await res.json() as { roger_response?: string };
+    if (data.roger_response) {
+      ctx.addMessage({
+        id: `fallback-${Date.now()}`, role: 'roger',
+        text: data.roger_response,
+        ts: Date.now(), intent: ctx.result.intent, outcome: 'fallback',
+      });
+      await ctx.speak(`${data.roger_response} Over.`);
+    } else {
+      await ctx.speak('Service temporarily unavailable. Please try again. Over.');
+    }
+  } catch {
+    await ctx.speak('Service temporarily unavailable. Please try again. Over.');
+  }
+}
+
+// Used by MARKET_BRIEF when Finnhub is unavailable or returns nothing.
+// Pulls live data via the GPT web-search path (same as QUERY_GOLD).
+
+async function _marketBriefViaWebSearch(ctx: IntentContext): Promise<void> {
+  try {
+    const { fetchMarketData, getCachedMarketData, cacheAgeMinutes } = await import('./marketData');
+    const { supabase: sb } = await import('./supabase');
+
+    // Reuse fresh cache if available
+    const cached = getCachedMarketData();
+    const data = (cached && cacheAgeMinutes() < 30)
+      ? cached
+      : await (async () => {
+          const { data: { session } } = await sb.auth.getSession();
+          const token = session?.access_token ?? SUPABASE_ANON_KEY;
+          return fetchMarketData(
+            ['gold SAR per gram', 'Bitcoin USD', 'Ethereum USD', 'oil price', 'USD to SAR'],
+            ctx.location?.latitude,
+            ctx.location?.longitude,
+            token,
+          );
+        })();
+
+    const parts: string[] = [];
+    if (data.gold)   parts.push(`Gold: ${data.gold.karat24} SAR per gram (24K)`);
+    if (data.crypto?.length) {
+      data.crypto.slice(0, 2).forEach(c =>
+        parts.push(`${c.name}: $${c.price.toLocaleString()} (${c.change24hPct > 0 ? '+' : ''}${c.change24hPct.toFixed(1)}%)`)
+      );
+    }
+    if (data.forex?.length) {
+      data.forex.slice(0, 2).forEach(f =>
+        parts.push(`${f.pair}: ${f.rate.toFixed(4)}`)
+      );
+    }
+
+    if (parts.length === 0) {
+      await ctx.speak('Could not retrieve live market data right now. Try again in a moment. Over.');
+      return;
+    }
+
+    const spoken = `Here is your market brief. ${parts.join('. ')}. Over.`;
+    ctx.addMessage({
+      id: `mktbrief-${Date.now()}`, role: 'roger',
+      text: parts.map(p => `• ${p}`).join('\n'),
+      ts: Date.now(), intent: ctx.result.intent, outcome: 'success',
+    });
+    await ctx.speak(spoken);
+  } catch {
+    await ctx.speak('Market data service is unavailable right now. Over.');
+  }
+}
 
 // ─── Handler Registration ────────────────────────────────────────────────────
 // Handlers are registered in groups below. Each group is a self-contained batch.
@@ -412,7 +532,12 @@ function registerCoreHandlers(r: IntentRegistryImpl): void {
 
       if (ctx.result.intent === 'MARKET_BRIEF' || !ticker) {
         const mktCtx = await fetchMarketContext(['AAPL', 'MSFT', 'NVDA', 'TSLA']);
-        await ctx.speak(mktCtx ? `Market brief: ${mktCtx}. Over.` : 'Market data unavailable at this time. Over.');
+        if (mktCtx) {
+          await ctx.speak(`Market brief: ${mktCtx}. Over.`);
+        } else {
+          // Finnhub returned nothing — fall through to GPT web-search
+          await _marketBriefViaWebSearch(ctx);
+        }
       } else {
         const quote = await fetchQuote(ticker);
         if (quote) {
@@ -423,6 +548,14 @@ function registerCoreHandlers(r: IntentRegistryImpl): void {
           });
         }
         await ctx.speak(quote ? quoteToSpeech(quote) : `Could not retrieve ${ticker} data right now. Over.`);
+      }
+    },
+    // Finnhub circuit open → fall back to GPT web-search for market brief
+    async fallback(ctx) {
+      if (ctx.result.intent === 'MARKET_BRIEF') {
+        await _marketBriefViaWebSearch(ctx);
+      } else {
+        await ctx.speak('Stock quote service is not available right now. Over.');
       }
     },
   });
