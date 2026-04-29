@@ -1,4 +1,7 @@
 import { supabase } from './supabase';
+import { getAuthToken } from './getAuthToken';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 // ─── Transmission types ───────────────────────────────────────────────────────
 export type DbTransmission = {
@@ -1947,33 +1950,37 @@ export type DbUserProfile = {
   updated_at: string;
 };
 
-/** Fetch all user_preferences rows (admin only — RLS disabled on this table) */
+/** Fetch all user profiles via the admin-users edge function (bypasses RLS using service-role key) */
 export async function fetchAllUserProfiles(): Promise<DbUserProfile[]> {
-  const { data, error } = await supabase.from('user_preferences')
-    .select('user_id, display_name, roger_mode, language, timezone, onboarding_complete, islamic_mode, tour_seen, updated_at')
-    .order('updated_at', { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'list' }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`admin-users: ${res.status} — ${err}`);
+  }
+  const json = await res.json() as { users: DbUserProfile[] };
+  return json.users ?? [];
 }
 
-/** Fetch per-user stats: memory count, reminder count, task count, transmission count */
+/** Fetch per-user stats via the admin-users edge function (bypasses RLS) */
 export async function fetchUserStats(userId: string): Promise<{
   memories: number; reminders: number; tasks: number; transmissions: number; conversations: number;
 }> {
-  const [mem, rem, tsk, tx, conv] = await Promise.all([
-    supabase.from('memories').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-    supabase.from('reminders').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-    supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-    supabase.from('transmissions').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-    supabase.from('conversation_history').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-  ]);
-  return {
-    memories: mem.count ?? 0,
-    reminders: rem.count ?? 0,
-    tasks: tsk.count ?? 0,
-    transmissions: tx.count ?? 0,
-    conversations: conv.count ?? 0,
-  };
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'stats', userId }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`admin-users stats: ${res.status} — ${err}`);
+  }
+  return res.json();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
