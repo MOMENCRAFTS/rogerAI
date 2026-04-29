@@ -8,9 +8,6 @@ workflows:
       app_store_connect: codemagic        # App Store Connect API key integration
 
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.rogerai.app
       xcode: latest                        # Capacitor 8 requires Xcode 16+
       node: v22                            # Capacitor 8 requires Node 22+
       groups:
@@ -135,14 +132,25 @@ workflows:
           plutil -replace UIRequiredDeviceCapabilities -json '["arm64"]' "$PLIST"
           echo "✓ Info.plist patched"
 
-      # ── 8. Set up code signing (Codemagic-native — fetches cert + profile automatically) ──
+      # ── 8. Fetch signing files (auto-creates profile if missing) ──────────
+      - name: Fetch signing files
+        script: |
+          set -e
+          # Fetch or CREATE distribution certificate + provisioning profile
+          # --create flag auto-creates the profile if it doesn't exist yet
+          app-store-connect fetch-signing-files com.rogerai.app \
+            --type IOS_APP_STORE \
+            --create
+          echo "✓ Signing files fetched"
+
+      # ── 9. Apply signing to Xcode project ──────────────────────────────────
       - name: Set up code signing
         script: |
-          # xcode-project use-profiles reads from ios_signing block:
-          # - Fetches/creates distribution certificate via App Store Connect API
-          # - Fetches/creates provisioning profile for com.rogerai.app
-          # - Patches project.pbxproj with correct signing settings
-          # - Generates /Users/builder/export_options.plist for export step
+          # Install fetched cert into keychain and patch project.pbxproj
+          keychain initialize
+          app-store-connect certificates list --type IOS_DISTRIBUTION \
+            --save || echo "⚠ Cert list save skipped"
+          keychain add-certificates
           xcode-project use-profiles --project "$XCODE_PROJECT"
           echo "✓ Code signing configured"
 
