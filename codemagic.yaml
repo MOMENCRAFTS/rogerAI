@@ -119,12 +119,12 @@ workflows:
           export CERTIFICATE_PRIVATE_KEY=$(cat /tmp/cert_key.pem)
           keychain initialize
 
-          # Step 2: Revoke ALL existing Distribution certs using jq (pre-installed on macOS)
-          # Apple allows max 2 active certs — revoke all so we can create a fresh one.
+          # Step 2: Revoke ALL existing Distribution certs
+          # app-store-connect --json outputs a raw array: [{id: "...", ...}, ...]
           echo "=== Revoking existing Distribution certificates ==="
           for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION; do
             app-store-connect certificates list --type "$CERT_TYPE" --json 2>/dev/null \
-              | jq -r '.data[]?.id // empty' \
+              | jq -r '.[].id? // empty' \
               | while read -r CID; do
                   echo "  Revoking $CERT_TYPE cert: $CID"
                   app-store-connect certificates revoke "$CID" 2>&1 || \
