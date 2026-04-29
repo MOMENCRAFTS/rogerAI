@@ -48,6 +48,21 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 
+	<!-- ─── Custom URL Scheme — required for Google OAuth deep-link callback ── -->
+	<!-- Google redirects to com.rogerai.app://login-callback after sign-in.    -->
+	<!-- Without this, iOS drops the redirect and the user stays logged out.    -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.rogerai.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.rogerai.app</string>
+			</array>
+		</dict>
+	</array>
+
 	<!-- ─── Microphone — required for PTT voice capture ─────────────── -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Roger AI uses your microphone to capture voice commands via Push-To-Talk (PTT). Hold the PTT button and speak — Roger AI will listen and respond.</string>
