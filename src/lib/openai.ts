@@ -30,6 +30,10 @@ export interface RogerAIResponse {
   intent_options?: { intent: string; label: string }[] | null;
   is_knowledge_query?: boolean;
   subtopics?: { label: string; emoji: string }[] | null;
+  // ── Web search routing ──
+  needs_web_search?: boolean;         // GPT flags this when live data is needed
+  web_search_query?: string | null;   // focused search query for Phase 2
+  web_search_used?: boolean;          // set by client after Phase 2 completes
   // ── Translation fields ──
   translation_source?: string | null;
   translation_target?: string | null;
@@ -118,6 +122,21 @@ If the user says "when I'm near X", "when I arrive at X", "remind me at X":
   - intent = CREATE_REMINDER
   - Add entity: { "text": "X", "type": "LOCATION", "confidence": 95 }
   - Confirm: "Geo-reminder set — I'll alert you when you're near [X]. Over."
+
+═══════════════════════════════════════
+RECURRING REMINDERS
+═══════════════════════════════════════
+If the user says "every day", "daily", "each morning", "every weekday",
+"every Monday", "weekly", "monthly", or similar recurrence patterns:
+  - intent = CREATE_REMINDER
+  - Add entity: { "text": "<rule>", "type": "RECURRENCE", "confidence": 95 }
+    where <rule> is one of: daily, weekdays, weekly, monthly, custom
+  - If specific days mentioned (e.g. "Monday Wednesday Friday"):
+    add entity: { "text": "1,3,5", "type": "RECURRENCE_DAYS", "confidence": 90 }
+    Use ISO weekday numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
+  - If a specific time mentioned (e.g. "at 7 AM", "every morning at 9"):
+    add entity: { "text": "07:00", "type": "RECURRENCE_TIME", "confidence": 90 }
+  - Confirm: "Recurring reminder set — [rule] at [time]. Over."
 
 ═══════════════════════════════════════
 ENTITY RESOLUTION + INSIGHT
@@ -284,6 +303,22 @@ QUERY_STOCK
   Extract: STOCK_TICKER entity — the ticker symbol (e.g. "AAPL", "TSLA", "NVDA")
            If user says a company name, resolve it: "Apple" → "AAPL", "Tesla" → "TSLA"
   Response: "Checking [TICKER] now. One moment. Over."
+  outcome: always "success"
+  NOTE: Do NOT use this for gold, silver, oil, or commodity prices — use QUERY_GOLD or QUERY_COMMODITY instead.
+
+QUERY_GOLD
+  Trigger: "what's gold at?", "gold price", "price of gold", "how much is gold",
+           "gold in SAR", "gold in riyal", "كم سعر الذهب", "سعر الذهب", "الذهب بكم",
+           "24 karat gold", "22 karat", "gold per gram"
+  Response: "Fetching live gold prices in Saudi Riyal. One moment. Over."
+  outcome: always "success"
+  NOTE: The client intercepts this and fetches live SAR/gram prices (24K, 22K, 18K) via web search.
+
+QUERY_COMMODITY
+  Trigger: "oil price", "silver price", "platinum", "crude oil", "barrel price",
+           "what's silver at?", "commodity prices"
+  Extract: COMMODITY entity — the commodity name (e.g. "gold", "silver", "oil", "crude")
+  Response: "Looking up [commodity] prices now. Over."
   outcome: always "success"
 
 MARKET_BRIEF
@@ -724,7 +759,35 @@ Classify their response as one of these actions:
 Return ONLY a JSON object: { "action": "execute", "reschedule_hint": null }
 reschedule_hint should contain any time reference they mentioned (e.g. "tomorrow morning", "next Monday") or null.`;
 
-// ─── API Helper (routed through edge function — no direct OpenAI calls) ─────
+// ─── Shared Dialect Context Builder ──────────────────────────────────────────
+/**
+ * buildDialectContext() — exported for use by onboarding.ts and any other
+ * module that needs to structurally inject the user's dialect personality into
+ * an LLM system prompt.
+ *
+ * Always reads from localStorage directly so it is accurate at any point
+ * in the lifecycle, not relying on the module-level _currentLocale var.
+ */
+export function buildDialectContext(): string {
+  try {
+    const storedLocale = localStorage.getItem('roger_locale') || '';
+    const locale = (storedLocale || getCurrentLocale()) as import('./i18n').Locale;
+    const dc = DIALECT_CONFIG[locale];
+    if (!dc) return '';
+    const base = getBaseLanguage(locale);
+    const langName = base === 'ar' ? 'Arabic' : base === 'fr' ? 'French' : base === 'es' ? 'Spanish' : 'English';
+    return [
+      `=== DIALECT PERSONALITY ===`,
+      `User locale: ${locale}`,
+      `Base language: ${base}`,
+      dc.aiPersonality,
+      `CRITICAL RULE: The user chose ${langName}. ALL your responses MUST be in ${langName}. Do NOT respond in any other language unless the user explicitly asks for translation.`,
+      base === 'ar' ? 'Write in Arabic script. Do NOT transliterate.' : '',
+      base === 'en' ? 'Respond ONLY in English. Even if the user speaks another language, respond in English.' : '',
+    ].filter(Boolean).join('\n');
+  } catch { return ''; }
+}
+
 
 export async function callGPT<T>(
   systemPrompt: string,
@@ -772,44 +835,8 @@ export async function callGPT<T>(
 
 /**
  * Build user memory context string from DB.
- * Fetches conversation history + memory graph facts in parallel.
- * Returns a formatted context block for GPT-5.5 injection.
- */
-async function buildUserContext(userId: string): Promise<string> {
-  try {
-    const { fetchConversationHistory, fetchMemoryGraph } = await import('./api');
-    const [history, facts] = await Promise.all([
-      fetchConversationHistory(userId, 20).catch(() => []),
-      fetchMemoryGraph(userId).catch(() => []),
-    ]);
-
-    const lines: string[] = ['=== USER MEMORY CONTEXT ==='];
-
-    if (facts.length > 0) {
-      lines.push('\nKey facts about this user:');
-      facts.slice(0, 12).forEach(f => {
-        const confirmed = f.is_confirmed ? ' ✓' : '';
-        lines.push(`  • ${f.subject} ${f.predicate} ${f.object}${confirmed}`);
-      });
-    }
-
-    if (history.length > 0) {
-      lines.push('\nRecent conversation history (oldest to newest):');
-      history.slice(-12).forEach(t => {
-        const label = t.role === 'user' ? 'User' : 'Roger';
-        lines.push(`  [${label}]: ${t.content}`);
-      });
-    }
-
-    lines.push('\nUse this context to: resolve pronouns, avoid asking things already known, personalize responses, and connect related topics.');
-    return lines.join('\n');
-  } catch {
-    return ''; // graceful degradation — continue without context
-  }
-}
-
-/**
- * Sanitize roger_response — strips leaked internal reasoning.
+ * Fetches conversation history + mem        dialectContext: buildDialectContext(),
+_response — strips leaked internal reasoning.
  * GPT sometimes puts analysis ("Weather query detected...") into the
  * user-facing field instead of the reasoning field. This catches it.
  */
@@ -877,7 +904,7 @@ export async function processTransmission(
   const sessionHistory = history.slice(-6).map(t => ({ role: t.role, content: t.content }));
 
   // Fetch persistent DB memory context if userId provided
-  const memoryContext = userId ? await buildUserContext(userId) : '';
+  const memoryContext = ''; // Memory context is built server-side by the edge function
 
   const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
   const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -928,8 +955,11 @@ export async function processTransmission(
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { error?: string }).error ?? `Edge Function error ${res.status}`);
+      const errText = await res.text().catch(() => '');
+      console.error(`[processTransmission] Edge function ${res.status}:`, errText);
+      let errMsg = `Edge Function error ${res.status}`;
+      try { errMsg = (JSON.parse(errText) as { error?: string }).error ?? errMsg; } catch { /* use raw text */ }
+      throw new Error(errMsg);
     }
 
     const result = await res.json() as RogerAIResponse;
