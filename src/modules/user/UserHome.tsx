@@ -63,6 +63,7 @@ import { getSilentNode } from '../../lib/silentNode';
 import { buildIntentContext } from '../../lib/intentRegistry';
 import { getConversationDigester } from '../../lib/conversationDigester';
 import type { DigestResult } from '../../lib/conversationDigester';
+import { useIntentStore } from '../../lib/intentStore';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
@@ -121,6 +122,7 @@ type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'settings';
 export default function UserHome({ userId, sessionId, onTabChange, location: locationProp }: { userId: string; sessionId: string; onTabChange: (t: UserTab) => void; location?: UserLocation | null }) {
   const { checkGate } = useSubscription(userId);
   const { t, locale: userLocale } = useI18n();
+  const { academyMode } = useIntentStore();
   const [pttState, setPttState]   = useState<PTTState>('idle');
   const [messages, setMessages]   = useState<Message[]>([]);
   const [history, setHistory]     = useState<ConversationTurn[]>([]);
@@ -3678,6 +3680,41 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         <span style={{ fontFamily: 'monospace', fontSize: 10, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 300ms', minHeight: 14 }}>
           {stateLabel}
         </span>
+
+        {/* Academy mode pill — shows active mode, tap to go configure */}
+        {academyMode && (pttState === 'idle' || pttState === 'responded') && (
+          <div
+            onClick={() => onTabChange('home' as UserTab)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '3px 10px 3px 8px',
+              borderRadius: 20,
+              background: academyMode === 'vocab' ? 'rgba(245,158,11,0.12)'
+                : academyMode === 'drill' ? 'rgba(59,130,246,0.12)'
+                : 'rgba(139,92,246,0.12)',
+              border: `1px solid ${
+                academyMode === 'vocab' ? 'rgba(245,158,11,0.4)'
+                : academyMode === 'drill' ? 'rgba(59,130,246,0.4)'
+                : 'rgba(139,92,246,0.4)'
+              }`,
+              cursor: 'default',
+              animation: 'fadeIn 300ms ease',
+            }}
+          >
+            <span style={{ fontSize: 10 }}>
+              {academyMode === 'vocab' ? '📖' : academyMode === 'drill' ? '🎯' : '💬'}
+            </span>
+            <span style={{
+              fontFamily: 'monospace', fontSize: 8, textTransform: 'uppercase',
+              letterSpacing: '0.15em', fontWeight: 700,
+              color: academyMode === 'vocab' ? '#f59e0b'
+                : academyMode === 'drill' ? '#3b82f6'
+                : '#8b5cf6',
+            }}>
+              Academy · {academyMode === 'vocab' ? 'Vocab' : academyMode === 'drill' ? 'Drill' : 'Conv'} Mode
+            </span>
+          </div>
+        )}
 
         {/* ── Mode Roll Selector (right side of PTT) ── */}
         {(() => {

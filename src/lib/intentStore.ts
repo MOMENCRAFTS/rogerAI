@@ -85,6 +85,9 @@ export interface IntentStoreState {
   meetingElapsed: number;
   meetingWords: number;
   meetingTitle: string;
+
+  // Academy
+  academyMode: 'vocab' | 'drill' | 'conversation' | null;
 }
 
 export interface IntentStoreActions {
@@ -131,6 +134,9 @@ export interface IntentStoreActions {
   setMeetingWords: (v: number | ((prev: number) => number)) => void;
   setMeetingTitle: (v: string) => void;
 
+  // Academy
+  setAcademyMode: (mode: 'vocab' | 'drill' | 'conversation' | null) => void;
+
   // Utility
   reset: () => void;
 }
@@ -160,6 +166,7 @@ const INITIAL_STATE: IntentStoreState = {
   meetingElapsed: 0,
   meetingWords: 0,
   meetingTitle: '',
+  academyMode: null,
 };
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -223,6 +230,13 @@ export const useIntentStore = create<IntentStoreState & IntentStoreActions>((set
     meetingWords: typeof v === 'function' ? v(s.meetingWords) : v,
   })),
   setMeetingTitle: (v) => set({ meetingTitle: v }),
+
+  // ── Academy ───────────────────────────────────────────────────────────────
+  setAcademyMode: (mode) => {
+    set({ academyMode: mode });
+    if (mode) localStorage.setItem('roger:academy_mode', mode);
+    else localStorage.removeItem('roger:academy_mode');
+  },
 
   // ── Reset ────────────────────────────────────────────────────────────────
   reset: () => set(INITIAL_STATE),

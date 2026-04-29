@@ -970,6 +970,15 @@ export async function processTransmission(
         clarificationContext: clarificationContext ?? null,
         deepDiveContext: deepDiveContext ?? null,
         serviceContext: serviceContext ?? null,
+        // -- Academy context: active mode set from Academy tab ------
+        academyContext: (() => {
+          try {
+            const activeMode = localStorage.getItem('roger:academy_mode');
+            if (!activeMode) return null;
+            const modeLabels = { vocab: 'VOCAB - teach new words, return academy_word', drill: 'DRILL - quiz user, return academy_drill_type', conversation: 'CONVERSE - free conversation practice' };
+            return `=== ACADEMY MODE ACTIVE ===\nUser selected mode: ${modeLabels[activeMode] ?? activeMode}\nClassify this as ACADEMY_${activeMode.toUpperCase()} and respond in that mode.`;
+          } catch { return null; }
+        })(),
       }),
     });
 

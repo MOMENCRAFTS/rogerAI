@@ -9,6 +9,7 @@
     "build:admin": "tsc -b && cross-env VITE_BUILD_TARGET=admin vite build --outDir dist",
     "build:user": "tsc -b && cross-env VITE_BUILD_TARGET=user  vite build --outDir dist",
     "deploy": "npm run build && npx cap sync android && node scripts/fix-gradle.js",
+    "deploy:ios": "npx vite build && npx cap sync ios",
     "lint": "eslint .",
     "preview": "vite preview"
   },

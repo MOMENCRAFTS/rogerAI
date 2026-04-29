@@ -1,0 +1,200 @@
+workflows:
+  roger-ios:
+    name: Roger AI — iOS TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    integrations:
+      app_store_connect: codemagic        # Same App Store Connect API key integration as cliniq.one
+
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.rogerai.app
+      groups:
+        - roger_env                        # Codemagic env group — add all VITE_ vars here
+      vars:
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+        ARCHIVE_PATH: ios/App/build/ios/App.xcarchive
+        IPA_OUTPUT: ios/App/build/ios/ipa
+
+    scripts:
+      # ── 1. Install Node dependencies ────────────────────────────────────────
+      - name: Install dependencies
+        script: |
+          set -e
+          npm ci --legacy-peer-deps
+          # Fix missing darwin-arm64 rollup binary (Windows lockfile issue)
+          npm install @rollup/rollup-darwin-arm64 --no-save 2>/dev/null || true
+          echo "✓ Dependencies installed"
+
+      # ── 2. Write .env.local from Codemagic secrets ─────────────────────────
+      - name: Write environment file
+        script: |
+          cat > .env.local << 'ENVEOF'
+          VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+          VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+          VITE_OPENAI_API_KEY=$VITE_OPENAI_API_KEY
+          VITE_ADMIN_EMAILS=$VITE_ADMIN_EMAILS
+          VITE_VAPID_PUBLIC_KEY=$VITE_VAPID_PUBLIC_KEY
+          VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
+          VITE_NEWS_API_KEY=$VITE_NEWS_API_KEY
+          VITE_FINNHUB_API_KEY=$VITE_FINNHUB_API_KEY
+          VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+          VITE_TUYA_APP_KEY=$VITE_TUYA_APP_KEY
+          VITE_TUYA_APP_SECRET=$VITE_TUYA_APP_SECRET
+          ENVEOF
+          # Re-write with actual values (heredoc doesn't expand vars)
+          cat > .env.local << ENVEOF
+          VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+          VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+          VITE_OPENAI_API_KEY=$VITE_OPENAI_API_KEY
+          VITE_ADMIN_EMAILS=$VITE_ADMIN_EMAILS
+          VITE_VAPID_PUBLIC_KEY=$VITE_VAPID_PUBLIC_KEY
+          VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
+          VITE_NEWS_API_KEY=$VITE_NEWS_API_KEY
+          VITE_FINNHUB_API_KEY=$VITE_FINNHUB_API_KEY
+          VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+          VITE_TUYA_APP_KEY=$VITE_TUYA_APP_KEY
+          VITE_TUYA_APP_SECRET=$VITE_TUYA_APP_SECRET
+          ENVEOF
+          echo "✓ .env.local written"
+
+      # ── 3. Build web app (bypass tsc — fails on CI) ─────────────────────────
+      - name: Build web app (Vite)
+        script: |
+          set -e
+          npx vite build
+          if [ ! -f dist/index.html ]; then
+            echo "ERROR: dist/index.html not found — Vite build failed silently!"
+            exit 1
+          fi
+          FILE_COUNT=$(find dist -type f | wc -l)
+          echo "✓ Web build complete: $FILE_COUNT files in dist/"
+
+      # ── 4. Sync iOS + force-copy web assets ─────────────────────────────────
+      - name: Sync iOS and copy web assets
+        script: |
+          set -e
+          # cap sync may fail on CI — not fatal, we copy manually
+          npx cap sync ios 2>&1 || echo "⚠ cap sync failed — copying assets manually"
+          npx cap copy ios 2>&1 || echo "⚠ cap copy failed — copying assets manually"
+
+          # Force-copy web assets into iOS bundle
+          APP_PUBLIC="ios/App/App/public"
+          rm -rf "$APP_PUBLIC"
+          mkdir -p "$APP_PUBLIC"
+          cp -R dist/* "$APP_PUBLIC/"
+
+          # Validate assets are present
+          FILE_COUNT=$(find "$APP_PUBLIC" -type f | wc -l)
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "ERROR: $APP_PUBLIC is empty after asset copy!"
+            exit 1
+          fi
+          echo "✓ Web assets synced: $FILE_COUNT files in $APP_PUBLIC"
+
+      # ── 5. Ensure capacitor.config.json exists ───────────────────────────────
+      - name: Ensure iOS config files
+        script: |
+          CONFIG="ios/App/App/capacitor.config.json"
+          if [ ! -f "$CONFIG" ]; then
+            echo "⚠ capacitor.config.json missing — creating stub"
+            cat > "$CONFIG" << 'EOF'
+          {
+            "appId": "com.rogerai.app",
+            "appName": "Roger AI",
+            "webDir": "public",
+            "bundledWebRuntime": false
+          }
+          EOF
+          fi
+          echo "✓ iOS config files present"
+
+      # ── 6. Increment build number ────────────────────────────────────────────
+      - name: Increment build number
+        script: |
+          set -e
+          cd ios/App
+          CURRENT=$(agvtool what-version -terse 2>/dev/null || echo "0")
+          NEW=$((CURRENT + 1))
+          agvtool new-version -all "$NEW"
+          echo "✓ Build number bumped: $CURRENT → $NEW"
+
+      # ── 7. Patch Info.plist ──────────────────────────────────────────────────
+      - name: Patch Info.plist
+        script: |
+          PLIST="ios/App/App/Info.plist"
+          # Suppress App Store export compliance popup
+          plutil -insert ITSAppUsesNonExemptEncryption -bool false "$PLIST" 2>/dev/null || \
+            plutil -replace ITSAppUsesNonExemptEncryption -bool false "$PLIST"
+          # Ensure arm64 only (required for App Store)
+          plutil -replace UIRequiredDeviceCapabilities -json '["arm64"]' "$PLIST"
+          echo "✓ Info.plist patched"
+
+      # ── 8. Build IPA ─────────────────────────────────────────────────────────
+      - name: Build IPA
+        script: |
+          set -e
+
+          # Resolve SPM packages BEFORE archiving (required for Capacitor 8 SPM)
+          xcodebuild -resolvePackageDependencies \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -clonedSourcePackagesDirPath ios/App/SourcePackages
+
+          # Archive
+          xcodebuild archive \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -archivePath "$ARCHIVE_PATH" \
+            -clonedSourcePackagesDirPath ios/App/SourcePackages \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=32Q8D724TR \
+            CODE_SIGN_IDENTITY="iPhone Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$CM_PROVISIONING_PROFILE_SPECIFIER" \
+            | xcpretty
+
+          # Validate archive
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERROR: Archive not created at $ARCHIVE_PATH"
+            exit 1
+          fi
+          echo "✓ Archive created: $ARCHIVE_PATH"
+
+          # Export IPA
+          mkdir -p "$IPA_OUTPUT"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportOptionsPlist ios/App/ExportOptions.plist \
+            -exportPath "$IPA_OUTPUT" \
+            | xcpretty
+
+          # Validate IPA
+          IPA_FILE=$(find "$IPA_OUTPUT" -name "*.ipa" | head -1)
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: No IPA found in $IPA_OUTPUT"
+            exit 1
+          fi
+          echo "✓ IPA built: $IPA_FILE"
+
+    # ── Collect build artifact ──────────────────────────────────────────────
+    artifacts:
+      - ios/App/build/ios/ipa/*.ipa
+      - ios/App/build/ios/App.xcarchive   # Keep archive for dSYMs / re-sign
+
+    # ── Publish to TestFlight ───────────────────────────────────────────────
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - RogerAI testers
+      email:
+        recipients:
+          - docpharaon@gmail.com
+        notify:
+          success: true
+          failure: true

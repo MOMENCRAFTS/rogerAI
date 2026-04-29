@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Distribution method: app-store for TestFlight / App Store -->
+    <key>method</key>
+    <string>app-store</string>
+
+    <!-- Apple Developer Team ID (same as cliniq.one) -->
+    <key>teamID</key>
+    <string>32Q8D724TR</string>
+
+    <!-- Provisioning profile mapping: bundle ID → profile name -->
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.rogerai.app</key>
+        <string>com.rogerai.app AppStore</string>
+    </dict>
+
+    <!-- Signing certificate type -->
+    <key>signingCertificate</key>
+    <string>iPhone Distribution</string>
+
+    <!-- Manual signing — Codemagic injects cert + profile via keychain -->
+    <key>signingStyle</key>
+    <string>manual</string>
+
+    <!-- Strip bitcode (not supported for App Store Connect uploads) -->
+    <key>uploadBitcode</key>
+    <false/>
+
+    <!-- Include dSYMs for crash symbolication in TestFlight -->
+    <key>uploadSymbols</key>
+    <true/>
+
+    <!-- Destination: upload directly to App Store Connect -->
+    <key>destination</key>
+    <string>upload</string>
+</dict>
+</plist>

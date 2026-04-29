@@ -13,11 +13,12 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { GraduationCap, BookOpen, Mic, MessageCircle, Target, Flame, TrendingUp, ChevronDown, RefreshCw, Star, Zap, Award } from 'lucide-react';
+import { GraduationCap, BookOpen, Mic, MessageCircle, Target, Flame, TrendingUp, ChevronDown, RefreshCw, Star, Zap, Award, CheckCircle2 } from 'lucide-react';
 import { useI18n } from '../../context/I18nContext';
 import { type Locale, getLocaleName, getLocaleFlag, ALL_LOCALES, getBaseLanguage } from '../../lib/i18n';
 import { fetchAcademyStreak, fetchVocabWords, upsertAcademyStreak } from '../../lib/api';
 import { triggerAcademyQuiz } from '../../lib/proactiveEngine';
+import { useIntentStore } from '../../lib/intentStore';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ interface Props {
 
 export default function AcademyView({ userId }: Props) {
   const { t: _t, locale } = useI18n();
+  const { academyMode, setAcademyMode } = useIntentStore();
 
   // State
   const [targetLocale, setTargetLocale] = useState<Locale>('fr-fr');
@@ -66,7 +68,10 @@ export default function AcademyView({ userId }: Props) {
   const [words, setWords]               = useState<VocabWord[]>([]);
   const [loading, setLoading]           = useState(true);
   const [showPicker, setShowPicker]     = useState(false);
-  const [mode, setMode]                 = useState<AcademyMode>('overview');
+  const [mode, setMode]                 = useState<AcademyMode>(() => {
+    // Restore active mode from store on mount so UI is in sync
+    return (academyMode as AcademyMode | null) ?? 'overview';
+  });
   const [showEntry, setShowEntry]       = useState(true);
 
   // Entry animation: show a pulse, then fade out after 3s
@@ -153,6 +158,17 @@ export default function AcademyView({ userId }: Props) {
     : totalWords < 300 ? 'Intermediate'
     : totalWords < 500 ? 'Upper Intermediate'
     : 'Advanced';
+
+  // ── Mode card handler — syncs local UI + global store ──────────────────
+  const handleModeSelect = (selected: 'vocab' | 'drill' | 'conversation') => {
+    if (mode === selected) {
+      setMode('overview');
+      setAcademyMode(null);
+    } else {
+      setMode(selected);
+      setAcademyMode(selected);
+    }
+  };
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -321,7 +337,7 @@ export default function AcademyView({ userId }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
         {/* Vocab Card */}
         <button
-          onClick={() => setMode(mode === 'vocab' ? 'overview' : 'vocab')}
+          onClick={() => handleModeSelect('vocab')}
           style={{
             background: mode === 'vocab' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)',
             border: mode === 'vocab' ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.06)',
@@ -332,12 +348,12 @@ export default function AcademyView({ userId }: Props) {
         >
           <BookOpen size={20} color="#f59e0b" />
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>VOCAB</span>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>{totalWords}/200</span>
+          <span style={{ fontSize: 10, opacity: 0.5 }}>{mode === 'vocab' ? '✓ ACTIVE' : `${totalWords}/200`}</span>
         </button>
 
         {/* Drill Card */}
         <button
-          onClick={() => setMode(mode === 'drill' ? 'overview' : 'drill')}
+          onClick={() => handleModeSelect('drill')}
           style={{
             background: mode === 'drill' ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.04)',
             border: mode === 'drill' ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.06)',
@@ -348,12 +364,12 @@ export default function AcademyView({ userId }: Props) {
         >
           <Mic size={20} color="#3b82f6" />
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>DRILL</span>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Streak: {currentStreak}</span>
+          <span style={{ fontSize: 10, opacity: 0.5 }}>{mode === 'drill' ? '✓ ACTIVE' : `Streak: ${currentStreak}`}</span>
         </button>
 
         {/* Conversation Card */}
         <button
-          onClick={() => setMode(mode === 'conversation' ? 'overview' : 'conversation')}
+          onClick={() => handleModeSelect('conversation')}
           style={{
             background: mode === 'conversation' ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)',
             border: mode === 'conversation' ? '1px solid #8b5cf6' : '1px solid rgba(255,255,255,0.06)',
@@ -364,7 +380,7 @@ export default function AcademyView({ userId }: Props) {
         >
           <MessageCircle size={20} color="#8b5cf6" />
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>CONV</span>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Level {Math.min(5, Math.floor(totalWords / 50) + 1)}</span>
+          <span style={{ fontSize: 10, opacity: 0.5 }}>{mode === 'conversation' ? '✓ ACTIVE' : `Level ${Math.min(5, Math.floor(totalWords / 50) + 1)}`}</span>
         </button>
       </div>
 
@@ -381,17 +397,24 @@ export default function AcademyView({ userId }: Props) {
           gap: 10,
           animation: 'fadeIn 300ms ease',
         }}>
-          <Zap size={16} color="#10b981" />
-          <div>
+          <CheckCircle2 size={16} color="#10b981" />
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>
-              {mode === 'vocab' ? 'Vocabulary Mode Active' :
-               mode === 'drill' ? 'Drill Mode Active' :
-               'Conversation Mode Active'}
+              {mode === 'vocab' ? 'Vocabulary Mode' :
+               mode === 'drill' ? 'Drill Mode' :
+               'Conversation Mode'} — <span style={{ color: '#10b981' }}>Live on PTT</span>
             </div>
             <div style={{ fontSize: 11, opacity: 0.5, marginTop: 2 }}>
-              Hold PTT on the Home tab to {mode === 'vocab' ? 'learn new words' : mode === 'drill' ? 'start a quiz' : 'practice conversation'}
+              Roger will {mode === 'vocab' ? 'teach new words' : mode === 'drill' ? 'quiz you' : 'practice conversation'} — go to Home tab and hold PTT
             </div>
           </div>
+          <button
+            onClick={() => { setMode('overview'); setAcademyMode(null); }}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4 }}
+            title="Deactivate mode"
+          >
+            ×
+          </button>
         </div>
       )}
 
