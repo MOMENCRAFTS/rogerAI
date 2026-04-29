@@ -5,13 +5,12 @@ const config: CapacitorConfig = {
   appName: 'Roger AI',
   webDir: 'dist',
 
-  // Allow loading from local dev server during development
-  server: {
-    // Live reload — points Android WebView to the Vite dev server on this machine
-    url: 'http://172.20.10.4:5173',
-    cleartext: true,
-    allowNavigation: ['*.supabase.co', 'api.openai.com'],
-  },
+  // ── Live reload (DEV ONLY) — uncomment when testing on-device with Vite running ──
+  // server: {
+  //   url: 'http://172.20.10.4:5173',
+  //   cleartext: true,
+  //   allowNavigation: ['*.supabase.co', 'api.openai.com'],
+  // },
 
   plugins: {
     SplashScreen: {
