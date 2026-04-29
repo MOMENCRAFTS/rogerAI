@@ -109,30 +109,51 @@ workflows:
           fi
           echo "✓ iOS config files present"
 
-      # ── 6. Set up code signing (cliniq.one proven approach) ──────────────
+      # ── 6. Set up code signing ───────────────────────────────────────────
       - name: Set up code signing
         script: |
-          # Generate a fresh private key for this build
+          set -e
+
+          # Step 1: Generate a fresh RSA private key for this build
           openssl genrsa -out /tmp/cert_key.pem 2048
           export CERTIFICATE_PRIVATE_KEY=$(cat /tmp/cert_key.pem)
           keychain initialize
 
-          # Debug: show what certs exist
-          echo "=== Current Distribution certificates ==="
-          app-store-connect certificates list --type IOS_DISTRIBUTION 2>&1 || true
-          echo "=== End cert list ==="
+          # Step 2: Revoke ALL existing Distribution certs (JSON parsing — reliable)
+          # Apple allows max 2 active Distribution certs. We revoke all so we
+          # can create a fresh one that matches our newly generated private key.
+          echo "=== Revoking existing Distribution certificates ==="
+          for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION; do
+            RAW=$(app-store-connect certificates list --type "$CERT_TYPE" --json 2>/dev/null || echo '{}')
+            echo "$RAW" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    certs = data.get('data', [])
+    for c in certs:
+        print(c['id'])
+except:
+    pass
+" | while read CID; do
+              echo "  Revoking $CERT_TYPE cert: $CID"
+              app-store-connect certificates revoke "$CID" 2>&1 || \
+                echo "  (Could not revoke $CID — skipping)"
+            done
+          done
+          echo "=== Revocation complete ==="
 
-          # Fetch or CREATE distribution cert + provisioning profile
-          # --create will auto-create the profile if missing
-          # If this fails with 409, manually revoke a cert at:
-          # https://developer.apple.com/account/resources/certificates/list
+          # Step 3: Fetch or CREATE distribution cert + provisioning profile
+          # --create will auto-create both cert and profile if missing
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create
           keychain add-certificates
 
-          # Extract provisioning profile UUID + Team ID
-          PP_PATH=$(find ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" 2>/dev/null | head -1)
+          # Step 4: Extract provisioning profile UUID + Team ID
+          PP_PATH=$(find \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            -name "*.mobileprovision" 2>/dev/null | head -1)
           if [ -z "$PP_PATH" ]; then
             echo "ERROR: No provisioning profile found after fetch"
             exit 1
@@ -144,9 +165,12 @@ workflows:
           printf '%s' "$PP_UUID" > /tmp/pp_uuid.txt
           printf '%s' "$TEAM_ID" > /tmp/team_id.txt
 
-          # Patch project.pbxproj: Manual signing + inject Team ID
+          # Step 5: Patch Xcode project — Manual signing + Team ID
           find ios -name "project.pbxproj" | while read pbxf; do
-            perl -i -pe "s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g; s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $TEAM_ID;/g;" "$pbxf"
+            perl -i -pe "
+              s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g;
+              s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $TEAM_ID;/g;
+            " "$pbxf"
             echo "Patched: $pbxf"
           done
 
