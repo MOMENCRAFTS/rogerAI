@@ -5,21 +5,20 @@ workflows:
     instance_type: mac_mini_m2
 
     integrations:
-      app_store_connect: codemagic        # App Store Connect API key integration
+      app_store_connect: codemagic
 
     environment:
-      xcode: latest                        # Capacitor 8 requires Xcode 16+
-      node: v22                            # Capacitor 8 requires Node 22+
+      xcode: latest
+      node: v22
       groups:
-        - roger_env                        # Codemagic env group — add all VITE_ vars here
+        - roger_env
       vars:
         XCODE_PROJECT: ios/App/App.xcodeproj
         XCODE_SCHEME: App
-        ARCHIVE_PATH: ios/App/build/ios/App.xcarchive
-        IPA_OUTPUT: ios/App/build/ios/ipa
+        BUNDLE_ID: com.rogerai.app
 
     scripts:
-      # ── 1. Install Node dependencies ────────────────────────────────────────
+      # ── 1. Install dependencies ──────────────────────────────────────────
       - name: Install dependencies
         script: |
           set -e
@@ -28,23 +27,9 @@ workflows:
           npm install @rollup/rollup-darwin-arm64 --no-save 2>/dev/null || true
           echo "✓ Dependencies installed"
 
-      # ── 2. Write .env.local from Codemagic secrets ─────────────────────────
+      # ── 2. Write .env.local from Codemagic secrets ───────────────────────
       - name: Write environment file
         script: |
-          cat > .env.local << 'ENVEOF'
-          VITE_SUPABASE_URL=$VITE_SUPABASE_URL
-          VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
-          VITE_OPENAI_API_KEY=$VITE_OPENAI_API_KEY
-          VITE_ADMIN_EMAILS=$VITE_ADMIN_EMAILS
-          VITE_VAPID_PUBLIC_KEY=$VITE_VAPID_PUBLIC_KEY
-          VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
-          VITE_NEWS_API_KEY=$VITE_NEWS_API_KEY
-          VITE_FINNHUB_API_KEY=$VITE_FINNHUB_API_KEY
-          VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
-          VITE_TUYA_APP_KEY=$VITE_TUYA_APP_KEY
-          VITE_TUYA_APP_SECRET=$VITE_TUYA_APP_SECRET
-          ENVEOF
-          # Re-write with actual values (heredoc doesn't expand vars)
           cat > .env.local << ENVEOF
           VITE_SUPABASE_URL=$VITE_SUPABASE_URL
           VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
@@ -60,7 +45,7 @@ workflows:
           ENVEOF
           echo "✓ .env.local written"
 
-      # ── 3. Build web app (bypass tsc — fails on CI) ─────────────────────────
+      # ── 3. Build web app (bypass tsc — fails on CI) ──────────────────────
       - name: Build web app (Vite)
         script: |
           set -e
@@ -72,10 +57,9 @@ workflows:
           FILE_COUNT=$(find dist -type f | wc -l)
           echo "✓ Web build complete: $FILE_COUNT files in dist/"
 
-      # ── 4. Sync iOS + force-copy web assets ─────────────────────────────────
+      # ── 4. Sync iOS + force-copy web assets ──────────────────────────────
       - name: Sync iOS and copy web assets
         script: |
-          set -e
           # cap sync may fail on CI — not fatal, we copy manually
           npx cap sync ios 2>&1 || echo "⚠ cap sync failed — copying assets manually"
           npx cap copy ios 2>&1 || echo "⚠ cap copy failed — copying assets manually"
@@ -94,115 +78,174 @@ workflows:
           fi
           echo "✓ Web assets synced: $FILE_COUNT files in $APP_PUBLIC"
 
-      # ── 5. Ensure capacitor.config.json exists ───────────────────────────────
+      # ── 5. Ensure iOS config files exist ─────────────────────────────────
       - name: Ensure iOS config files
         script: |
           CONFIG="ios/App/App/capacitor.config.json"
           if [ ! -f "$CONFIG" ]; then
             echo "⚠ capacitor.config.json missing — creating stub"
             cat > "$CONFIG" << 'EOF'
-          {
-            "appId": "com.rogerai.app",
-            "appName": "Roger AI",
-            "webDir": "public",
-            "bundledWebRuntime": false
-          }
+          {"appId":"com.rogerai.app","appName":"Roger AI","webDir":"public","bundledWebRuntime":false}
           EOF
+          fi
+
+          XML="ios/App/App/config.xml"
+          if [ ! -f "$XML" ]; then
+            echo "⚠ config.xml missing — creating stub"
+            echo '<?xml version="1.0" encoding="UTF-8"?><widget id="com.rogerai.app" version="1.0.0"><name>Roger AI</name></widget>' > "$XML"
           fi
           echo "✓ iOS config files present"
 
-      # ── 6. Increment build number ────────────────────────────────────────────
-      - name: Increment build number
+      # ── 6. Set up code signing (cliniq.one proven approach) ──────────────
+      - name: Set up code signing
         script: |
           set -e
-          cd ios/App
-          CURRENT=$(agvtool what-version -terse 2>/dev/null || echo "0")
-          NEW=$((CURRENT + 1))
-          agvtool new-version -all "$NEW"
-          echo "✓ Build number bumped: $CURRENT → $NEW"
 
-      # ── 7. Patch Info.plist ──────────────────────────────────────────────────
+          # Generate a fresh private key for this build
+          openssl genrsa -out /tmp/cert_key.pem 2048
+          export CERTIFICATE_PRIVATE_KEY=$(cat /tmp/cert_key.pem)
+          keychain initialize
+
+          # Revoke ALL existing Distribution certificates so we can create
+          # a fresh one that matches our newly generated private key.
+          echo "=== Revoking old Distribution certificates ==="
+          app-store-connect certificates list \
+            --type DISTRIBUTION \
+            --state ISSUED \
+            --save 2>/dev/null || true
+
+          app-store-connect certificates list --type DISTRIBUTION 2>/dev/null | \
+            awk '/serial:/ {print $2}' | while read SERIAL; do
+              echo "Revoking cert serial: $SERIAL"
+              app-store-connect certificates revoke "$SERIAL" 2>/dev/null || \
+                echo "  (Could not revoke $SERIAL)"
+            done || echo "No certificates to revoke"
+
+          # Fetch or CREATE distribution cert + provisioning profile
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+
+          # Extract provisioning profile UUID + Team ID
+          PP_PATH=$(find ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" 2>/dev/null | head -1)
+          if [ -z "$PP_PATH" ]; then
+            echo "ERROR: No provisioning profile found after fetch"
+            exit 1
+          fi
+          security cms -D -i "$PP_PATH" > /tmp/pp.plist
+          PP_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" /tmp/pp.plist)
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /tmp/pp.plist)
+          echo "Profile UUID: $PP_UUID  Team ID: $TEAM_ID"
+          printf '%s' "$PP_UUID" > /tmp/pp_uuid.txt
+          printf '%s' "$TEAM_ID" > /tmp/team_id.txt
+
+          # Patch project.pbxproj: Manual signing + inject Team ID
+          find ios -name "project.pbxproj" | while read pbxf; do
+            perl -i -pe "s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g; s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $TEAM_ID;/g;" "$pbxf"
+            echo "Patched: $pbxf"
+          done
+
+          xcode-project use-profiles
+          echo "✓ Code signing configured"
+
+      # ── 7. Increment build number ────────────────────────────────────────
+      - name: Increment build number
+        script: |
+          BUILD_NUM=${PROJECT_BUILD_NUMBER:-$(($(date +%s) / 60))}
+          echo "Build number: $BUILD_NUM"
+          cd ios/App
+          agvtool new-version -all "$BUILD_NUM" 2>/dev/null || \
+            find . -name "project.pbxproj" -exec perl -i -pe "s/CURRENT_PROJECT_VERSION = \\d+/CURRENT_PROJECT_VERSION = $BUILD_NUM/g" {} +
+          agvtool new-marketing-version "1.0.0" 2>/dev/null || true
+          echo "=== Version info ==="
+          grep -E "CURRENT_PROJECT_VERSION|MARKETING_VERSION" App.xcodeproj/project.pbxproj || true
+
+      # ── 8. Patch Info.plist ──────────────────────────────────────────────
       - name: Patch Info.plist
         script: |
           PLIST="ios/App/App/Info.plist"
-          # Suppress App Store export compliance popup
-          plutil -insert ITSAppUsesNonExemptEncryption -bool false "$PLIST" 2>/dev/null || \
-            plutil -replace ITSAppUsesNonExemptEncryption -bool false "$PLIST"
-          # Ensure arm64 only (required for App Store)
-          plutil -replace UIRequiredDeviceCapabilities -json '["arm64"]' "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIRequiredDeviceCapabilities array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIRequiredDeviceCapabilities:0 string arm64" "$PLIST"
           echo "✓ Info.plist patched"
 
-      # ── 8. Fetch signing files (auto-creates profile if missing) ──────────
-      - name: Fetch signing files
-        script: |
-          set -e
-          # Fetch or CREATE distribution certificate + provisioning profile
-          # --create flag auto-creates the profile if it doesn't exist yet
-          app-store-connect fetch-signing-files com.rogerai.app \
-            --type IOS_APP_STORE \
-            --create
-          echo "✓ Signing files fetched"
-
-      # ── 9. Apply signing to Xcode project ──────────────────────────────────
-      - name: Set up code signing
-        script: |
-          # Install fetched cert into keychain and patch project.pbxproj
-          keychain initialize
-          app-store-connect certificates list --type IOS_DISTRIBUTION \
-            --save || echo "⚠ Cert list save skipped"
-          keychain add-certificates
-          xcode-project use-profiles --project "$XCODE_PROJECT"
-          echo "✓ Code signing configured"
-
-      # ── 9. Build IPA ─────────────────────────────────────────────────────────
+      # ── 9. Build IPA ─────────────────────────────────────────────────────
       - name: Build IPA
         script: |
           set -e
+          cd ios/App
 
-          # Resolve SPM packages BEFORE archiving (required for Capacitor 8 SPM)
-          xcodebuild -resolvePackageDependencies \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -clonedSourcePackagesDirPath ios/App/SourcePackages
+          PP_UUID=$(cat /tmp/pp_uuid.txt)
+          TEAM_ID=$(cat /tmp/team_id.txt)
 
-          # Archive — signing is handled by use-profiles above
+          # 1. Resolve SPM dependencies first
+          echo "=== Resolving SPM packages ==="
+          xcodebuild -project "App.xcodeproj" \
+            -scheme "App" \
+            -resolvePackageDependencies \
+            2>&1 | tail -20
+
+          # 2. Archive
+          echo "=== Archiving ==="
           xcodebuild archive \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
+            -project "App.xcodeproj" \
+            -scheme "App" \
             -configuration Release \
-            -archivePath "$ARCHIVE_PATH" \
-            -clonedSourcePackagesDirPath ios/App/SourcePackages \
-            | xcpretty
+            -archivePath "$CM_BUILD_DIR/App.xcarchive" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PROVISIONING_PROFILE="$PP_UUID" \
+            -allowProvisioningUpdates
 
-          # Validate archive
-          if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERROR: Archive not created at $ARCHIVE_PATH"
-            exit 1
-          fi
-          echo "✓ Archive created: $ARCHIVE_PATH"
+          # 3. Create ExportOptions.plist dynamically
+          cat > /tmp/ExportOptions.plist <<EOPLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>${TEAM_ID}</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.rogerai.app</key>
+                  <string>${PP_UUID}</string>
+              </dict>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>uploadBitcode</key>
+              <false/>
+              <key>uploadSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          EOPLIST
 
-          # Export IPA — use Codemagic's generated export_options.plist
-          mkdir -p "$IPA_OUTPUT"
+          # 4. Export IPA
+          echo "=== Exporting IPA ==="
           xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportOptionsPlist /Users/builder/export_options.plist \
-            -exportPath "$IPA_OUTPUT" \
-            | xcpretty
+            -archivePath "$CM_BUILD_DIR/App.xcarchive" \
+            -exportPath "build/ios/ipa" \
+            -exportOptionsPlist /tmp/ExportOptions.plist
 
-          # Validate IPA
-          IPA_FILE=$(find "$IPA_OUTPUT" -name "*.ipa" | head -1)
-          if [ -z "$IPA_FILE" ]; then
-            echo "ERROR: No IPA found in $IPA_OUTPUT"
+          echo "=== IPA output ==="
+          ls -la build/ios/ipa/
+          IPA_COUNT=$(find build/ios/ipa -name "*.ipa" | wc -l)
+          if [ "$IPA_COUNT" -eq 0 ]; then
+            echo "ERROR: No IPA file produced!"
             exit 1
           fi
-          echo "✓ IPA built: $IPA_FILE"
+          echo "SUCCESS: Found $IPA_COUNT IPA file(s)"
 
-    # ── Collect build artifact ──────────────────────────────────────────────
     artifacts:
       - ios/App/build/ios/ipa/*.ipa
-      - ios/App/build/ios/App.xcarchive   # Keep archive for dSYMs / re-sign
+      - /tmp/xcodebuild_logs/*.log
 
-    # ── Publish to TestFlight ───────────────────────────────────────────────
     publishing:
       app_store_connect:
         auth: integration
