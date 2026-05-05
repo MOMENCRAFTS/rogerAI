@@ -174,9 +174,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
-  // VITE_BUILD_TARGET=user means this is the user-only APK build — always non-admin
-  const isAdmin = import.meta.env.VITE_BUILD_TARGET !== 'user' &&
-    ADMIN_EMAILS.includes((user?.email ?? '').toLowerCase());
+  // Dev mode: any authenticated user gets admin on localhost
+  // Production: must be in the VITE_ADMIN_EMAILS whitelist
+  const isDev = import.meta.env.DEV;
+  const isAdmin = import.meta.env.VITE_BUILD_TARGET !== 'user' && !!user && (
+    isDev || ADMIN_EMAILS.includes((user?.email ?? '').toLowerCase())
+  );
 
   return (
     <AuthContext.Provider value={{ user, loading, isAdmin, authError, signInWithGoogle, signOut }}>

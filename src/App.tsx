@@ -12,7 +12,6 @@ import FlowInspector from './modules/FlowInspector';
 import Sandbox from './modules/Sandbox';
 import PTTTestLab from './modules/PTTTestLab';
 import IntentRegistry from './modules/IntentRegistry';
-import MemoryMonitor from './modules/MemoryMonitor';
 import MemoryGraph   from './modules/MemoryGraph';
 import PatternLab from './modules/PatternLab';
 import Contacts from './modules/Contacts';
@@ -24,7 +23,6 @@ import ConversationMonitor from './modules/ConversationMonitor';
 import AIBrainViewer from './modules/AIBrainViewer';
 import HazardMonitor from './modules/HazardMonitor';
 import ProactiveMonitor from './modules/ProactiveMonitor';
-import CommuteRadar from './modules/user/CommuteRadar';
 import SubscriptionMonitor from './modules/SubscriptionMonitor';
 import IslamicModeMonitor from './modules/IslamicModeMonitor';
 import UserApp from './modules/user/UserApp';
@@ -45,28 +43,29 @@ function ModuleRenderer({ activeModule }: { activeModule: string }) {
     case 'transmissions': return <Transmissions />;
     case 'devices':       return <Devices />;
     case 'flow':          return <FlowInspector />;
-    case 'sandbox':       return <Sandbox />;
-    case 'pttlab':          return <PTTTestLab />;
-    case 'intents':         return <IntentRegistry />;
-    case 'memory_monitor':  return <MemoryMonitor />;
-    case 'memory':          return <MemoryGraph />;
-    case 'pattern_lab':     return <PatternLab />;
-    case 'contacts':        return <Contacts />;
-    case 'channels':        return <Channels />;
-    case 'commute':         return <Commute />;
-    case 'tunein':          return <TuneIn />;
+    case 'sandbox':       return <UserRegistry initialTab="personas" />;  // absorbed → Quick Test panel
+    case 'pttlab':        return <UserRegistry initialTab="personas" />;  // absorbed → Quick Test panel
+    case 'intents':       return <IntentRegistry />;
+    case 'memory':        return <MemoryGraph />;
+    case 'memory_monitor': return <MemoryGraph />;  // legacy redirect → MemoryGraph
+    case 'pattern_lab':   return <PatternLab />;
+    case 'contacts':      return <Contacts />;
+    case 'channels':      return <Channels />;
+    case 'commute':       return <Commute />;
+    case 'tunein':        return <TuneIn />;
     case 'session_archive': return <SessionArchive />;
-    case 'conversations':   return <ConversationMonitor />;
-    case 'hazard_monitor':  return <HazardMonitor />;
-    case 'proactive':       return <ProactiveMonitor />;
-    case 'drive_sim':       return <CommuteRadar userId="admin-preview" />;
-    case 'settings':        return <ApiSettings />;
-    case 'billing':         return <SubscriptionMonitor />;
+    case 'conversations': return <ConversationMonitor />;
+    case 'hazard_monitor': return <HazardMonitor />;
+    case 'proactive':     return <ProactiveMonitor />;
+    case 'settings':      return <ApiSettings />;
+    case 'billing':       return <SubscriptionMonitor />;
     case 'islamic_monitor': return <IslamicModeMonitor />;
-    case 'ai_brain':        return <AIBrainViewer />;
-    case 'users':           return <UserRegistry />;
-    case 'flags':           return <FeatureFlags />;
-    case 'audit':           return <AuditLog />;
+    case 'ai_brain':      return <AIBrainViewer />;
+    case 'users':         return <UserRegistry />;
+    case 'personas':      return <UserRegistry initialTab="personas" />;
+    case 'userai_sessions': return <UserRegistry initialTab="personas" />;  // deprecated → Personas tab
+    case 'flags':         return <FeatureFlags />;
+    case 'audit':         return <AuditLog />;
     default: {
       const info = moduleInfoMap[activeModule];
       if (!info) return (

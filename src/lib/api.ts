@@ -655,30 +655,39 @@ export async function fetchMemoryGraph(
 export async function upsertMemoryFact(
   fact: Omit<DbMemoryFact, 'id' | 'created_at' | 'updated_at'>
 ): Promise<void> {
-  // Check if a fact with same user+subject+predicate exists
+  // Use DB-native upsert keyed on the unique index (user_id, subject, predicate, object).
+  // This correctly handles multi-value facts — each distinct object gets its own row.
+  // On conflict (same fact already exists), update confidence + promote draft if eligible.
   const { data: existing } = await supabase
     .from('memory_graph')
-    .select('id, is_draft')
-    .eq('user_id', fact.user_id)
-    .eq('subject', fact.subject)
+    .select('id, is_draft, confidence')
+    .eq('user_id',   fact.user_id)
+    .eq('subject',   fact.subject)
     .eq('predicate', fact.predicate)
+    .eq('object',    fact.object)
     .maybeSingle();
 
   if (existing) {
-    // Second mention of a draft fact promotes it to full fact (is_draft → false)
+    // Same fact seen again — promote draft to confirmed if second-signal rule applies
     const promoted = existing.is_draft && !fact.is_draft;
-    await supabase.from('memory_graph')
+    await supabase
+      .from('memory_graph')
       .update({
-        object:     fact.object,
-        confidence: fact.confidence,
+        confidence: Math.max(existing.confidence, fact.confidence),
         is_draft:   promoted ? false : fact.is_draft,
+        is_confirmed: fact.is_confirmed || (promoted ? true : false),
         updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id);
   } else {
-    await supabase.from('memory_graph').insert(fact);
+    // New distinct fact — insert it (object is different, so this is a new row)
+    await supabase.from('memory_graph').insert({
+      ...fact,
+      updated_at: new Date().toISOString(),
+    });
   }
 }
+
 
 export async function confirmMemoryFact(factId: string): Promise<void> {
   await supabase.from('memory_graph').update({ is_confirmed: true }).eq('id', factId);
@@ -1835,6 +1844,293 @@ export function subscribeToHealthChecks(onChange: () => void) {
     .subscribe();
 }
 
+
+
+// ─── AI Persona System ────────────────────────────────────────────────────────
+
+export type AiPersonaIdentity = {
+  archetype:        string;
+  name:             string;
+  age:              number;
+  nationality:      string;
+  city:             string;
+  timezone:         string;
+  language:         string;
+  profession:       string;
+  family_context:   string;
+  personality_traits: string[];
+  why_roger:        string;
+  roger_mode:       string;
+  islamic_mode:     boolean;
+  talkative_enabled: boolean;
+  daily_rhythm:     { morning: string; commute: string; work: string; evening: string };
+  memory_facts:     { fact_type: string; subject: string; predicate: string; object: string; confidence: number }[];
+  memories:         { type: string; text: string; tags: string[] }[];
+  reminders:        { text: string; due_offset_hours: number; recurrence_rule?: string | null }[];
+  tasks:            { text: string; priority: number }[];
+  conversation_seeds: { role: string; content: string; intent?: string }[];
+  entity_mentions:  { entity_text: string; entity_type: string; mention_count: number }[];
+};
+
+export type AiPersonaEvent = {
+  id:           string;
+  user_id:      string;
+  event_type:   'spawn' | 'life_advance' | 'manual_advance' | 'scenario' | 'report';
+  summary:      string;
+  detail?:      Record<string, unknown>;
+  report_data?: Record<string, unknown>;
+  model_used:   string;
+  tokens_used:  number;
+  cost_usd:     number;
+  created_at:   string;
+};
+
+export type AiUsageRow = {
+  function_name: string;
+  model:         string;
+  total_tokens:  number;
+  cost_usd:      number;
+  latency_ms:    number;
+  success:       boolean;
+  created_at:    string;
+};
+
+export type TraceExchange = {
+  user_msg:    string;
+  user_intent: string | null;
+  roger_reply: string;
+  timestamp:   string;
+};
+
+export type TraceAiCall = {
+  node:              string;
+  function_name:     string;
+  model:             string;
+  prompt_tokens:     number;
+  completion_tokens: number;
+  total_tokens:      number;
+  cost_usd:          number;
+  latency_ms:        number;
+  success:           boolean;
+  timestamp:         string;
+};
+
+export type TraceDbChanges = {
+  memories_added:      string[];
+  facts_added:         string[];
+  tasks_added:         string[];
+  tasks_completed:     string[];
+  reminders_triggered: string[];
+};
+
+export type TraceEntry = {
+  event_id:       string;
+  event_type:     string;
+  timestamp:      string;
+  summary:        string;
+  narrative:      string | null;
+  model_used:     string;
+  tokens_used:    number;
+  cost_usd:       number;
+  cron_triggers:  string[];
+  ai_calls:       TraceAiCall[];
+  silent_nodes:   string[];
+  exchanges:      TraceExchange[];
+  db_changes:     TraceDbChanges;
+  events_applied: number;
+};
+
+export type PersonaReport = {
+  version:           number;
+  generated_at:      string;
+  persona:           { name: string; archetype: string; nationality: string; profession: string; why_roger: string; callsign: string | null; spawned_at: string };
+  executive_summary: string;
+  stats:             Record<string, number>;
+  ai_breakdown:      { function: string; node_name: string; calls: number; tokens: number; cost: number; avg_latency_ms: number }[];
+  memory_highlights: string[];
+  ux_journey:        string[];
+  top_entities:      { entity_text: string; entity_type: string; mention_count: number }[];
+  trace_log:         TraceEntry[];
+  report_meta:       { synthesis_tokens: number; synthesis_cost_usd: number; synthesis_latency_ms: number };
+};
+
+/** PHASE 1: Generate persona preview (GPT only, no DB write) */
+export async function previewAiPersona(archetype?: string): Promise<{ persona: AiPersonaIdentity; tokens: number; cost: number; latency: number }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/spawn-ai-persona`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'preview', archetype }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** PHASE 3: Commit persona to DB using approved preview data */
+export async function commitAiPersona(previewData: AiPersonaIdentity): Promise<{ userId: string; email: string; callsign: string; persona: Partial<AiPersonaIdentity> }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/spawn-ai-persona`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'commit', previewData }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** Fetch all AI personas (is_ai_persona=true) */
+export async function fetchAiPersonas(): Promise<DbUserProfile[]> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'list_personas' }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json() as { users: DbUserProfile[] };
+  return data.users ?? [];
+}
+
+/** Advance a persona's life (random event or scenario injection) */
+export async function advancePersonaLife(userId: string, scenario?: string): Promise<{ ok: boolean; summary: string; detail: Record<string, unknown>; tokens: number; cost_usd: number }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/advance-persona-life`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ userId, scenario: scenario ?? null }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** Fetch all lifespan events for a persona */
+export async function fetchPersonaEvents(userId: string): Promise<AiPersonaEvent[]> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'persona_events', userId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json() as { events: AiPersonaEvent[] };
+  return data.events ?? [];
+}
+
+/** Fetch AI usage log for a persona */
+export async function fetchPersonaAiUsage(userId: string): Promise<AiUsageRow[]> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'ai_usage', userId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json() as { usage: AiUsageRow[] };
+  return data.usage ?? [];
+}
+
+/** Generate a full versioned report for a persona */
+export async function generatePersonaReport(userId: string): Promise<PersonaReport> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/persona-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ userId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json() as { report: PersonaReport };
+  return data.report;
+}
+
+/** Permanently delete any user (AI or real) and all their data */
+export async function deleteAdminUser(userId: string): Promise<void> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'delete', userId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export type ConvTurn = {
+  id: string;
+  session_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  intent: string | null;
+  created_at: string;
+};
+
+export type LiveSnapshot = {
+  tasks:     { id: string; text: string; priority: number; status: string; created_at: string }[];
+  reminders: { id: string; text: string; status: string; due_at: string; created_at: string }[];
+  memories:  { id: string; type: string; text: string; tags: string[]; created_at: string }[];
+  facts:     { id: string; fact_type: string; subject: string; predicate: string; object: string; confidence: number }[];
+};
+
+/** Fetch conversation history for a persona (PTT turns) */
+export async function fetchPersonaConversation(userId: string, limit = 80): Promise<ConvTurn[]> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'conversation_history', userId, limit }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json() as { turns: ConvTurn[] };
+  return data.turns ?? [];
+}
+
+/** Fetch live snapshot: tasks, reminders, memories, facts */
+export async function fetchLiveSnapshot(userId: string): Promise<LiveSnapshot> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'live_snapshot', userId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<LiveSnapshot>;
+}
+
+export type SessionTraceTurn = {
+  turn:           number;
+  utterance:      string;
+  roger_response: string;
+  intent:         string;
+  confidence:     number;
+  outcome:        string;
+  proposed_tasks: { text: string; priority: number }[];
+  reasoning:      string;
+  latency_ms:     number;
+};
+
+export type SessionResult = {
+  ok:               boolean;
+  session_id:       string;
+  turns:            number;
+  trace:            SessionTraceTurn[];
+  summary:          string;
+  total_latency_ms: number;
+};
+
+/** Run a REAL PTT session through process-transmission for an AI persona */
+export async function simulatePersonaSession(
+  userId: string,
+  scenario?: string,
+  turns = 4
+): Promise<SessionResult> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/simulate-persona-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ userId, scenario: scenario?.trim() || undefined, turns }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<SessionResult>;
+}
+
 // ─── Personal Encyclopedia ────────────────────────────────────────────────────
 
 export type DbEncyclopediaEntry = {
@@ -1948,6 +2244,9 @@ export type DbUserProfile = {
   islamic_mode: boolean;
   tour_seen: boolean;
   updated_at: string;
+  is_ai_persona?: boolean;
+  ai_persona_identity?: unknown;
+  last_advanced_at?: string | null;
 };
 
 /** Fetch all user profiles via the admin-users edge function (bypasses RLS using service-role key) */
@@ -2068,5 +2367,126 @@ export async function fetchUserMemories(userId: string, limit = 100): Promise<Db
     .limit(limit);
   if (error) throw error;
   return data ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXECUTION AUDIT — Proof-of-execution timeline for UserAI personas
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ExecutionAuditCategory = 'reminder' | 'task' | 'memory' | 'fact' | 'service' | 'conversation';
+export type ExecutionAuditAction = 'created' | 'fired' | 'completed' | 'failed' | 'blocked' | 'extracted' | 'updated';
+export type ExecutionAuditStatus = 'success' | 'warning' | 'error';
+
+export type ExecutionAuditEntry = {
+  id: string;
+  timestamp: string;
+  category: ExecutionAuditCategory;
+  action: ExecutionAuditAction;
+  status: ExecutionAuditStatus;
+
+  // What triggered it
+  trigger_transcript: string | null;
+  trigger_intent: string | null;
+  trigger_confidence: number | null;
+
+  // What happened
+  description: string;
+  db_table: string | null;
+  db_row_id: string | null;
+  db_current_status: string | null;
+
+  // Service details
+  service_name: string | null;
+  service_response: string | null;
+
+  // Roger's response
+  roger_response: string | null;
+
+  // Cost
+  tokens: number | null;
+  cost_usd: number | null;
+  latency_ms: number | null;
+};
+
+export type ExecutionAuditSummary = {
+  total: number;
+  success: number;
+  warning: number;
+  error: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  avg_latency_ms: number;
+  by_category: Record<string, number>;
+};
+
+/**
+ * Fetch execution audit timeline for a persona.
+ * Queries across conversation_history, reminders, tasks, memories, memory_facts,
+ * and ai_usage_log to build a unified proof-of-execution timeline.
+ */
+export async function fetchExecutionAudit(
+  userId: string,
+  opts?: { dateFrom?: string; dateTo?: string; category?: ExecutionAuditCategory; limit?: number }
+): Promise<{ entries: ExecutionAuditEntry[]; summary: ExecutionAuditSummary }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({
+      action: 'execution_audit',
+      userId,
+      dateFrom: opts?.dateFrom ?? null,
+      dateTo: opts?.dateTo ?? null,
+      category: opts?.category ?? null,
+      limit: opts?.limit ?? 200,
+    }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/**
+ * Verify a single audit entry by checking if the DB row still exists.
+ * Returns the current row data or null if not found.
+ */
+export async function verifyAuditEntry(
+  table: string,
+  rowId: string
+): Promise<{ exists: boolean; current_status: string | null; row_data: Record<string, unknown> | null }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'verify_row', table, rowId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/**
+ * Fetch cross-persona analytics (aggregated across all AI personas).
+ */
+export type PersonaAnalytics = {
+  active_personas: number;
+  total_sessions_today: number;
+  avg_intent_accuracy: number;
+  fallback_rate: number;
+  red_flags: number;
+  total_cost_7d: number;
+  top_intents: { intent: string; count: number }[];
+  worst_persona: { name: string; user_id: string; fallback_pct: number } | null;
+  best_persona: { name: string; user_id: string; fallback_pct: number } | null;
+  service_failures_24h: number;
+};
+
+export async function fetchPersonaAnalytics(): Promise<PersonaAnalytics> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ action: 'persona_analytics' }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Radio, Shield, Signal, Wifi, BatteryFull, Menu, X, UserCheck, ShieldCheck, LogOut, ChevronDown } from 'lucide-react';
+import { Radio, Wifi, BatteryFull, Menu, X, UserCheck, ShieldCheck, LogOut, ChevronDown } from 'lucide-react';
 import { useViewMode } from '../../context/ViewModeContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -10,12 +10,7 @@ interface StatusBarProps {
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 
-function formatUptime(totalSeconds: number) {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  return `UP ${pad(h)}:${pad(m)}:${pad(s)}`;
-}
+
 
 function formatClock(d: Date) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -24,7 +19,7 @@ function formatClock(d: Date) {
 export default function StatusBar({ onMenuToggle, menuOpen }: StatusBarProps) {
   const { viewMode, setViewMode } = useViewMode();
   const { user, isAdmin, signOut } = useAuth();
-  const [uptime, setUptime]   = useState(86412);
+
   const [clock, setClock]     = useState(formatClock(new Date()));
   const [avatarOpen, setAvatarOpen] = useState(false);
   const intervalRef           = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -32,7 +27,7 @@ export default function StatusBar({ onMenuToggle, menuOpen }: StatusBarProps) {
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {
-      setUptime(u => u + 1);
+
       setClock(formatClock(new Date()));
     }, 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
@@ -111,40 +106,17 @@ export default function StatusBar({ onMenuToggle, menuOpen }: StatusBarProps) {
           </span>
         </div>
 
-        {/* Separator */}
-        <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} className="hidden md:block" />
-
-        {/* TLS */}
-        <div className="hidden md:flex items-center gap-1.5">
-          <Shield size={12} style={{ color: 'var(--text-secondary)' }} />
-          <span className="font-mono text-xs tracking-wider" style={{ color: 'var(--text-secondary)' }}>
-            TLS 1.3
-          </span>
-        </div>
+        {/* FIX 8: TLS is dev info — hidden from user-facing status bar */}
       </div>
 
       {/* ── Right ── */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Uptime */}
-        <div
-          className="hidden sm:flex items-center px-2 py-0.5 border font-mono text-nano tracking-wider"
-          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
-        >
-          {formatUptime(uptime)}
-        </div>
-
-        {/* Clock */}
+        {/* FIX 8: clean right side — show only clock + wifi + battery */}
         <div
           className="flex items-center px-2 py-0.5 border font-mono text-mini tracking-wider tabular-nums amber-flicker"
           style={{ borderColor: 'var(--amber-border)', color: 'var(--amber)' }}
         >
           {clock}
-        </div>
-
-        {/* Signal */}
-        <div className="hidden sm:flex items-center gap-1">
-          <Signal size={14} style={{ color: 'var(--green)' }} />
-          <span className="font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>98%</span>
         </div>
 
         {/* WiFi */}

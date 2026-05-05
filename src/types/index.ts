@@ -12,8 +12,7 @@ export interface NavItem {
 export type NavGroup =
   | 'PTT NETWORK'
   | 'OPERATIONS'
-  | 'AI & TESTING'
-  | 'CONTENT'
+  | 'AI LAB'
   | 'ANALYTICS'
   | 'ADMIN';
 
