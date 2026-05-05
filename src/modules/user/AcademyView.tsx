@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { GraduationCap, BookOpen, Mic, MessageCircle, Target, Flame, TrendingUp, ChevronDown, RefreshCw, Star, Zap, Award, CheckCircle2 } from 'lucide-react';
+import { GraduationCap, BookOpen, Mic, MessageCircle, Target, Flame, TrendingUp, ChevronDown, RefreshCw, Star, Award, CheckCircle2 } from 'lucide-react';
 import { useI18n } from '../../context/I18nContext';
 import { type Locale, getLocaleName, getLocaleFlag, ALL_LOCALES, getBaseLanguage } from '../../lib/i18n';
 import { fetchAcademyStreak, fetchVocabWords, upsertAcademyStreak } from '../../lib/api';

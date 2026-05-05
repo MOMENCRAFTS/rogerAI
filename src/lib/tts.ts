@@ -18,8 +18,13 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 // Shared AudioContext — lazy-created, recreated if it enters a closed state.
 let _ctx: AudioContext | null = null;
 
+// Master gain — persisted via localStorage, default 2.0 to compensate for
+// low native output levels. Callers can adjust via setTtsVolume().
+let _ttsGain: number = Number(localStorage.getItem('ttsVolume') ?? 2.0);
+
 // Currently playing source — allows stopSpeaking() to interrupt mid-sentence.
 let _currentSource: AudioBufferSourceNode | null = null;
+let _gainNode: GainNode | null = null;
 let _stopCallback: (() => void) | null = null;
 
 // AbortController — cancels in-flight TTS fetch so stale audio never plays.
@@ -44,6 +49,18 @@ async function getAudioContext(): Promise<AudioContext> {
 function resetAudioContext(): void {
   if (_ctx) { try { _ctx.close(); } catch { /* ignore */ } }
   _ctx = null;
+  _gainNode = null;
+}
+
+/**
+ * Adjust TTS playback volume (0–4). Default is 2.0.
+ * Values above 1.0 amplify beyond the normal maximum.
+ * Changes take effect on the next spoken phrase.
+ */
+export function setTtsVolume(v: number): void {
+  _ttsGain = Math.max(0, Math.min(4, v));
+  localStorage.setItem('ttsVolume', String(_ttsGain));
+  if (_gainNode) _gainNode.gain.setTargetAtTime(_ttsGain, _gainNode.context.currentTime, 0.01);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -278,7 +295,13 @@ async function _speakResponseInner(text: string): Promise<void> {
 
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(ctx.destination);
+
+    // Route through a GainNode so we can amplify beyond the default level
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(_ttsGain, ctx.currentTime);
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    _gainNode      = gain;
     _currentSource = source;
     _stopCallback  = resolve;
 

@@ -905,7 +905,24 @@ export async function processTransmission(
   const sessionHistory = history.slice(-6).map(t => ({ role: t.role, content: t.content }));
 
   // Fetch persistent DB memory context if userId provided
-  const memoryContext = ''; // Memory context is built server-side by the edge function
+  let memoryContext = '';
+  if (userId) {
+    try {
+      const { fetchMemoryGraph } = await import('./api');
+      const facts = await fetchMemoryGraph(userId);
+      const confirmed = facts
+        .filter(f => !f.is_draft && f.confidence >= 65)
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 25);
+      if (confirmed.length > 0) {
+        memoryContext =
+          '=== ROGER KNOWS (confirmed facts about this user) ===\n' +
+          confirmed.map(f => `${f.subject} ${f.predicate} ${f.object}`).join('\n');
+      }
+    } catch (e) {
+      console.warn('[processTransmission] Memory fetch failed (non-fatal):', e);
+    }
+  }
 
   const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
   const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -975,7 +992,7 @@ export async function processTransmission(
           try {
             const activeMode = localStorage.getItem('roger:academy_mode');
             if (!activeMode) return null;
-            const modeLabels = { vocab: 'VOCAB - teach new words, return academy_word', drill: 'DRILL - quiz user, return academy_drill_type', conversation: 'CONVERSE - free conversation practice' };
+            const modeLabels: Record<string, string> = { vocab: 'VOCAB - teach new words, return academy_word', drill: 'DRILL - quiz user, return academy_drill_type', conversation: 'CONVERSE - free conversation practice' };
             return `=== ACADEMY MODE ACTIVE ===\nUser selected mode: ${modeLabels[activeMode] ?? activeMode}\nClassify this as ACADEMY_${activeMode.toUpperCase()} and respond in that mode.`;
           } catch { return null; }
         })(),

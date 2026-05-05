@@ -5,6 +5,7 @@ import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, dele
 import { useLocation } from '../../lib/useLocation';
 import { setHapticsEnabled } from '../../lib/haptics';
 import { setSfxEnabled, setSfxVolume } from '../../lib/sfx';
+import { setTtsVolume } from '../../lib/tts';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
@@ -34,6 +35,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
   const [saved, setSaved]         = useState(false);
   const [pushState, setPushState] = useState<'unknown' | 'subscribed' | 'denied' | 'unsupported' | 'subscribing'>('unknown');
   const [sfxVol, setSfxVol]       = useState<number>(() => Number(localStorage.getItem('sfxVolume') ?? 0.35));
+  const [ttsVol, setTtsVol]       = useState<number>(() => Number(localStorage.getItem('ttsVolume') ?? 2.0));
   const [callsign, setCallsign]   = useState<string | null>(null);
   const [copied, setCopied]       = useState(false);
   const { locationLabel, permissionState: locPerm } = useLocation(userId);
@@ -174,6 +176,10 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
   const handleSfxVolume = (v: number) => {
     setSfxVol(v); setSfxVolume(v);
     localStorage.setItem('sfxVolume', String(v));
+  };
+
+  const handleTtsVolume = (v: number) => {
+    setTtsVol(v); setTtsVolume(v);
   };
 
   const locColor = locPerm === 'granted' ? 'var(--green)' : locPerm === 'denied' ? '#ef4444' : 'var(--text-muted)';
@@ -479,6 +485,22 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             </div>
           </div>
         )}
+
+        {/* Voice (TTS) Volume slider — always visible */}
+        <div style={{ marginTop: 8, padding: '12px 16px', border: '1px solid rgba(212,160,68,0.25)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Volume2 size={14} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Voice Volume</span>
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)' }}>{Math.round((ttsVol / 4) * 100)}%</span>
+            </div>
+            <input type="range" min={0} max={4} step={0.1} value={ttsVol}
+              onChange={e => handleTtsVolume(Number(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--amber)' }}
+            />
+            <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '4px 0 0', opacity: 0.6 }}>Controls Roger's spoken reply volume. Increase if audio is too quiet.</p>
+          </div>
+        </div>
       </div>
 
       {/* Mode selector */}

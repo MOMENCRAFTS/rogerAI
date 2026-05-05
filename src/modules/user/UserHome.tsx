@@ -3349,7 +3349,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         {messages.length === 0 && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: 0.3 }}>
             <Radio size={36} style={{ color: 'var(--amber)' }} />
-            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.25em' }}>{t('ptt.hold_to_talk')}</span>
+            {/* FIX 7: removed duplicate HOLD TO TALK \u2014 PTT button already shows this label */}
           </div>
         )}
         {messages.map(msg => (

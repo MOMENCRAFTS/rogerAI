@@ -92,6 +92,10 @@ export function useHazards(
   const voicedWarn     = useRef<Set<string>>(new Set());
   const voicedCritical = useRef<Set<string>>(new Set());
   const clearedSet     = useRef<Set<string>>(new Set());
+  // GAP 2: suppress own-hazard proximity overlay for 60 s after self-report
+  const selfReported   = useRef<Map<string, number>>(new Map());
+  // GAP 5: unique channel name per mount to prevent multi-tab collision
+  const channelName    = useRef(`road_hazards_live_${crypto.randomUUID()}`);
 
   // ── Fetch community hazards from Supabase ───────────────────────────────────
   const fetchCommunity = useCallback(async () => {
@@ -133,7 +137,7 @@ export function useHazards(
   // ── Supabase Realtime — live community updates ──────────────────────────────
   useEffect(() => {
     const channel = supabase
-      .channel('road_hazards_live')
+      .channel(channelName.current) // GAP 5: unique per mount
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'road_hazards' },
@@ -174,8 +178,17 @@ export function useHazards(
     // Proximity engine — voice alerts + overlay
     let newAlert: HazardEvent | null = null;
 
+    // GAP 2: purge expired self-reported entries
+    const now = Date.now();
+    for (const [id, ts] of selfReported.current.entries()) {
+      if (now - ts > 60_000) selfReported.current.delete(id);
+    }
+
     for (const h of annotated) {
       const dist = h.distanceM ?? Infinity;
+
+      // GAP 2: skip own-reported hazard from proximity alerts for 60 s
+      if (selfReported.current.has(h.id)) continue;
 
       if (dist <= ZONE_CRITICAL_M) {
         newAlert = h;
@@ -204,11 +217,12 @@ export function useHazards(
 
   // ── Report a new hazard ─────────────────────────────────────────────────────
   const reportHazard = useCallback(async (type: HazardType) => {
-    if (!userLat || !userLng) return;
+    if (!userLat || !userLng) throw new Error('GPS_REQUIRED');
     const meta = HAZARD_META[type];
     const expiresAt = new Date(Date.now() + meta.expiryMs).toISOString();
 
-    await supabase.from('road_hazards').insert({
+    // GAP 3: propagate errors instead of swallowing them
+    const { data, error } = await supabase.from('road_hazards').insert({
       type,
       lat:            userLat,
       lng:            userLng,
@@ -217,7 +231,15 @@ export function useHazards(
       confirmed_count: 1,
       denied_count:   0,
       expires_at:     expiresAt,
-    });
+    }).select('id').single();
+
+    if (error) throw error;
+
+    // GAP 1: voice acknowledgment to the reporter
+    speakResponse(`${meta.label} reported and broadcast to all nearby users.`).catch(() => {});
+
+    // GAP 2: suppress own-hazard proximity overlay for 60 s
+    if (data?.id) selfReported.current.set(data.id, Date.now());
   }, [userId, userLat, userLng]);
 
   // ── Vote on existing hazard ─────────────────────────────────────────────────
@@ -241,7 +263,7 @@ export function useHazards(
     fetchCommunity();
     fetchOSM();
     fetchTomTom();
-  }, [fetchCommunity, fetchOSM]);
+  }, [fetchCommunity, fetchOSM, fetchTomTom]); // GAP 6: added fetchTomTom dep
 
   return { hazards, alertHazard, loading, reportHazard, voteHazard, refresh };
 }

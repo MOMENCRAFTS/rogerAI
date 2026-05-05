@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { RefreshCw, Radio, X, CheckCircle, XCircle } from 'lucide-react';
+import { RefreshCw, Radio, X, CheckCircle, XCircle, VolumeX } from 'lucide-react';
 import { useHazards } from '../../lib/useHazards';
 import { polarToSVG } from '../../lib/hazardMath';
 import { HAZARD_META } from '../../types/hazard';
 import type { HazardEvent, HazardType } from '../../types/hazard';
 import type { UserLocation } from '../../lib/useLocation';
 import { useI18n } from '../../context/I18nContext';
+import { speakResponse } from '../../lib/tts';
 
 interface Props {
   userId:   string;
@@ -13,10 +14,13 @@ interface Props {
 }
 
 const HAZARD_TYPES: HazardType[] = ['police','speed_cam','accident','road_works','debris','flood','closure'];
-const SVG_SIZE  = 280;
+// FIX 1: Responsive radar size — fills available height instead of fixed 280px
+const SVG_SIZE  = typeof window !== 'undefined'
+  ? Math.min(Math.round(window.innerHeight * 0.48), 380)
+  : 300;
 const CX        = SVG_SIZE / 2;
 const CY        = SVG_SIZE / 2;
-const RADIUS    = 120;
+const RADIUS    = SVG_SIZE * 0.43;   // 43% of SVG = consistent proportions
 const MAX_DIST  = 600; // metres shown at outer ring
 
 // ── Radar sweep animation ─────────────────────────────────────────────────────
@@ -88,6 +92,7 @@ export default function RadarView({ userId, location }: Props) {
   const [selected,    setSelected]    = useState<HazardEvent | null>(null);
   const [muteZone,    setMuteZone]    = useState(false);
   const [reported,    setReported]    = useState(false);
+  const [reportError, setReportError] = useState(''); // GAP 3: surface insert errors
   const rafRef = useRef<number>(0);
 
   // Radar sweep animation
@@ -104,10 +109,15 @@ export default function RadarView({ userId, location }: Props) {
 
   const handleReport = async () => {
     setReporting(true);
+    setReportError(''); // GAP 3: clear previous error
     try {
       await reportHazard(reportType);
       setReported(true);
       setTimeout(() => { setShowReport(false); setReported(false); }, 1500);
+    } catch (e) {
+      // GAP 3: show real error instead of fake success
+      const msg = (e as Error).message ?? 'Report failed';
+      setReportError(msg === 'GPS_REQUIRED' ? 'GPS signal required' : msg);
     } finally {
       setReporting(false);
     }
@@ -214,12 +224,20 @@ export default function RadarView({ userId, location }: Props) {
 
         {/* ── Sector Intel list ── */}
         <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', padding: '10px 14px' }}>
-          <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>
-            SECTOR INTEL · {hazards.length} ACTIVE
+          {/* FIX 6: stronger header with left accent + larger font */}
+          <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
+            <Radio size={10} />
+            SECTOR INTEL
+            <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-muted)' }}>{hazards.length} ACTIVE</span>
           </div>
+          {/* FIX 9: zone-clear empty state with icon + glow */}
           {hazards.length === 0 && (
-            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center', padding: '12px 0' }}>
-              {loading ? 'SCANNING...' : location ? 'ZONE CLEAR' : 'GPS REQUIRED'}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: 6 }}>
+              <span style={{ fontSize: 26, filter: 'drop-shadow(0 0 8px rgba(90,156,105,0.6))' }}>⬡</span>
+              <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#5a9c69', letterSpacing: '0.18em', animation: 'ledBlink 2.5s ease-in-out infinite' }}>ZONE CLEAR</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                {loading ? 'SCANNING...' : location ? 'No hazards within 600m' : 'GPS REQUIRED'}
+              </div>
             </div>
           )}
           {[...nearby, ...beyond].map(h => {
@@ -247,16 +265,17 @@ export default function RadarView({ userId, location }: Props) {
       </div>
 
       {/* ── Action Bar ── */}
+      {/* FIX 4: 3:1 split — report is primary CTA; mute is secondary with icon */}
       <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '10px 16px', display: 'flex', gap: 8, flexShrink: 0, background: 'var(--bg-elevated)' }}>
         <button
           onClick={() => { setShowReport(true); setReported(false); }}
-          style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(212,160,68,0.12)', border: '1px solid var(--amber)', color: 'var(--amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          style={{ flex: 3, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: 'rgba(212,160,68,0.12)', border: '1px solid var(--amber)', color: 'var(--amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           REPORT HAZARD
         </button>
         <button
           onClick={() => setMuteZone(m => !m)}
-          style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: muteZone ? 'rgba(168,72,50,0.12)' : 'transparent', border: `1px solid ${muteZone ? 'var(--rust-border)' : 'var(--border-subtle)'}`, color: muteZone ? '#a84832' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          {muteZone ? 'MUTED' : 'MUTE ZONE'}
+          style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', background: muteZone ? 'rgba(168,72,50,0.12)' : 'transparent', border: `1px solid ${muteZone ? 'var(--rust-border)' : 'var(--border-subtle)'}`, color: muteZone ? '#a84832' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+          <VolumeX size={11} />{muteZone ? 'MUTED' : 'MUTE'}
         </button>
       </div>
 
@@ -279,14 +298,16 @@ export default function RadarView({ userId, location }: Props) {
               </div>
             ) : (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, marginBottom: 14 }}>
+                {/* FIX 3: auto-fit grid — 7 items render evenly */}
+                {/* FIX 5: use shortLabel to disambiguate WORKS vs CLOSED */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))', gap: 6, marginBottom: 14 }}>
                   {HAZARD_TYPES.map(t => {
                     const meta = HAZARD_META[t];
                     const active = reportType === t;
                     return (
                       <button key={t} onClick={() => setReportType(t)} style={{ padding: '8px 4px', fontFamily: 'monospace', fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: active ? `${meta.color}22` : 'transparent', border: `1px solid ${active ? meta.color : 'var(--border-subtle)'}`, color: active ? meta.color : 'var(--text-muted)', transition: 'all 0.15s' }}>
-                        <span style={{ fontSize: 16 }}>{meta.icon}</span>
-                        {meta.label.split(' ')[0]}
+                        <span style={{ fontSize: 18, color: active ? meta.color : 'var(--text-muted)', lineHeight: 1 }}>{meta.icon}</span>
+                        {meta.shortLabel}
                       </button>
                     );
                   })}
@@ -300,11 +321,19 @@ export default function RadarView({ userId, location }: Props) {
                 )}
 
                 <button
-                  onClick={handleReport}
-                  disabled={reporting || !location}
-                  style={{ width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.15em', cursor: reporting || !location ? 'not-allowed' : 'pointer', background: 'rgba(90,156,105,0.15)', border: '1px solid rgba(90,156,105,0.5)', color: '#5a9c69', opacity: !location ? 0.5 : 1 }}>
+                  onClick={!location
+                    ? () => speakResponse('GPS is required to report a hazard.').catch(() => {}) // GAP 4: voice nudge
+                    : handleReport}
+                  disabled={reporting}
+                  style={{ width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.15em', cursor: reporting ? 'not-allowed' : 'pointer', background: 'rgba(90,156,105,0.15)', border: '1px solid rgba(90,156,105,0.5)', color: '#5a9c69', opacity: !location ? 0.5 : 1 }}>
                   {reporting ? 'BROADCASTING...' : '✓ MERGE & BROADCAST'}
                 </button>
+                {/* GAP 3: show insert error */}
+                {reportError && (
+                  <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#a84832', textAlign: 'center', marginTop: 6 }}>
+                    ⚠ {reportError}
+                  </div>
+                )}
                 {!location && (
                   <div style={{ fontFamily: 'monospace', fontSize: 8, color: '#a84832', textAlign: 'center', marginTop: 6 }}>
                     GPS REQUIRED TO REPORT
@@ -349,6 +378,7 @@ export default function RadarView({ userId, location }: Props) {
         @keyframes radarPing { 0%{r:8;opacity:0.8} 100%{r:18;opacity:0} }
         @keyframes alertPulse { 0%,100%{border-color:rgba(168,72,50,0.6)} 50%{border-color:rgba(168,72,50,0.2)} }
         @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+        @keyframes ledBlink { 0%,100%{opacity:1} 50%{opacity:0.45} }
       `}</style>
     </div>
   );

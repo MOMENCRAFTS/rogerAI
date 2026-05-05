@@ -40,12 +40,13 @@ export async function buildWhisperHints(userId: string): Promise<string> {
       parts.push(names);
     }
 
-    // 2. Memory graph entities (high confidence subjects & objects)
+    // 2. Memory graph entities (high confidence, confirmed subjects & objects)
     const { data: entities } = await supabase
       .from('memory_graph')
       .select('subject, object')
       .eq('user_id', userId)
-      .gte('confidence', 0.7)
+      .eq('is_draft', false)
+      .gte('confidence', 70)   // 0-100 integer scale
       .order('confidence', { ascending: false })
       .limit(30);
 
