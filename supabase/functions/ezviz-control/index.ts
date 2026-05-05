@@ -150,6 +150,25 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {
+    // ── Auth check — require valid Supabase JWT ────────────────────────────
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+    const SUPABASE_ANON = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    const authCheck = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'apikey': SUPABASE_ANON },
+    });
+    if (!authCheck.ok) {
+      return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
+        status: 401, headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (!EZVIZ_APP_KEY || !EZVIZ_APP_SECRET) {
       return new Response(
         JSON.stringify({ error: 'EZVIZ credentials not configured. Set EZVIZ_APP_KEY and EZVIZ_APP_SECRET in Supabase secrets.' }),

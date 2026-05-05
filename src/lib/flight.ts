@@ -1,8 +1,10 @@
 // ─── Roger AI — AviationStack Flight Tracking ────────────────────────────────
-// Live flight status for any IATA flight number via AviationStack free tier.
+// Live flight status via secure data-proxy edge function.
+// API key never leaves the server. HTTPS enforced server-side.
 
-const AVIATION_KEY = import.meta.env.VITE_AVIATIONSTACK_API_KEY as string;
-const BASE = 'http://api.aviationstack.com/v1';
+import { getAuthToken } from './getAuthToken';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 export interface FlightStatus {
   flightNumber:   string;
@@ -74,11 +76,18 @@ function formatTime(iso: string | null): string {
 
 /** Fetch live status for a flight number (e.g. "EK204"). */
 export async function fetchFlightStatus(flightNumber: string): Promise<FlightStatus | null> {
-  if (!AVIATION_KEY) throw new Error('AviationStack API key not configured');
   try {
-    const res = await fetch(
-      `${BASE}/flights?access_key=${AVIATION_KEY}&flight_iata=${encodeURIComponent(flightNumber)}&limit=1`
-    );
+    const token = await getAuthToken();
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/data-proxy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: 'flight', params: { flight_iata: flightNumber } }),
+    });
+
     if (!res.ok) return null;
 
     const data = await res.json() as {

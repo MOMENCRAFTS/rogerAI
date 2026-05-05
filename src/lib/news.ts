@@ -1,7 +1,10 @@
 // ─── Roger AI — News Intelligence ────────────────────────────────────────────
-// Fetches real-time headlines from NewsAPI.org and formats them for voice/display.
+// Fetches real-time headlines via the secure data-proxy edge function.
+// API key never leaves the server.
 
-const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY as string;
+import { getAuthToken } from './getAuthToken';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 export interface NewsArticle {
   title:       string;
@@ -45,26 +48,34 @@ export async function fetchNews(
   /** AI-extracted clean search query */
   aiQuery?: string,
 ): Promise<NewsBrief> {
-  if (!NEWS_API_KEY) throw new Error('News API key not configured');
+  const token = await getAuthToken();
 
   // AI-powered: use LLM-extracted entities when available,
   // fall back to regex only if AI doesn't provide them
   const category = aiCategory ?? detectCategory(transcript);
   const keyword  = aiQuery ?? extractQuery(transcript);
 
-  let url: string;
+  const params: Record<string, string> = { pageSize: '5' };
 
   if (keyword && keyword.length > 3 && !category) {
-    // Keyword search
-    url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(keyword)}&pageSize=5&sortBy=publishedAt&language=en&apiKey=${NEWS_API_KEY}`;
+    params.endpoint = 'everything';
+    params.q = keyword;
   } else {
-    // Top headlines by category (default: general)
-    const cat = category ? `&category=${category}` : '';
-    url = `https://newsapi.org/v2/top-headlines?language=en${cat}&pageSize=5&apiKey=${NEWS_API_KEY}`;
+    params.endpoint = 'top-headlines';
+    params.country = 'us';
+    if (category) params.category = category;
   }
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`NewsAPI error ${res.status}`);
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/data-proxy`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ action: 'news', params }),
+  });
+
+  if (!res.ok) throw new Error(`News proxy error ${res.status}`);
 
   const data = await res.json() as {
     status: string;

@@ -305,7 +305,7 @@ Deno.serve(async (req: Request) => {
       const anonClient = createClient(SUPABASE_URL, ANON_KEY);
       const { data: { user }, error } = await anonClient.auth.getUser(token);
       if (error || !user?.email) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } });
-      if (ADMIN_EMAILS.length > 0 && !ADMIN_EMAILS.includes(user.email.toLowerCase()))
+      if (!ADMIN_EMAILS.length || !ADMIN_EMAILS.includes(user.email.toLowerCase()))
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
       let body: { userId?: string; scenario?: string } = {};

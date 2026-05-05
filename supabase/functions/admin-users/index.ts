@@ -39,9 +39,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // If ADMIN_EMAILS is configured, enforce it; otherwise allow any authenticated user
-  // (useful during initial setup before ADMIN_EMAILS is set)
-  if (ADMIN_EMAILS.length > 0 && !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+  // Deny-by-default: if no admin emails configured, block everyone
+  if (!ADMIN_EMAILS.length || !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
       status: 403, headers: { ...CORS, 'Content-Type': 'application/json' },
     });

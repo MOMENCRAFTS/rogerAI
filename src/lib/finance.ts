@@ -1,8 +1,10 @@
 // ─── Roger AI — Finnhub Finance Integration ───────────────────────────────────
 // Provides live stock quotes, market news, and portfolio context injection.
+// API key never leaves the server — all calls proxied via data-proxy edge function.
 
-const FINNHUB_KEY = import.meta.env.VITE_FINNHUB_API_KEY as string;
-const BASE = 'https://finnhub.io/api/v1';
+import { getAuthToken } from './getAuthToken';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 export interface StockQuote {
   ticker:      string;
@@ -44,11 +46,23 @@ export function detectTicker(transcript: string): string | null {
   return match?.[1] ?? null;
 }
 
+/** Helper to call the data-proxy edge function for finance actions. */
+async function proxyFinance(params: Record<string, string>): Promise<Response> {
+  const token = await getAuthToken();
+  return fetch(`${SUPABASE_URL}/functions/v1/data-proxy`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ action: 'finance', params }),
+  });
+}
+
 /** Fetch a live stock quote for a ticker symbol. */
 export async function fetchQuote(ticker: string): Promise<StockQuote | null> {
-  if (!FINNHUB_KEY) throw new Error('Finnhub API key not configured');
   try {
-    const res = await fetch(`${BASE}/quote?symbol=${encodeURIComponent(ticker)}&token=${FINNHUB_KEY}`);
+    const res = await proxyFinance({ action: 'quote', symbol: ticker });
     if (!res.ok) return null;
     const d = await res.json() as { c: number; d: number; dp: number; h: number; l: number; o: number; pc: number; t: number };
     if (!d.c) return null;
@@ -70,9 +84,8 @@ export async function fetchQuote(ticker: string): Promise<StockQuote | null> {
 
 /** Fetch top market news (general). */
 export async function fetchMarketNews(): Promise<MarketNewsItem[]> {
-  if (!FINNHUB_KEY) return [];
   try {
-    const res = await fetch(`${BASE}/news?category=general&token=${FINNHUB_KEY}`);
+    const res = await proxyFinance({ action: 'news' });
     if (!res.ok) return [];
     const items = await res.json() as { headline: string; source: string; url: string; summary: string }[];
     return items.slice(0, 5).map(i => ({

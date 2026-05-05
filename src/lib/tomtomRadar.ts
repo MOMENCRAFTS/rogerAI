@@ -1,7 +1,7 @@
 // ─── TomTom Traffic Incidents ─────────────────────────────────────────────────
-// Fetches live road incidents (accidents, closures, roadworks) from TomTom.
-// Requires VITE_TOMTOM_API_KEY in .env.local (free: 2,500 req/day).
-// Polled every 90s by useHazards. Returns [] silently if key is missing.
+// Fetches live road incidents (accidents, closures, roadworks) via secure
+// data-proxy edge function. API key never leaves the server.
+// Polled every 90s by useHazards. Returns [] silently on auth/config errors.
 //
 // TomTom incident category → HazardType mapping:
 //   0 = Unknown → skip
@@ -20,8 +20,9 @@
 
 import type { HazardEvent, HazardType } from '../types/hazard';
 import { HAZARD_META } from '../types/hazard';
+import { getAuthToken } from './getAuthToken';
 
-const TT_KEY = import.meta.env.VITE_TOMTOM_API_KEY as string | undefined;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 const CATEGORY_MAP: Record<number, HazardType | null> = {
   0:  null,
@@ -55,24 +56,25 @@ export async function fetchTomTomIncidents(
   lng: number,
   radiusM = 1500,
 ): Promise<HazardEvent[]> {
-  if (!TT_KEY) return []; // key not configured yet
-
-  // TomTom Incident Details v5
-  const bbox = buildBbox(lat, lng, radiusM);
-  const url  = `https://api.tomtom.com/traffic/services/5/incidentDetails`
-    + `?key=${TT_KEY}`
-    + `&bbox=${bbox}`
-    + `&fields=%7Bincidents%7Btype%2Cgeometry%7Bcoordinates%7D%2Cproperties%7BiconCategory%2CstartTime%2CendTime%7D%7D%7D`
-    + `&language=en-GB`
-    + `&categoryFilter=1,3,5,7,8,9,11,14`
-    + `&timeValidityFilter=present`;
-
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const token = await getAuthToken();
+    const bbox = buildBbox(lat, lng, radiusM);
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/data-proxy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: 'traffic', params: { bbox } }),
+      signal: AbortSignal.timeout(8000),
+    });
+
     if (!res.ok) {
-      console.warn('[TomTom] API error', res.status);
+      console.warn('[TomTom] proxy error', res.status);
       return [];
     }
+
     const json = await res.json() as { incidents: TTIncident[] };
     const hazards: HazardEvent[] = [];
 

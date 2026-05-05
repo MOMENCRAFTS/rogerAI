@@ -806,7 +806,7 @@ export async function callGPT<T>(
   timeoutMs = 90000
 ): Promise<T> {
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-  const token = await getAuthToken().catch(() => import.meta.env.VITE_SUPABASE_ANON_KEY as string);
+  const token = await getAuthToken();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

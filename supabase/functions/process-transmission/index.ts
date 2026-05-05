@@ -437,7 +437,7 @@ Deno.serve(async (req: Request) => {
   // Service role key bypasses user verification (admin / internal cron calls).
   // For user JWTs: verify by calling the Supabase Auth REST API directly.
   // This avoids instantiating a full JS client on every request.
-  if (token !== SUPABASE_SERVICE_KEY && token !== SUPABASE_ANON_KEY) {
+  if (token !== SUPABASE_SERVICE_KEY) {
     const authCheck = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       headers: {
         'Authorization': authHeader,
