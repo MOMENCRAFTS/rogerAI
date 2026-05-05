@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roger AI — ESP32 Device Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --amber:#F59E0B;--amber-dim:#78450A;
+  --green:#22C55E;--blue:#3B82F6;--purple:#8B5CF6;--red:#EF4444;--cyan:#06B6D4;
+  --bg:#0A0A0F;--bg2:#111118;--bg3:#1A1A26;
+  --border:#2A2A3A;--text:#E2E8F0;--muted:#64748B;
+  --font-mono:'Share Tech Mono',monospace;
+  --font:'Outfit',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;overflow-x:hidden}
+
+/* ── Header ── */
+header{padding:24px 40px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;background:var(--bg2)}
+.logo{width:40px;height:40px;background:var(--amber);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-weight:700;color:#000;font-size:14px}
+header h1{font-size:20px;font-weight:700;letter-spacing:2px;color:var(--amber)}
+header span{font-size:13px;color:var(--muted);font-family:var(--font-mono);margin-left:auto}
+
+/* ── Layout ── */
+main{padding:32px 40px;max-width:1400px;margin:0 auto}
+.section-title{font-family:var(--font-mono);font-size:11px;letter-spacing:3px;color:var(--amber);margin-bottom:16px;text-transform:uppercase}
+
+/* ── Diagram area ── */
+.diagram-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:32px;position:relative;overflow:hidden}
+.diagram-wrap::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--amber),transparent)}
+
+/* ── Three columns ── */
+.arch{display:grid;grid-template-columns:1fr 80px 1fr 80px 1fr;gap:0;align-items:center}
+
+/* ── Device box ── */
+.device-box{background:var(--bg3);border:2px solid var(--amber);border-radius:12px;padding:20px;position:relative}
+.device-box h2{font-size:13px;font-weight:700;letter-spacing:3px;color:var(--amber);font-family:var(--font-mono);margin-bottom:16px;text-align:center}
+.component{display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(245,158,11,.07);border:1px solid var(--amber-dim);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s}
+.component:hover{border-color:var(--amber);background:rgba(245,158,11,.15);transform:translateX(4px)}
+.component .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.component .label{font-family:var(--font-mono);font-size:11px;color:var(--text)}
+.component .sub{font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-left:auto}
+
+/* App box */
+.app-box{background:var(--bg3);border:2px solid var(--blue);border-radius:12px;padding:20px}
+.app-box h2{font-size:13px;font-weight:700;letter-spacing:3px;color:var(--blue);font-family:var(--font-mono);margin-bottom:16px;text-align:center}
+.app-component{padding:8px 10px;background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.3);border-radius:8px;margin-bottom:8px;font-family:var(--font-mono);font-size:11px;color:var(--text)}
+
+/* Server box */
+.server-box{background:var(--bg3);border:2px solid var(--purple);border-radius:12px;padding:20px}
+.server-box h2{font-size:13px;font-weight:700;letter-spacing:3px;color:var(--purple);font-family:var(--font-mono);margin-bottom:16px;text-align:center}
+.server-component{padding:8px 10px;background:rgba(139,92,246,.07);border:1px solid rgba(139,92,246,.3);border-radius:8px;margin-bottom:8px;font-family:var(--font-mono);font-size:11px;color:var(--text)}
+
+/* Arrows */
+.arrow-col{display:flex;flex-direction:column;align-items:center;gap:6px}
+.arrow-label{font-family:var(--font-mono);font-size:9px;color:var(--muted);text-align:center;line-height:1.4}
+.arrow-line{position:relative;width:60px;height:2px}
+.arrow-line.amber{background:var(--amber)}
+.arrow-line.blue{background:var(--blue)}
+.arrow-line::after{content:'▶';position:absolute;right:-6px;top:-7px;font-size:14px}
+.arrow-line.amber::after{color:var(--amber)}
+.arrow-line.blue::after{color:var(--blue)}
+.arrow-back{position:relative;width:60px;height:2px;margin-top:4px}
+.arrow-back.green{background:var(--green)}
+.arrow-back::before{content:'◀';position:absolute;left:-6px;top:-7px;font-size:14px}
+.arrow-back.green::before{color:var(--green)}
+
+/* ── PTT Flow Simulator ── */
+.simulator{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:32px}
+.flow-steps{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:20px}
+.step{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px 10px;text-align:center;transition:all .4s;position:relative}
+.step.active{border-color:var(--amber);box-shadow:0 0 20px rgba(245,158,11,.3)}
+.step.done{border-color:var(--green)}
+.step-num{font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-bottom:8px}
+.step-icon{font-size:24px;margin-bottom:8px}
+.step-name{font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);letter-spacing:1px}
+.step-desc{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.4}
+.step.active .step-name{color:var(--amber)}
+.step.done .step-name{color:var(--green)}
+
+.ptt-btn{display:block;margin:24px auto 0;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,#3D1A02,#1A0A00);border:3px solid var(--amber);cursor:pointer;font-family:var(--font-mono);font-size:12px;color:var(--amber);letter-spacing:2px;transition:all .15s;box-shadow:0 0 30px rgba(245,158,11,.2)}
+.ptt-btn:hover{box-shadow:0 0 50px rgba(245,158,11,.4);transform:scale(1.05)}
+.ptt-btn.recording{background:radial-gradient(circle,#3D0000,#1A0000);border-color:var(--red);color:var(--red);box-shadow:0 0 50px rgba(239,68,68,.5);animation:pulse-red 0.6s infinite alternate}
+@keyframes pulse-red{from{box-shadow:0 0 30px rgba(239,68,68,.4)}to{box-shadow:0 0 60px rgba(239,68,68,.8)}}
+
+.status-bar{margin-top:16px;text-align:center;font-family:var(--font-mono);font-size:13px;color:var(--amber);min-height:20px}
+
+/* ── BOM Table ── */
+.bom{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:32px}
+table{width:100%;border-collapse:collapse}
+th{font-family:var(--font-mono);font-size:10px;letter-spacing:2px;color:var(--muted);text-align:left;padding:8px 16px;border-bottom:1px solid var(--border)}
+td{padding:12px 16px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.04)}
+td:first-child{font-family:var(--font-mono);font-size:11px;color:var(--amber)}
+tr:hover td{background:rgba(255,255,255,.02)}
+
+/* ── Pin map ── */
+.pins{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}
+.pin{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border-radius:6px;font-family:var(--font-mono);font-size:11px}
+.pin-num{background:var(--amber);color:#000;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700}
+.pin-label{color:var(--text)}
+.pin-fn{color:var(--muted);margin-left:auto;font-size:10px}
+
+/* ── Firmware tree ── */
+.tree{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:32px}
+.file-tree{font-family:var(--font-mono);font-size:12px;line-height:2}
+.tree-dir{color:var(--blue)}
+.tree-file{color:var(--text)}
+.tree-file span{color:var(--muted);font-size:10px;margin-left:8px}
+.tree-badge{display:inline-block;background:rgba(245,158,11,.15);border:1px solid var(--amber-dim);color:var(--amber);border-radius:4px;padding:1px 6px;font-size:9px;margin-left:8px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">R</div>
+  <h1>ROGER AI — ESP32 DEVICE</h1>
+  <span>Architecture · Firmware · Diagram · v1.0</span>
+</header>
+
+<main>
+
+<!-- ── ARCHITECTURE DIAGRAM ── -->
+<div class="diagram-wrap">
+  <div class="section-title">▶ System Architecture</div>
+  <div class="arch">
+
+    <!-- ESP32 Device -->
+    <div class="device-box">
+      <h2>⬡ ESP32-S3 DEVICE</h2>
+      <div class="component" title="Physical PTT button — INPUT_PULLUP GPIO4"><div class="dot" style="background:var(--red)"></div><span class="label">PTT Button</span><span class="sub">GPIO 4</span></div>
+      <div class="component" title="INMP441 I2S MEMS — 16kHz mono"><div class="dot" style="background:var(--amber)"></div><span class="label">MEMS Mic</span><span class="sub">I2S_NUM_0</span></div>
+      <div class="component" title="MAX98357A I2S DAC — plays TTS MP3"><div class="dot" style="background:var(--green)"></div><span class="label">I2S Speaker</span><span class="sub">I2S_NUM_1</span></div>
+      <div class="component" title="WS2812B × 8 LEDs — state animations"><div class="dot" style="background:var(--purple)"></div><span class="label">LED Ring</span><span class="sub">GPIO 5</span></div>
+      <div class="component" title="SSD1306 128×64 — 4-line status display"><div class="dot" style="background:var(--cyan)"></div><span class="label">OLED 0.96"</span><span class="sub">I2C 0x3C</span></div>
+      <div class="component" title="WiFiManager captive portal for setup"><div class="dot" style="background:var(--blue)"></div><span class="label">WiFi / Portal</span><span class="sub">2.4GHz</span></div>
+    </div>
+
+    <!-- Arrow ESP32 → App -->
+    <div class="arrow-col">
+      <div class="arrow-label">HTTP POST<br>WAV audio</div>
+      <div class="arrow-line amber"></div>
+      <div class="arrow-back green"></div>
+      <div class="arrow-label">JSON +<br>MP3 URL</div>
+    </div>
+
+    <!-- Roger App -->
+    <div class="app-box">
+      <h2>📱 ROGER AI APP</h2>
+      <div class="app-component">React + Vite + Capacitor</div>
+      <div class="app-component">Supabase Realtime listener</div>
+      <div class="app-component">device_relay subscription</div>
+      <div class="app-component">Devices.tsx — fleet view</div>
+      <div class="app-component">Live TX feed sync</div>
+      <div class="app-component">QR code device linking</div>
+    </div>
+
+    <!-- Arrow App → Supabase -->
+    <div class="arrow-col">
+      <div class="arrow-label">REST +<br>Realtime WS</div>
+      <div class="arrow-line blue"></div>
+      <div class="arrow-back green"></div>
+      <div class="arrow-label">DB push<br>notify</div>
+    </div>
+
+    <!-- Supabase Server -->
+    <div class="server-box">
+      <h2>☁ SUPABASE BACKEND</h2>
+      <div class="server-component">🔀 device-relay Edge Fn</div>
+      <div class="server-component">🎙 Whisper STT → transcript</div>
+      <div class="server-component">🧠 GPT-4o pipeline</div>
+      <div class="server-component">🔊 TTS-1 → MP3 → Storage</div>
+      <div class="server-component">💾 conversation_history</div>
+      <div class="server-component">📡 device_registry table</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PTT FLOW SIMULATOR ── -->
+<div class="simulator">
+  <div class="section-title">▶ PTT Flow Simulator — Click the button</div>
+  <div class="flow-steps" id="steps">
+    <div class="step" id="s0"><div class="step-num">01</div><div class="step-icon">🔴</div><div class="step-name">IDLE</div><div class="step-desc">Hold PTT to transmit</div></div>
+    <div class="step" id="s1"><div class="step-num">02</div><div class="step-icon">🎙</div><div class="step-name">RECORDING</div><div class="step-desc">I2S MEMS captures PCM audio</div></div>
+    <div class="step" id="s2"><div class="step-num">03</div><div class="step-icon">📤</div><div class="step-name">UPLOADING</div><div class="step-desc">WAV POST → device-relay</div></div>
+    <div class="step" id="s3"><div class="step-num">04</div><div class="step-icon">🧠</div><div class="step-name">PROCESSING</div><div class="step-desc">Whisper + GPT-4o pipeline</div></div>
+    <div class="step" id="s4"><div class="step-num">05</div><div class="step-icon">🔊</div><div class="step-name">PLAYING</div><div class="step-desc">MP3 download + I2S DAC</div></div>
+    <div class="step" id="s5"><div class="step-num">06</div><div class="step-icon">✅</div><div class="step-name">DONE</div><div class="step-desc">DB written · App synced</div></div>
+  </div>
+  <button class="ptt-btn" id="pttBtn" onmousedown="startPTT()" onmouseup="stopPTT()" ontouchstart="startPTT()" ontouchend="stopPTT()">HOLD<br>PTT</button>
+  <div class="status-bar" id="statusBar">Ready — hold the button to simulate a transmission</div>
+</div>
+
+<!-- ── BOM ── -->
+<div class="bom">
+  <div class="section-title">▶ Bill of Materials</div>
+  <table>
+    <thead><tr><th>COMPONENT</th><th>PART</th><th>ROLE</th><th>GPIO / BUS</th></tr></thead>
+    <tbody>
+      <tr><td>MCU</td><td>ESP32-S3 DevKit</td><td>Main processor + WiFi 2.4GHz</td><td>—</td></tr>
+      <tr><td>Microphone</td><td>INMP441 (I2S MEMS)</td><td>Audio capture — 16kHz mono</td><td>GPIO 11/12/13</td></tr>
+      <tr><td>Speaker</td><td>MAX98357A + 3W</td><td>I2S DAC — TTS MP3 playback</td><td>GPIO 25/26/27</td></tr>
+      <tr><td>PTT Button</td><td>Momentary tactile</td><td>Push-to-Talk trigger</td><td>GPIO 4</td></tr>
+      <tr><td>LED Ring</td><td>WS2812B × 8</td><td>State animations (8 colors)</td><td>GPIO 5</td></tr>
+      <tr><td>Display</td><td>SSD1306 OLED 0.96"</td><td>Status text — 4 lines</td><td>I2C SDA/SCL 21/22</td></tr>
+      <tr><td>Power</td><td>LiPo 1200mAh + TP4056</td><td>Portable battery charging</td><td>—</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ── PIN MAP ── -->
+<div class="bom">
+  <div class="section-title">▶ ESP32-S3 Pin Map</div>
+  <div class="pins">
+    <div class="pin"><span class="pin-num">GPIO 4</span><span class="pin-label">PTT Button</span><span class="pin-fn">INPUT_PULLUP</span></div>
+    <div class="pin"><span class="pin-num">GPIO 5</span><span class="pin-label">LED Ring DATA</span><span class="pin-fn">WS2812B</span></div>
+    <div class="pin"><span class="pin-num">GPIO 11</span><span class="pin-label">MIC SD (data)</span><span class="pin-fn">I2S_NUM_0</span></div>
+    <div class="pin"><span class="pin-num">GPIO 12</span><span class="pin-label">MIC WS (word sel)</span><span class="pin-fn">I2S_NUM_0</span></div>
+    <div class="pin"><span class="pin-num">GPIO 13</span><span class="pin-label">MIC SCK (clock)</span><span class="pin-fn">I2S_NUM_0</span></div>
+    <div class="pin"><span class="pin-num">GPIO 21</span><span class="pin-label">OLED SDA</span><span class="pin-fn">I2C</span></div>
+    <div class="pin"><span class="pin-num">GPIO 22</span><span class="pin-label">OLED SCL</span><span class="pin-fn">I2C</span></div>
+    <div class="pin"><span class="pin-num">GPIO 25</span><span class="pin-label">SPK DOUT</span><span class="pin-fn">I2S_NUM_1</span></div>
+    <div class="pin"><span class="pin-num">GPIO 26</span><span class="pin-label">SPK BCLK</span><span class="pin-fn">I2S_NUM_1</span></div>
+    <div class="pin"><span class="pin-num">GPIO 27</span><span class="pin-label">SPK LRC</span><span class="pin-fn">I2S_NUM_1</span></div>
+  </div>
+</div>
+
+<!-- ── FIRMWARE TREE ── -->
+<div class="tree">
+  <div class="section-title">▶ Firmware Structure</div>
+  <div class="file-tree">
+    <div class="tree-dir">esp32-firmware/</div>
+    <div style="padding-left:20px">
+      <div>├── <span class="tree-file">platformio.ini<span> — ESP32-S3 + library deps</span></span></div>
+      <div>└── src/</div>
+      <div style="padding-left:20px">
+        <div>├── <span class="tree-file">main.cpp<span class="tree-badge">ENTRY</span><span> — Boot, WiFiManager, loop</span></span></div>
+        <div>├── <span class="tree-file">config.h<span class="tree-badge">PINS</span><span> — All GPIO + URL constants</span></span></div>
+        <div>├── <span class="tree-file">globals.h<span> — DeviceState enum + externs</span></span></div>
+        <div>├── <span class="tree-file">ptt_handler.cpp<span class="tree-badge">CORE</span><span> — 5-state PTT machine</span></span></div>
+        <div>├── <span class="tree-file">audio_recorder.cpp<span> — I2S MEMS → WAV buffer</span></span></div>
+        <div>├── <span class="tree-file">audio_player.cpp<span> — I2S DAC MP3 playback</span></span></div>
+        <div>├── <span class="tree-file">http_client.cpp<span class="tree-badge">NET</span><span> — Multipart POST + JSON</span></span></div>
+        <div>├── <span class="tree-file">led_controller.cpp<span> — WS2812B animations</span></span></div>
+        <div>└── <span class="tree-file">oled_display.cpp<span> — SSD1306 4-line driver</span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<script>
+let recording = false;
+let simTimer = null;
+const steps = ['s0','s1','s2','s3','s4','s5'];
+const labels = [
+  'IDLE — waiting for PTT',
+  'RECORDING — capturing audio via I2S MEMS mic...',
+  'UPLOADING — sending WAV to Supabase Edge Function...',
+  'PROCESSING — Whisper STT + GPT-4o + TTS generation...',
+  'PLAYING — downloading MP3, streaming to I2S DAC speaker...',
+  '✓ DONE — DB written, app synced via Realtime'
+];
+const durations = [0, 2000, 1500, 3000, 2000, 1500];
+
+function clearSteps() {
+  steps.forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('active','done');
+  });
+}
+
+function activateStep(idx) {
+  clearSteps();
+  for(let i=0;i<idx;i++) document.getElementById(steps[i]).classList.add('done');
+  if(idx < steps.length) document.getElementById(steps[idx]).classList.add('active');
+  document.getElementById('statusBar').textContent = labels[idx] || '';
+}
+
+function startPTT() {
+  if(recording) return;
+  recording = true;
+  clearTimeout(simTimer);
+  const btn = document.getElementById('pttBtn');
+  btn.classList.add('recording');
+  btn.textContent = '● REC';
+  activateStep(1);
+}
+
+function stopPTT() {
+  if(!recording) return;
+  recording = false;
+  const btn = document.getElementById('pttBtn');
+  btn.classList.remove('recording');
+  btn.innerHTML = 'HOLD<br>PTT';
+
+  let step = 2;
+  function next() {
+    if(step >= steps.length) {
+      setTimeout(() => { activateStep(0); }, 2000);
+      return;
+    }
+    activateStep(step);
+    simTimer = setTimeout(next, durations[step]);
+    step++;
+  }
+  next();
+}
+
+// Init
+activateStep(0);
+</script>
+</body>
+</html>
