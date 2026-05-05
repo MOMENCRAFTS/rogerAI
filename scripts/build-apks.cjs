@@ -158,6 +158,7 @@ const capPluginDirs = [
   path.join(ROOT, 'node_modules', '@capacitor', 'app', 'android', 'build'),
   path.join(ROOT, 'node_modules', '@capacitor', 'haptics', 'android', 'build'),
   path.join(ROOT, 'node_modules', '@capacitor', 'splash-screen', 'android', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor-community', 'contacts', 'android', 'build'),
 ];
 for (const d of capPluginDirs) forceDeleteDir(d);
 
@@ -202,6 +203,7 @@ const capPluginDirs2 = [
   path.join(ROOT, 'node_modules', '@capacitor', 'app', 'android', 'build'),
   path.join(ROOT, 'node_modules', '@capacitor', 'haptics', 'android', 'build'),
   path.join(ROOT, 'node_modules', '@capacitor', 'splash-screen', 'android', 'build'),
+  path.join(ROOT, 'node_modules', '@capacitor-community', 'contacts', 'android', 'build'),
 ];
 for (const d of capPluginDirs2) forceDeleteDir(d);
 
