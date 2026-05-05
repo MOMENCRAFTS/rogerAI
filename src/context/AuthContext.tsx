@@ -174,12 +174,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
-  // Dev mode: any authenticated user gets admin on localhost
-  // Production: must be in the VITE_ADMIN_EMAILS whitelist
-  const isDev = import.meta.env.DEV;
-  const isAdmin = import.meta.env.VITE_BUILD_TARGET !== 'user' && !!user && (
-    isDev || ADMIN_EMAILS.includes((user?.email ?? '').toLowerCase())
-  );
+  // Admin access: must be in the VITE_ADMIN_EMAILS whitelist (no dev bypass)
+  const isAdmin = import.meta.env.VITE_BUILD_TARGET !== 'user' && !!user &&
+    ADMIN_EMAILS.includes((user?.email ?? '').toLowerCase());
 
   return (
     <AuthContext.Provider value={{ user, loading, isAdmin, authError, signInWithGoogle, signOut }}>

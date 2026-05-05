@@ -16,6 +16,7 @@ import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION, ISLAMIC_CHAPTER } from '../.
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { createAudioRecorder } from '../../lib/audioRecorder';
 import { transcribeAudio } from '../../lib/whisper';
+import { getLockedBaseLanguage } from '../../lib/i18n';
 
 // Keywords that mean "I understand, move on"
 // Kept broad because Whisper often returns creative transcriptions of short utterances
@@ -152,7 +153,9 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
         return;
       }
 
-      const { transcript } = await transcribeAudio(blob);
+      // Force Whisper to the user's selected language (prevents language leak)
+      const whisperLang = getLockedBaseLanguage();
+      const { transcript } = await transcribeAudio(blob, undefined, whisperLang);
       const lower = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 
       // Orientation is informational — any spoken response means the user

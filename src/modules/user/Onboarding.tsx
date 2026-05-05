@@ -11,6 +11,7 @@ import {
 } from '../../lib/onboarding';
 import { speakResponse, stopSpeaking, unlockAudio } from '../../lib/tts';
 import { transcribeAudio } from '../../lib/whisper';
+import { getLockedBaseLanguage } from '../../lib/i18n';
 import { createAudioRecorder } from '../../lib/audioRecorder';
 import {
   upsertUserPreferences, upsertMemoryFact, upsertEntityMention,
@@ -245,7 +246,9 @@ export default function Onboarding({ userId, onComplete }: Props) {
         console.warn('[Onboarding PTT] Blob too small, skipping transcription');
         hapticError(); sfxError(); setPhase('waiting'); return;
       }
-      const { transcript } = await transcribeAudio(blob);
+      // Force Whisper to transcribe in the user's selected language (prevents language leak)
+      const whisperLang = getLockedBaseLanguage(); // 'en' | 'ar' | 'fr' | 'es'
+      const { transcript } = await transcribeAudio(blob, undefined, whisperLang);
       console.log('[Onboarding PTT] Transcript:', transcript);
       if (!transcript || transcript.replace(/[^a-zA-Z\u0600-\u06FF]/g, '').length < 2) {
         hapticError(); sfxError(); setPhase('waiting'); return;

@@ -48,7 +48,7 @@ export const ROGER_FEATURES = [
 // Phase labels for progress UI
 export const PHASE_LABELS: Record<OnboardingPhase, string> = {
   welcome:      'WELCOME',
-  name_confirm: 'NAME CHECK',
+  name_confirm: 'SPELL YOUR NAME PLEASE',
   islamic:      'PREFERENCES',
   review:       'REVIEW',
   complete:     'COMPLETE',
@@ -166,8 +166,13 @@ RULES:
 - Extract ONLY what the user explicitly stated. Do not infer or assume.
 - Title-case names and proper nouns.
 - IMPORTANT: Extract the ACTUAL name spoken. Do NOT default non-English names to "Mohammad".
-  Examples: "أنا مؤمن" → name: "مؤمن", "Ana ismi Khalid" → name: "Khalid",
+  Examples: "أنا مؤمن" → name: "Momen", "Ana ismi Khalid" → name: "Khalid",
   "Je suis Fatima" → name: "Fatima", "My name is Al-Sayed" → name: "Al-Sayed"
+- CRITICAL: ALL extracted values (role, key_priorities, current_focus, interests, etc.)
+  MUST be in the user's selected language (see language directive above).
+  If the user spoke in a different language, TRANSLATE the values.
+  Example: if user selected English but said "أنا مبرمج" → role: "Programmer" (NOT "مبرمج").
+  Names are the ONLY exception — keep names in their original script/spelling.
 - For comm_style: infer from verbosity. Terse → "brief". Verbose → "detailed". Normal → "balanced".
 - Return ONLY valid JSON. No explanation, no commentary.
 
@@ -205,7 +210,7 @@ export interface NodeScriptResult {
 }
 
 // ── LLM call ────────────────────────────────────────────────────────────────
-async function callLLM(system: string, user: string): Promise<string> {
+async function callLLM(system: string, user: string, jsonMode = true): Promise<string> {
   const token = await getAuthToken().catch(() => null);
   if (!token) throw new Error('No auth token');
 
@@ -218,7 +223,7 @@ async function callLLM(system: string, user: string): Promise<string> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/process-transmission`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ _direct_prompt: true, _json_mode: true, system: enforcedSystem, user }),
+    body: JSON.stringify({ _direct_prompt: true, ...(jsonMode && { _json_mode: true }), system: enforcedSystem, user }),
   });
 
   if (!res.ok) {
@@ -322,6 +327,8 @@ Already collected: {${collected}}
 
 Extract any new fields from what they just said. Use the same field schema.
 Do NOT overwrite existing fields unless the user explicitly corrects them.
+IMPORTANT: All extracted values MUST be in the user's selected language (see directive above).
+If the user spoke in a different language, translate the values. Names are exempt.
 Acknowledge what they added in under 15 words.
 
 Return ONLY valid JSON:
@@ -392,10 +399,16 @@ Rules:
 - Reference name, profession, location, passions naturally
 - Under 60 words
 - End with the equivalent of: "Want to add anything else, or say confirm to lock this in."
-- No emojis. Military-aide tone.`;
-    const raw = await callLLM(system, summary);
-    const parsed = JSON.parse(raw) as { roger_response?: string; script?: string };
-    return (parsed.script ?? parsed.roger_response ?? raw) || buildReviewScriptFallback(answers);
+- No emojis. Military-aide tone.
+- Return ONLY the narrative text, no JSON wrapping.`;
+    const raw = await callLLM(system, summary, false);
+    // raw is plain text — strip any accidental JSON wrapping
+    let text = raw.trim();
+    try {
+      const parsed = JSON.parse(text) as { script?: string; roger_response?: string };
+      text = parsed.script ?? parsed.roger_response ?? text;
+    } catch { /* not JSON, use as-is */ }
+    return text || buildReviewScriptFallback(answers);
   } catch {
     return buildReviewScriptFallback(answers);
   }
