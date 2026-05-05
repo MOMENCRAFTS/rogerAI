@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, Smartphone, Radio, Workflow,
-  Brain, Zap, Mic, Bell, CreditCard, Headphones,
+  Brain, Zap, Bell, CreditCard, Headphones,
   Flag, FileText, Settings, FlaskConical, Cpu, Rss, Car, Archive, AlertTriangle, Moon,
   MessageSquare,
 } from 'lucide-react';

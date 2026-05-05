@@ -1009,19 +1009,14 @@ export async function processTransmission(
           try {
             const active = localStorage.getItem('roger:classroom_active');
             if (!active) return null;
-            // Pull full context from Zustand store for rich edge function injection
-            const { useIntentStore } = require('./intentStore');
-            const s = useIntentStore.getState();
+            // Read from localStorage directly to avoid circular openai↔intentStore import
             return {
               active: true,
-              topic: s.classroomTopic || localStorage.getItem('roger:classroom_topic') || '',
-              module: s.classroomModuleNumber || parseInt(localStorage.getItem('roger:classroom_module') || '1', 10),
-              phase: s.classroomPhase || localStorage.getItem('roger:classroom_phase') || 'teaching',
-              pathwayTitle: s.classroomPathwayTitle,
-              moduleTitle: s.classroomModuleTitle,
-              lessonContent: s.classroomLessonContent,
-              keyConcepts: s.classroomKeyConcepts,
-              totalModules: s.classroomTotalModules,
+              topic: localStorage.getItem('roger:classroom_topic') || '',
+              module: parseInt(localStorage.getItem('roger:classroom_module') || '1', 10),
+              phase: localStorage.getItem('roger:classroom_phase') || 'teaching',
+              pathwayTitle: localStorage.getItem('roger:classroom_pathway_title') || '',
+              moduleTitle: localStorage.getItem('roger:classroom_module_title') || '',
             };
           } catch { return null; }
         })(),

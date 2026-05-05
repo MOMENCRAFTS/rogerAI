@@ -9,8 +9,7 @@ import Dashboard from './modules/Dashboard';
 import Transmissions from './modules/Transmissions';
 import Devices from './modules/Devices';
 import FlowInspector from './modules/FlowInspector';
-import Sandbox from './modules/Sandbox';
-import PTTTestLab from './modules/PTTTestLab';
+// Sandbox and PTTTestLab removed — consolidated into UserRegistry
 import IntentRegistry from './modules/IntentRegistry';
 import MemoryGraph   from './modules/MemoryGraph';
 import PatternLab from './modules/PatternLab';

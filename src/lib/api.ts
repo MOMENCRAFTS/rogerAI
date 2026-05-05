@@ -2104,6 +2104,11 @@ export type SessionTraceTurn = {
   proposed_tasks: { text: string; priority: number }[];
   reasoning:      string;
   latency_ms:     number;
+  // Extended fields from simulate-persona-session
+  engagement?:       number;
+  userai_action?:    string;
+  userai_reasoning?: string;
+  user_input?:       string;
 };
 
 export type SessionResult = {
@@ -2113,6 +2118,14 @@ export type SessionResult = {
   trace:            SessionTraceTurn[];
   summary:          string;
   total_latency_ms: number;
+  // Extended fields from simulate-persona-session
+  turns_completed?:   number;
+  total_turns?:       number;
+  total_tokens?:      number;
+  total_cost?:        number;
+  engagements?:       number;
+  reactive_turns?:    number;
+  engagement_plan?:   { topic: string; opener: string; goal: string }[];
 };
 
 /** Run a REAL PTT session through process-transmission for an AI persona */
