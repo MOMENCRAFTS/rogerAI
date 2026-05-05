@@ -63,7 +63,7 @@ Deno.serve(async (req: Request) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
       body: JSON.stringify({
-        model: 'gpt-5.5',           // Full model — meeting notes are high-value
+        model: 'gpt-4o',           // Full model — meeting notes are high-value
         response_format: { type: 'json_object' },
         temperature: 0.3,
         messages: [

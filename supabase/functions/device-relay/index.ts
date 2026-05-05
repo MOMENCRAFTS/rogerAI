@@ -125,7 +125,7 @@ Response format: {"intent":"SHORT_SNAKE_CASE","roger_response":"...","confidence
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-5.5',
+      model: 'gpt-4o',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: SYSTEM_PROMPT + '\n\n' + memoryContext },

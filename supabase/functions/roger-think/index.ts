@@ -62,7 +62,7 @@ async function gpt(systemPrompt: string, userPrompt: string, json = false, userI
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: 'gpt-5.5',
+      model: 'gpt-4o',
       temperature: 0.6,
       ...(json ? { response_format: { type: 'json_object' } } : {}),
       messages: [
@@ -75,7 +75,7 @@ async function gpt(systemPrompt: string, userPrompt: string, json = false, userI
   // Track usage
   await trackUsage({
     functionName: 'roger-think',
-    model: 'gpt-5.5',
+    model: 'gpt-4o',
     userId: userId ?? null,
     promptTokens: data.usage?.prompt_tokens ?? 0,
     completionTokens: data.usage?.completion_tokens ?? 0,
@@ -108,7 +108,7 @@ async function processUser(userId: string, displayName: string, frequency: strin
   // ── Gather full user context ───────────────────────────────────────────
   const [history, facts, reminders, tasks, surface, academyStreak, recentTopics] = await Promise.all([
     sb(`conversation_history?user_id=eq.${userId}&order=created_at.desc&limit=10&select=role,content,created_at`),
-    sb(`memory_graph?user_id=eq.${userId}&order=confidence.desc&limit=15&select=subject,predicate,object,confidence`),
+    sb(`memory_graph?user_id=eq.${userId}&is_draft=eq.false&confidence=gte.65&order=confidence.desc&limit=15&select=subject,predicate,object,confidence`),
     sb(`reminders?user_id=eq.${userId}&status=eq.pending&order=due_at.asc&limit=8&select=text,due_at,due_location`),
     sb(`tasks?user_id=eq.${userId}&status=eq.open&order=priority.desc&limit=8&select=text,priority,due_at`),
     sb(`surface_queue?user_id=eq.${userId}&dismissed=eq.false&order=priority.desc&limit=5&select=content,type`),

@@ -12,8 +12,9 @@ const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 // ── Cost estimation per 1K tokens (USD) ──────────────────────────────────────
 const COST_PER_1K: Record<string, { input: number; output: number }> = {
-  'gpt-5.5':       { input: 0.005,  output: 0.015 },
-  'gpt-5.4-mini':  { input: 0.0002, output: 0.0006 },
+  'gpt-4o':        { input: 0.005,  output: 0.015 },
+  'gpt-4o-mini':   { input: 0.00015, output: 0.0006 },
+  'gpt-4-turbo':   { input: 0.010,  output: 0.030 },
   'whisper-1':     { input: 0.006,  output: 0 },   // per minute, approximated
   'tts-1':         { input: 0.015,  output: 0 },   // per 1K chars
   'tts-1-hd':      { input: 0.030,  output: 0 },
@@ -24,7 +25,7 @@ export function estimateCost(
   promptTokens: number,
   completionTokens: number
 ): number {
-  const rates = COST_PER_1K[model] ?? COST_PER_1K['gpt-5.5'];
+  const rates = COST_PER_1K[model] ?? COST_PER_1K['gpt-4o'];
   return (promptTokens / 1000) * rates.input + (completionTokens / 1000) * rates.output;
 }
 

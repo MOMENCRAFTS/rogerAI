@@ -90,7 +90,7 @@ BRIEFING RULES:
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: 'gpt-5.5',
+      model: 'gpt-4o',
       tools: [{ type: 'web_search' }],
       input: [
         { role: 'system', content: systemPrompt },

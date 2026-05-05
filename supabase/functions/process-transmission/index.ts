@@ -431,7 +431,7 @@ Deno.serve(async (req: Request) => {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
           signal: wsController.signal,
           body: JSON.stringify({
-            model: 'gpt-5.5',
+            model: 'gpt-4o',
             tools: [{ type: 'web_search_preview' }],
             input,
           }),
@@ -442,7 +442,7 @@ Deno.serve(async (req: Request) => {
 
       if (!wsRes.ok) {
         const err = await wsRes.text();
-        await trackUsage({ functionName: 'process-transmission-websearch', model: 'gpt-5.5', success: false, errorMessage: err, latencyMs: Date.now() - wsStart });
+        await trackUsage({ functionName: 'process-transmission-websearch', model: 'gpt-4o', success: false, errorMessage: err, latencyMs: Date.now() - wsStart });
         return new Response(JSON.stringify({ error: err }), {
           status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
         });
@@ -470,7 +470,7 @@ Deno.serve(async (req: Request) => {
       // Track usage (adapt to Responses API shape)
       await trackUsage({
         functionName: 'process-transmission-websearch',
-        model: 'gpt-5.5',
+        model: 'gpt-4o',
         success: true,
         latencyMs: Date.now() - wsStart,
         promptTokens: (wsData.usage as Record<string, number>)?.input_tokens ?? 0,
@@ -518,9 +518,9 @@ Deno.serve(async (req: Request) => {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
           signal: dpController.signal,
           body: JSON.stringify({
-            model: 'gpt-5.5',
+            model: 'gpt-4o',
             ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-            max_completion_tokens: 1500,
+            max_tokens: 1500,
             messages: dpMessages,
           }),
         });
@@ -530,7 +530,7 @@ Deno.serve(async (req: Request) => {
 
       if (!dpRes.ok) {
         const err = await dpRes.text();
-        await trackUsage({ functionName: 'process-transmission-direct', model: 'gpt-5.5', success: false, errorMessage: err, latencyMs: Date.now() - dpStart });
+        await trackUsage({ functionName: 'process-transmission-direct', model: 'gpt-4o', success: false, errorMessage: err, latencyMs: Date.now() - dpStart });
         return new Response(JSON.stringify({ error: err }), {
           status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
         });
@@ -539,7 +539,7 @@ Deno.serve(async (req: Request) => {
       const dpData = await dpRes.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
       let dpRaw = dpData.choices[0]?.message?.content ?? '';
       // Track token usage
-      await trackOpenAIResponse('process-transmission-direct', 'gpt-5.5', dpData, null, dpStart);
+      await trackOpenAIResponse('process-transmission-direct', 'gpt-4o', dpData, null, dpStart);
 
       // Unwrap if GPT still wrapped plain text in {"text": "..."} JSON
       if (!jsonMode && dpRaw.trim().startsWith('{')) {
@@ -677,9 +677,9 @@ Deno.serve(async (req: Request) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
         signal: txController.signal,
         body: JSON.stringify({
-          model: 'gpt-5.5',
+          model: 'gpt-4o',
           response_format: { type: 'json_object' },
-          max_completion_tokens: 1200, // keeps JSON response tight, well inside 60s
+          max_tokens: 1200, // keeps JSON response tight, well inside 60s
           messages,
         }),
       });
@@ -689,7 +689,7 @@ Deno.serve(async (req: Request) => {
 
     if (!res.ok) {
       const err = await res.text();
-      await trackUsage({ functionName: 'process-transmission', model: 'gpt-5.5', userId: _userId ?? null, success: false, errorMessage: err, latencyMs: Date.now() - txStart });
+      await trackUsage({ functionName: 'process-transmission', model: 'gpt-4o', userId: _userId ?? null, success: false, errorMessage: err, latencyMs: Date.now() - txStart });
       return new Response(JSON.stringify({ error: err }), {
         status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
       });
@@ -735,7 +735,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Track token usage
-    await trackOpenAIResponse('process-transmission', 'gpt-5.5', data, _userId ?? null, txStart);
+    await trackOpenAIResponse('process-transmission', 'gpt-4o', data, _userId ?? null, txStart);
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...CORS, 'Content-Type': 'application/json' },
