@@ -1438,6 +1438,108 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         }).catch(() => {});
       }
 
+      // ── Classroom (Knowledge Pathways): handle CLASSROOM_* intents ──────────
+      if (result.intent?.startsWith('CLASSROOM_')) {
+        const { useIntentStore } = await import('../../lib/intentStore');
+        const store = useIntentStore.getState();
+
+        if (result.intent === 'CLASSROOM_EXIT') {
+          // Save quiz score if available, update module progress
+          if (store.classroomModuleId && store.classroomQuizScore !== null) {
+            import('../../lib/api').then(({ updateModuleProgress, unlockNextModule, updatePathwayProgress }) => {
+              const passed = (store.classroomQuizScore ?? 0) >= 70;
+              updateModuleProgress(store.classroomModuleId!, {
+                status: passed ? 'completed' : 'available',
+                score: store.classroomQuizScore ?? undefined,
+                attempts: 1,
+              }).then(async () => {
+                if (passed && store.classroomPathwayId) {
+                  await unlockNextModule(store.classroomPathwayId, store.classroomModuleNumber);
+                  await updatePathwayProgress(store.classroomPathwayId);
+                }
+              }).catch(() => {});
+            }).catch(() => {});
+          }
+          store.exitClassroom();
+        } else if (result.intent === 'CLASSROOM_QUIZ') {
+          store.setClassroomPhase('quiz');
+        } else if (result.intent === 'CLASSROOM_QUIZ_ANSWER' && result.classroom_quiz_result) {
+          // Save assessment to DB
+          if (store.classroomModuleId) {
+            import('../../lib/api').then(({ saveAssessment }) => {
+              saveAssessment(
+                store.classroomModuleId!,
+                result.classroom_quiz_question ?? '',
+                result.classroom_quiz_expected ?? '',
+                result.classroom_quiz_answer ?? '',
+                result.classroom_quiz_result!,
+                result.roger_response
+              ).catch(() => {});
+            }).catch(() => {});
+          }
+          if (result.classroom_quiz_score !== null && result.classroom_quiz_score !== undefined) {
+            store.setClassroomQuizScore(result.classroom_quiz_score);
+          }
+        } else if (result.intent === 'CLASSROOM_QUIZ_COMPLETE') {
+          // Quiz done — update score and module progress
+          const score = result.classroom_quiz_score ?? 0;
+          store.setClassroomQuizScore(score);
+          if (store.classroomModuleId) {
+            import('../../lib/api').then(({ updateModuleProgress, unlockNextModule, updatePathwayProgress }) => {
+              const passed = score >= 70;
+              updateModuleProgress(store.classroomModuleId!, {
+                status: passed ? 'completed' : 'available',
+                score,
+                attempts: 1,
+              }).then(async () => {
+                if (passed && store.classroomPathwayId) {
+                  await unlockNextModule(store.classroomPathwayId, store.classroomModuleNumber);
+                  await updatePathwayProgress(store.classroomPathwayId);
+                }
+              }).catch(() => {});
+            }).catch(() => {});
+          }
+        } else if (result.intent === 'CLASSROOM_TEACH') {
+          store.setClassroomPhase('teaching');
+        } else if (result.intent === 'CLASSROOM_DISCUSS') {
+          store.setClassroomPhase('discussion');
+        }
+      }
+
+      // ── CLASSROOM_START: generate curriculum and enter classroom ─────────────
+      if (result.intent === 'CLASSROOM_START') {
+        const topicEntity = result.entities?.find(e => e.type === 'LEARNING_TOPIC' || e.type === 'TOPIC');
+        const topic = topicEntity?.text ?? transcript.replace(/teach me about|i want to learn|let's study|educate me on/gi, '').trim();
+        if (topic) {
+          import('../../lib/api').then(async ({ generateCurriculum, fetchPathwayModules: fetchMods }) => {
+            try {
+              const curriculum = await generateCurriculum(topic, userId);
+              const mods = await fetchMods(curriculum.pathway_id);
+              const firstMod = mods[0];
+              if (firstMod) {
+                const { useIntentStore } = await import('../../lib/intentStore');
+                useIntentStore.getState().enterClassroom({
+                  pathwayId: curriculum.pathway_id,
+                  pathwayTitle: curriculum.title,
+                  moduleNumber: 1,
+                  moduleId: firstMod.id,
+                  moduleTitle: firstMod.title,
+                  topic,
+                  lessonContent: firstMod.lesson_content ?? '',
+                  keyConcepts: firstMod.key_concepts ?? [],
+                  totalModules: curriculum.total_modules,
+                });
+                const enterMsg = `I've built a ${curriculum.total_modules}-module pathway on ${curriculum.title}. Starting Module 1: ${firstMod.title}. Ready? Over.`;
+                speakResponse(enterMsg).catch(() => {});
+              }
+            } catch (err) {
+              const errMsg = `Couldn't build that pathway. ${err instanceof Error ? err.message : 'Try again.'}. Over.`;
+              speakResponse(errMsg).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+      }
+
       // ── Translation: auto-save translated words as vocab ────────────────────
       if ((result.intent === 'TRANSLATE_TEXT' || result.intent === 'TRANSLATE_LAST') && result.translation_target && result.translation_source) {
         import('../../lib/api').then(({ upsertVocabWord, fetchAcademyStreak }) => {
@@ -1546,6 +1648,101 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             }
           }).catch(() => {});
         }
+      }
+
+      // NEARBY_SEARCH — Google Places nearby lookup
+      if (result.intent === 'NEARBY_SEARCH' && location) {
+        const placeEntity = result.entities?.find(e => e.type === 'PLACE_TYPE' || e.type === 'LOCATION');
+        const rawQuery = placeEntity?.text ?? transcript.replace(/find|nearest|near me|nearby|where|is the|closest/gi, '').trim();
+        // Map common spoken words to Google Places types
+        const typeMap: Record<string, string> = {
+          gas: 'gas_station', fuel: 'gas_station', petrol: 'gas_station',
+          pharmacy: 'pharmacy', drugstore: 'pharmacy',
+          food: 'restaurant', eat: 'restaurant', restaurant: 'restaurant',
+          atm: 'atm', cash: 'atm', bank: 'atm',
+          coffee: 'cafe', cafe: 'cafe',
+          hospital: 'hospital', clinic: 'hospital', doctor: 'hospital',
+          supermarket: 'supermarket', grocery: 'supermarket',
+          parking: 'parking', park: 'parking',
+        };
+        const normalized = rawQuery.toLowerCase().split(/\s+/);
+        const placeType = normalized.map(w => typeMap[w]).find(Boolean) ?? 'gas_station';
+        import('../../lib/nearbyPlaces').then(({ fetchNearbyPlaces }) => {
+          fetchNearbyPlaces(location.latitude, location.longitude, placeType).then(places => {
+            if (places.length > 0) {
+              const top = places.slice(0, 3);
+              const lines = top.map((p, i) => `${i + 1}. ${p.name}, ${p.distanceM < 1000 ? `${p.distanceM} meters` : `${(p.distanceM / 1000).toFixed(1)} kilometers`} away${p.isOpen === false ? ', currently closed' : ''}`);
+              const msg = `I found ${places.length} ${placeType.replace(/_/g, ' ')}${places.length > 1 ? 's' : ''} nearby. ${lines.join('. ')}. Over.`;
+              setMessages(prev => [...prev, { id: `nearby-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+              speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+            } else {
+              const msg = `No ${placeType.replace(/_/g, ' ')}s found within 1.5 kilometers. Over.`;
+              setMessages(prev => [...prev, { id: `nearby-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+              speakResponse(msg).catch(() => {});
+            }
+          }).catch(() => {});
+        }).catch(() => {});
+      }
+
+      // ── OFFROAD_MODE — toggle offroad tracking ───────────────────────────────
+      if (result.intent === 'OFFROAD_MODE') {
+        const isExiting = /back on road|road mode|exit offroad|on road/i.test(transcript);
+        if (isExiting) {
+          sessionStorage.removeItem('roger_offroad_session');
+          const msg = 'Back on road. Offroad tracking stopped. Trail saved. Over.';
+          setMessages(prev => [...prev, { id: `offroad-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+          speakResponse(msg).catch(() => {});
+        } else {
+          const sessionId = `offroad-${Date.now()}`;
+          sessionStorage.setItem('roger_offroad_session', sessionId);
+          const msg = 'Offroad mode engaged. Tracking your trail. Say "drop a pin" to mark waypoints. Say "back on road" when done. Over.';
+          setMessages(prev => [...prev, { id: `offroad-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+          speakResponse(msg).catch(() => {});
+        }
+      }
+
+      // ── RETURN_HOME — get ETA to home address ────────────────────────────────
+      if (result.intent === 'RETURN_HOME' && location) {
+        import('../../lib/api').then(async ({ fetchCommuteProfile, getCommute }) => {
+          const prof = await fetchCommuteProfile(userId).catch(() => null);
+          if (!prof?.home_address) {
+            const msg = 'No home address set. Tell me your home address first. Over.';
+            setMessages(prev => [...prev, { id: `home-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+            speakResponse(msg).catch(() => {});
+            return;
+          }
+          const eta = await getCommute(location.latitude, location.longitude, prof.home_address, prof.commute_mode ?? 'driving').catch(() => null);
+          if (eta) {
+            const msg = `Home is ${eta.duration} away (${eta.distance}). Drive safe. Over.`;
+            setMessages(prev => [...prev, { id: `home-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+            speakResponse(msg).catch(() => {});
+          } else {
+            const msg = `Could not calculate route to ${prof.home_address}. Over.`;
+            setMessages(prev => [...prev, { id: `home-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+            speakResponse(msg).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+
+      // ── WAYPOINT_DROP — save GPS pin ─────────────────────────────────────────
+      if (result.intent === 'WAYPOINT_DROP' && location) {
+        const labelEntity = result.entities?.find(e => e.type === 'WAYPOINT_LABEL' || e.type === 'LOCATION');
+        const label = labelEntity?.text ?? `Waypoint ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        const offroadSession = sessionStorage.getItem('roger_offroad_session');
+        import('../../lib/api').then(({ dropWaypoint }) => {
+          dropWaypoint(userId, location.latitude, location.longitude, label, {
+            accuracy_m:  location.accuracy,
+            session_id:  offroadSession ?? undefined,
+          }).then(() => {
+            const msg = `Waypoint "${label}" marked at ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}. Over.`;
+            setMessages(prev => [...prev, { id: `wp-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+            speakResponse(msg).catch(() => {});
+          }).catch(() => {
+            const msg = 'Failed to save waypoint. Over.';
+            setMessages(prev => [...prev, { id: `wp-${Date.now()}`, role: 'roger' as const, text: msg, ts: Date.now(), type: 'response' as const }]);
+            speakResponse(msg).catch(() => {});
+          });
+        }).catch(() => {});
       }
 
       // ── DEPARTURE_SIGNAL — log departure + prep brief ─────────────────────
@@ -2406,7 +2603,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         'QUERY_NEWS', 'BRIEFING_NEWS', 'NEWS_BRIEF', 'BRIEFING_REQUEST',
         'QUERY_GOLD', 'QUERY_COMMODITY',
         'QUERY_STOCK', 'MARKET_BRIEF', 'TRACK_PORTFOLIO',
-        'QUERY_FLIGHT', 'COMMUTE_QUERY', 'QUERY_WEATHER',
+        'QUERY_FLIGHT', 'COMMUTE_QUERY', 'QUERY_WEATHER', 'NEARBY_SEARCH',
+        'OFFROAD_MODE', 'RETURN_HOME', 'WAYPOINT_DROP',
       ]);
 
       if (

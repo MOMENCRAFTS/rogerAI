@@ -47,6 +47,14 @@ export interface RogerAIResponse {
   // ── Drill answer evaluation ──
   academy_drill_result?: 'correct' | 'close' | 'wrong' | null;
   academy_drill_word?: string | null; // the word being tested
+  // ── Classroom (Knowledge Pathways) fields ──
+  classroom_phase?: 'teaching' | 'quiz' | 'discussion' | null;
+  classroom_progress?: number | null;          // 0.0 to 1.0 lesson progress
+  classroom_quiz_result?: 'correct' | 'partial' | 'wrong' | null;
+  classroom_quiz_question?: string | null;
+  classroom_quiz_answer?: string | null;
+  classroom_quiz_expected?: string | null;
+  classroom_quiz_score?: number | null;        // 0-100 running score
 }
 
 export type PriorityAction =
@@ -994,6 +1002,27 @@ export async function processTransmission(
             if (!activeMode) return null;
             const modeLabels: Record<string, string> = { vocab: 'VOCAB - teach new words, return academy_word', drill: 'DRILL - quiz user, return academy_drill_type', conversation: 'CONVERSE - free conversation practice' };
             return `=== ACADEMY MODE ACTIVE ===\nUser selected mode: ${modeLabels[activeMode] ?? activeMode}\nClassify this as ACADEMY_${activeMode.toUpperCase()} and respond in that mode.`;
+          } catch { return null; }
+        })(),
+        // -- Classroom context: locked learning pathway mode ------
+        classroomContext: (() => {
+          try {
+            const active = localStorage.getItem('roger:classroom_active');
+            if (!active) return null;
+            // Pull full context from Zustand store for rich edge function injection
+            const { useIntentStore } = require('./intentStore');
+            const s = useIntentStore.getState();
+            return {
+              active: true,
+              topic: s.classroomTopic || localStorage.getItem('roger:classroom_topic') || '',
+              module: s.classroomModuleNumber || parseInt(localStorage.getItem('roger:classroom_module') || '1', 10),
+              phase: s.classroomPhase || localStorage.getItem('roger:classroom_phase') || 'teaching',
+              pathwayTitle: s.classroomPathwayTitle,
+              moduleTitle: s.classroomModuleTitle,
+              lessonContent: s.classroomLessonContent,
+              keyConcepts: s.classroomKeyConcepts,
+              totalModules: s.classroomTotalModules,
+            };
           } catch { return null; }
         })(),
       }),

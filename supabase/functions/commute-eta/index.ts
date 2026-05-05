@@ -1,6 +1,7 @@
 // ─── Roger AI — Commute ETA Edge Function ─────────────────────────────────────
 // Calculates commute time/distance from user's current location to their
-// saved destinations (home, office, etc.) using Google Distance Matrix API.
+// saved destinations (home, office, etc.) using the Google Routes API
+// (Compute Route Matrix — replacement for legacy Distance Matrix API).
 //
 // Deploy: supabase functions deploy commute-eta --no-verify-jwt
 //
@@ -22,26 +23,56 @@ interface RequestBody {
   userId?: string;
 }
 
-interface DistanceMatrixRow {
-  elements: {
-    status: string;
-    duration?: { text: string; value: number };
-    duration_in_traffic?: { text: string; value: number };
-    distance?: { text: string; value: number };
-  }[];
+// ─── Routes API types ─────────────────────────────────────────────────────────
+interface RouteMatrixElement {
+  originIndex:      number;
+  destinationIndex: number;
+  status?:          { code: number; message: string };
+  condition?:       string; // "ROUTE_EXISTS" or "ROUTE_NOT_FOUND"
+  duration?:        string; // "1234s" format
+  distanceMeters?:  number;
+  staticDuration?:  string; // without traffic
 }
 
-interface DistanceMatrixResponse {
-  status: string;
-  rows: DistanceMatrixRow[];
-  destination_addresses: string[];
-}
+// ─── Travel mode mapping ──────────────────────────────────────────────────────
+const ROUTE_MODE_MAP: Record<string, string> = {
+  driving: 'DRIVE',
+  walking: 'WALK',
+  transit: 'TRANSIT',
+};
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Parse Google duration string "1234s" → seconds */
+function parseDuration(d?: string): number | null {
+  if (!d) return null;
+  const match = d.match(/^(\d+)s$/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/** Format seconds into human-readable "23 min" or "1 hr 5 min" */
+function formatDuration(seconds: number | null): string {
+  if (seconds === null) return '—';
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem > 0 ? `${hrs} hr ${rem} min` : `${hrs} hr`;
+}
+
+/** Format metres into human-readable "3.2 km" or "450 m" */
+function formatDistance(meters: number | null): string {
+  if (meters === null) return '—';
+  if (meters < 1000) return `${meters} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -64,49 +95,79 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Build destination string for Distance Matrix API
-    const destAddresses = destinations.map(d => encodeURIComponent(d.address)).join('|');
-    const originStr     = `${origin.lat},${origin.lng}`;
-    const departureNow  = mode === 'driving' ? '&departure_time=now&traffic_model=best_guess' : '';
+    const travelMode = ROUTE_MODE_MAP[mode] ?? 'DRIVE';
 
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json`
-      + `?origins=${encodeURIComponent(originStr)}`
-      + `&destinations=${destAddresses}`
-      + `&mode=${mode}`
-      + `&units=metric`
-      + departureNow
-      + `&key=${GOOGLE_MAPS_API_KEY}`;
+    // ── Build Routes API request body ───────────────────────────────────────
+    const routeMatrixBody = {
+      origins: [{
+        waypoint: {
+          location: {
+            latLng: { latitude: origin.lat, longitude: origin.lng },
+          },
+        },
+      }],
+      destinations: destinations.map(d => ({
+        waypoint: { address: d.address },
+      })),
+      travelMode,
+      routingPreference: travelMode === 'DRIVE' ? 'TRAFFIC_AWARE' : undefined,
+    };
 
-    const gmRes  = await fetch(url);
-    const gmData = await gmRes.json() as DistanceMatrixResponse;
+    // ── Call Routes API ─────────────────────────────────────────────────────
+    const url = `https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix`;
 
-    if (gmData.status !== 'OK') {
-      return new Response(JSON.stringify({ error: `Google Maps error: ${gmData.status}` }), {
+    const gmRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':     'application/json',
+        'X-Goog-Api-Key':   GOOGLE_MAPS_API_KEY,
+        'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,distanceMeters,condition,status',
+      },
+      body: JSON.stringify(routeMatrixBody),
+    });
+
+    if (!gmRes.ok) {
+      const errText = await gmRes.text().catch(() => 'unknown');
+      return new Response(JSON.stringify({ error: `Routes API error: ${gmRes.status} — ${errText}` }), {
         status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
       });
     }
 
-    const row = gmData.rows[0];
+    // Routes API returns an array of RouteMatrixElement (one per origin–dest pair)
+    const elements = await gmRes.json() as RouteMatrixElement[];
+
+    // ── Normalize response to match our existing client contract ────────────
     const results = destinations.map((dest, i) => {
-      const el = row.elements[i];
-      if (el.status !== 'OK') {
-        return { label: dest.label, address: dest.address, status: el.status, durationText: '—', durationSeconds: null, distanceText: '—', distanceMeters: null };
+      // Find the element for this destination
+      const el = Array.isArray(elements)
+        ? elements.find(e => e.destinationIndex === i)
+        : undefined;
+
+      if (!el || el.condition === 'ROUTE_NOT_FOUND' || el.status?.code) {
+        return {
+          label:           dest.label,
+          address:         dest.address,
+          status:          el?.status?.message ?? 'NOT_FOUND',
+          durationText:    '—',
+          durationSeconds: null,
+          distanceText:    '—',
+          distanceMeters:  null,
+        };
       }
-      // Prefer in-traffic duration for driving
-      const duration = el.duration_in_traffic ?? el.duration;
+
+      const durationSeconds = parseDuration(el.duration);
       return {
         label:           dest.label,
         address:         dest.address,
         status:          'OK',
-        durationText:    duration?.text   ?? '—',
-        durationSeconds: duration?.value  ?? null,
-        distanceText:    el.distance?.text  ?? '—',
-        distanceMeters:  el.distance?.value ?? null,
-        resolvedAddress: gmData.destination_addresses[i],
+        durationText:    formatDuration(durationSeconds),
+        durationSeconds,
+        distanceText:    formatDistance(el.distanceMeters ?? null),
+        distanceMeters:  el.distanceMeters ?? null,
       };
     });
 
-    // Persist to Supabase if userId provided (for morning briefing context)
+    // ── Persist to Supabase (for morning briefing context) ──────────────────
     if (userId && SUPABASE_SERVICE_KEY && SUPABASE_URL) {
       try {
         const record = {

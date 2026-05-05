@@ -2490,3 +2490,192 @@ export async function fetchPersonaAnalytics(): Promise<PersonaAnalytics> {
   return res.json();
 }
 
+// ─── Knowledge Pathways (Classroom Mode) ──────────────────────────────────────
+
+export type DbLearningPathway = {
+  id: string; user_id: string; topic: string; title: string;
+  description: string | null;
+  total_modules: number; completed: number;
+  status: 'active' | 'paused' | 'completed';
+  created_at: string; updated_at: string;
+};
+
+export type DbPathwayModule = {
+  id: string; pathway_id: string; module_number: number;
+  title: string; summary: string | null;
+  key_concepts: string[]; lesson_content: string | null;
+  status: 'locked' | 'available' | 'in_progress' | 'completed';
+  score: number | null; attempts: number;
+  unlocked_at: string | null; completed_at: string | null;
+  created_at: string;
+};
+
+export type DbPathwayAssessment = {
+  id: string; module_id: string;
+  question: string; expected_answer: string;
+  user_answer: string | null;
+  result: 'correct' | 'partial' | 'wrong' | null;
+  feedback: string | null; asked_at: string;
+};
+
+/** Generate a curriculum for a topic via the generate-curriculum edge function */
+export async function generateCurriculum(topic: string, userId: string): Promise<{
+  pathway_id: string;
+  title: string;
+  description: string;
+  total_modules: number;
+  first_module: { id: string; title: string; lesson_preview: string };
+}> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-curriculum`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ topic, userId }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  return res.json();
+}
+
+/** Fetch all learning pathways for a user */
+export async function fetchPathways(userId: string): Promise<DbLearningPathway[]> {
+  const { data, error } = await supabase.from('learning_pathways')
+    .select('*').eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Fetch modules for a specific pathway */
+export async function fetchPathwayModules(pathwayId: string): Promise<DbPathwayModule[]> {
+  const { data, error } = await supabase.from('pathway_modules')
+    .select('*').eq('pathway_id', pathwayId)
+    .order('module_number', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Update a module's status and optionally its score */
+export async function updateModuleProgress(
+  moduleId: string,
+  updates: Partial<Pick<DbPathwayModule, 'status' | 'score' | 'attempts'>>
+): Promise<void> {
+  const patch: Record<string, unknown> = { ...updates };
+  if (updates.status === 'completed') patch.completed_at = new Date().toISOString();
+  if (updates.status === 'in_progress' || updates.status === 'available') {
+    patch.unlocked_at = patch.unlocked_at ?? new Date().toISOString();
+  }
+  const { error } = await supabase.from('pathway_modules').update(patch).eq('id', moduleId);
+  if (error) throw error;
+}
+
+/** Unlock the next module in a pathway after completing one */
+export async function unlockNextModule(pathwayId: string, currentModuleNumber: number): Promise<DbPathwayModule | null> {
+  const nextNumber = currentModuleNumber + 1;
+  const { data } = await supabase.from('pathway_modules')
+    .select('*')
+    .eq('pathway_id', pathwayId)
+    .eq('module_number', nextNumber)
+    .maybeSingle();
+  if (data && data.status === 'locked') {
+    await supabase.from('pathway_modules').update({
+      status: 'available',
+      unlocked_at: new Date().toISOString(),
+    }).eq('id', data.id);
+    return { ...data, status: 'available' } as DbPathwayModule;
+  }
+  return data as DbPathwayModule | null;
+}
+
+/** Update pathway completion count */
+export async function updatePathwayProgress(pathwayId: string): Promise<void> {
+  const modules = await fetchPathwayModules(pathwayId);
+  const completed = modules.filter(m => m.status === 'completed').length;
+  const allDone = completed === modules.length;
+  await supabase.from('learning_pathways').update({
+    completed,
+    status: allDone ? 'completed' : 'active',
+    updated_at: new Date().toISOString(),
+  }).eq('id', pathwayId);
+}
+
+/** Save an assessment question/answer */
+export async function saveAssessment(
+  moduleId: string, question: string, expectedAnswer: string,
+  userAnswer: string, result: 'correct' | 'partial' | 'wrong',
+  feedback: string
+): Promise<void> {
+  await supabase.from('pathway_assessments').insert({
+    module_id: moduleId, question, expected_answer: expectedAnswer,
+    user_answer: userAnswer, result, feedback,
+  });
+}
+
+/** Fetch assessments for a module */
+export async function fetchModuleAssessments(moduleId: string): Promise<DbPathwayAssessment[]> {
+  const { data, error } = await supabase.from('pathway_assessments')
+    .select('*').eq('module_id', moduleId)
+    .order('asked_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ─── Offroad Waypoints ────────────────────────────────────────────────────────
+
+export interface DbWaypoint {
+  id:          string;
+  user_id:     string;
+  label:       string;
+  lat:         number;
+  lng:         number;
+  accuracy_m:  number | null;
+  notes:       string | null;
+  session_id:  string | null;   // groups waypoints by offroad session
+  created_at:  string;
+}
+
+/** Drop a waypoint at the current GPS position */
+export async function dropWaypoint(
+  userId: string,
+  lat: number,
+  lng: number,
+  label: string,
+  opts?: { accuracy_m?: number; notes?: string; session_id?: string }
+): Promise<DbWaypoint> {
+  const { data, error } = await supabase
+    .from('offroad_waypoints')
+    .insert({
+      user_id:     userId,
+      lat,
+      lng,
+      label,
+      accuracy_m:  opts?.accuracy_m ?? null,
+      notes:       opts?.notes ?? null,
+      session_id:  opts?.session_id ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Fetch waypoints for a user (latest 50) */
+export async function fetchWaypoints(userId: string, sessionId?: string): Promise<DbWaypoint[]> {
+  let query = supabase
+    .from('offroad_waypoints')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (sessionId) query = query.eq('session_id', sessionId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Delete a waypoint */
+export async function deleteWaypoint(waypointId: string): Promise<void> {
+  await supabase.from('offroad_waypoints').delete().eq('id', waypointId);
+}

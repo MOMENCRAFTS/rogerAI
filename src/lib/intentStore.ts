@@ -88,6 +88,20 @@ export interface IntentStoreState {
 
   // Academy
   academyMode: 'vocab' | 'drill' | 'conversation' | null;
+
+  // Classroom (Knowledge Pathways)
+  classroomActive: boolean;
+  classroomPathwayId: string | null;
+  classroomPathwayTitle: string;
+  classroomModuleNumber: number;
+  classroomModuleId: string | null;
+  classroomModuleTitle: string;
+  classroomPhase: 'teaching' | 'quiz' | 'discussion' | null;
+  classroomTopic: string;
+  classroomQuizScore: number | null;
+  classroomLessonContent: string;
+  classroomKeyConcepts: string[];
+  classroomTotalModules: number;
 }
 
 export interface IntentStoreActions {
@@ -137,6 +151,16 @@ export interface IntentStoreActions {
   // Academy
   setAcademyMode: (mode: 'vocab' | 'drill' | 'conversation' | null) => void;
 
+  // Classroom
+  enterClassroom: (params: {
+    pathwayId: string; pathwayTitle: string; moduleNumber: number;
+    moduleId: string; moduleTitle: string; topic: string;
+    lessonContent: string; keyConcepts: string[]; totalModules: number;
+  }) => void;
+  exitClassroom: () => void;
+  setClassroomPhase: (phase: 'teaching' | 'quiz' | 'discussion' | null) => void;
+  setClassroomQuizScore: (score: number | null) => void;
+
   // Utility
   reset: () => void;
 }
@@ -167,6 +191,20 @@ const INITIAL_STATE: IntentStoreState = {
   meetingWords: 0,
   meetingTitle: '',
   academyMode: null,
+
+  // Classroom
+  classroomActive: false,
+  classroomPathwayId: null,
+  classroomPathwayTitle: '',
+  classroomModuleNumber: 1,
+  classroomModuleId: null,
+  classroomModuleTitle: '',
+  classroomPhase: null,
+  classroomTopic: '',
+  classroomQuizScore: null,
+  classroomLessonContent: '',
+  classroomKeyConcepts: [],
+  classroomTotalModules: 0,
 };
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -237,6 +275,56 @@ export const useIntentStore = create<IntentStoreState & IntentStoreActions>((set
     if (mode) localStorage.setItem('roger:academy_mode', mode);
     else localStorage.removeItem('roger:academy_mode');
   },
+
+  // ── Classroom (Knowledge Pathways) ────────────────────────────────────────
+  enterClassroom: (params) => {
+    set({
+      classroomActive: true,
+      classroomPathwayId: params.pathwayId,
+      classroomPathwayTitle: params.pathwayTitle,
+      classroomModuleNumber: params.moduleNumber,
+      classroomModuleId: params.moduleId,
+      classroomModuleTitle: params.moduleTitle,
+      classroomPhase: 'teaching',
+      classroomTopic: params.topic,
+      classroomQuizScore: null,
+      classroomLessonContent: params.lessonContent,
+      classroomKeyConcepts: params.keyConcepts,
+      classroomTotalModules: params.totalModules,
+    });
+    localStorage.setItem('roger:classroom_active', 'true');
+    localStorage.setItem('roger:classroom_pathway_id', params.pathwayId);
+    localStorage.setItem('roger:classroom_topic', params.topic);
+    localStorage.setItem('roger:classroom_module', String(params.moduleNumber));
+    localStorage.setItem('roger:classroom_phase', 'teaching');
+  },
+  exitClassroom: () => {
+    set({
+      classroomActive: false,
+      classroomPathwayId: null,
+      classroomPathwayTitle: '',
+      classroomModuleNumber: 1,
+      classroomModuleId: null,
+      classroomModuleTitle: '',
+      classroomPhase: null,
+      classroomTopic: '',
+      classroomQuizScore: null,
+      classroomLessonContent: '',
+      classroomKeyConcepts: [],
+      classroomTotalModules: 0,
+    });
+    localStorage.removeItem('roger:classroom_active');
+    localStorage.removeItem('roger:classroom_pathway_id');
+    localStorage.removeItem('roger:classroom_topic');
+    localStorage.removeItem('roger:classroom_module');
+    localStorage.removeItem('roger:classroom_phase');
+  },
+  setClassroomPhase: (phase) => {
+    set({ classroomPhase: phase });
+    if (phase) localStorage.setItem('roger:classroom_phase', phase);
+    else localStorage.removeItem('roger:classroom_phase');
+  },
+  setClassroomQuizScore: (score) => set({ classroomQuizScore: score }),
 
   // ── Reset ────────────────────────────────────────────────────────────────
   reset: () => set(INITIAL_STATE),

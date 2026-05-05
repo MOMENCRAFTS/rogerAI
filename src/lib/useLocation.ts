@@ -1,4 +1,4 @@
-﻿/**
+/**
  * useLocation.ts — Roger AI Location Awareness
  *
  * Watches the user's GPS position using the browser Geolocation API.
@@ -40,9 +40,12 @@ function haversineMetres(lat1: number, lng1: number, lat2: number, lng2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ─── Nominatim gate: 50 m movement + 90 s minimum gap ────────────────────────
+// ─── Google Geocoding gate: 50 m movement + 90 s minimum gap ─────────────────
 const GEO_MIN_MOVE_M = 50;      // metres before we re-geocode
-const GEO_MIN_GAP_MS = 90_000;  // 90 s minimum between Nominatim calls
+const GEO_MIN_GAP_MS = 90_000;  // 90 s minimum between geocode calls
+const GOOGLE_GEO_KEY = (typeof import.meta !== 'undefined')
+  ? (import.meta as { env?: Record<string, string> }).env?.VITE_GOOGLE_MAPS_API_KEY ?? ''
+  : '';
 
 let _lastGeoLat  = 0;
 let _lastGeoLng  = 0;
@@ -63,21 +66,35 @@ async function reverseGeocode(
   _lastGeoLng = lng;
   _lastGeoAt  = now;
 
+  // Use Google Geocoding API if key is available, fallback to Nominatim
+  if (GOOGLE_GEO_KEY) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=en&key=${GOOGLE_GEO_KEY}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json() as {
+        results?: { address_components?: { long_name: string; types: string[] }[] }[];
+      };
+      const comps = data.results?.[0]?.address_components;
+      if (!comps) return null;
+      const city    = comps.find(c => c.types.includes('locality'))?.long_name
+                   ?? comps.find(c => c.types.includes('administrative_area_level_2'))?.long_name;
+      const country = comps.find(c => c.types.includes('country'))?.long_name;
+      return { city, country };
+    } catch {
+      return null;
+    }
+  }
+
+  // Fallback: Nominatim (free, no key required)
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
     const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
-    if (!res.ok) return null; // silently swallow 429 / other errors
+    if (!res.ok) return null;
     const data = await res.json() as {
-      address?: {
-        city?: string; town?: string; village?: string;
-        county?: string; country?: string;
-      };
+      address?: { city?: string; town?: string; village?: string; county?: string; country?: string };
     };
-    const city =
-      data.address?.city ??
-      data.address?.town ??
-      data.address?.village ??
-      data.address?.county;
+    const city = data.address?.city ?? data.address?.town ?? data.address?.village ?? data.address?.county;
     return { city, country: data.address?.country };
   } catch {
     return null;

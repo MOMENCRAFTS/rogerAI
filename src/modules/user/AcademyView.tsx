@@ -13,10 +13,10 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { GraduationCap, BookOpen, Mic, MessageCircle, Target, Flame, TrendingUp, ChevronDown, RefreshCw, Star, Award, CheckCircle2 } from 'lucide-react';
+import { GraduationCap, BookOpen, Mic, MessageCircle, Target, Flame, TrendingUp, ChevronDown, RefreshCw, Star, Award, CheckCircle2, Route, Lock, Play, ChevronRight } from 'lucide-react';
 import { useI18n } from '../../context/I18nContext';
 import { type Locale, getLocaleName, getLocaleFlag, ALL_LOCALES, getBaseLanguage } from '../../lib/i18n';
-import { fetchAcademyStreak, fetchVocabWords, upsertAcademyStreak } from '../../lib/api';
+import { fetchAcademyStreak, fetchVocabWords, upsertAcademyStreak, fetchPathways, fetchPathwayModules, type DbLearningPathway, type DbPathwayModule } from '../../lib/api';
 import { triggerAcademyQuiz } from '../../lib/proactiveEngine';
 import { useIntentStore } from '../../lib/intentStore';
 
@@ -578,6 +578,197 @@ export default function AcademyView({ userId }: Props) {
           })}
         </div>
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+           KNOWLEDGE PATHWAYS — Universal Learning System
+           ═══════════════════════════════════════════════════════════════════════ */}
+      <KnowledgePathways userId={userId} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Knowledge Pathways — Sub-component
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function KnowledgePathways({ userId }: { userId: string }) {
+  const [pathways, setPathways] = useState<DbLearningPathway[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [modules, setModules] = useState<DbPathwayModule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const classroomActive = useIntentStore(s => s.classroomActive);
+  const classroomTopic = useIntentStore(s => s.classroomTopic);
+  const classroomPhase = useIntentStore(s => s.classroomPhase);
+  const classroomModuleNumber = useIntentStore(s => s.classroomModuleNumber);
+
+  useEffect(() => {
+    fetchPathways(userId).then(setPathways).catch(() => {}).finally(() => setLoading(false));
+    const handler = () => fetchPathways(userId).then(setPathways).catch(() => {});
+    window.addEventListener('roger:refresh', handler);
+    return () => window.removeEventListener('roger:refresh', handler);
+  }, [userId]);
+
+  const toggleExpand = useCallback(async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    const mods = await fetchPathwayModules(id).catch(() => [] as DbPathwayModule[]);
+    setModules(mods);
+  }, [expandedId]);
+
+  const statusIcon = (s: string) => {
+    if (s === 'completed') return <CheckCircle2 size={14} color="#22c55e" />;
+    if (s === 'in_progress' || s === 'available') return <Play size={14} color="#60a5fa" />;
+    return <Lock size={12} color="rgba(255,255,255,0.2)" />;
+  };
+
+  const phaseLabel: Record<string, string> = { teaching: '📖 Teaching', quiz: '📝 Quiz', discussion: '💬 Discussion' };
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.03)',
+      borderRadius: 16,
+      border: '1px solid rgba(255,255,255,0.06)',
+      padding: '20px 16px',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 10,
+          background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Route size={18} color="#fff" />
+        </div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Knowledge Pathways</div>
+          <div style={{ fontSize: 11, opacity: 0.5 }}>Say &quot;Roger, teach me about...&quot; to start</div>
+        </div>
+      </div>
+
+      {/* Active Classroom Banner */}
+      {classroomActive && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(99,102,241,0.1))',
+          border: '1px solid rgba(168,85,247,0.3)',
+          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: '#a855f7',
+            boxShadow: '0 0 8px #a855f7',
+            animation: 'pulse 2s infinite',
+          }} />
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#a855f7' }}>
+              🎓 IN CLASSROOM — Module {classroomModuleNumber}
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.6 }}>
+              {classroomTopic} · {phaseLabel[classroomPhase ?? ''] ?? classroomPhase}
+            </div>
+            <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2 }}>
+              Say &quot;exit classroom&quot; to leave
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pathways List */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 20, opacity: 0.4, fontSize: 12 }}>Loading pathways...</div>
+      ) : pathways.length === 0 ? (
+        <div style={{
+          textAlign: 'center', padding: '24px 16px',
+          opacity: 0.4, fontSize: 12,
+        }}>
+          <Route size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
+          <div>No pathways yet</div>
+          <div style={{ marginTop: 4, fontSize: 11 }}>
+            Say &quot;Roger, teach me about investing&quot; to create one
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {pathways.map(p => {
+            const pct = p.total_modules > 0 ? Math.round((p.completed / p.total_modules) * 100) : 0;
+            const isExpanded = expandedId === p.id;
+            return (
+              <div key={p.id}>
+                <div
+                  onClick={() => toggleExpand(p.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                    background: isExpanded ? 'rgba(168,85,247,0.08)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${isExpanded ? 'rgba(168,85,247,0.2)' : 'rgba(255,255,255,0.04)'}`,
+                    transition: 'all 200ms',
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{p.title}</div>
+                    <div style={{ fontSize: 10, opacity: 0.5, marginTop: 2 }}>
+                      {p.completed}/{p.total_modules} modules · {p.status === 'completed' ? '✅ Complete' : `${pct}%`}
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{
+                      height: 3, borderRadius: 2, marginTop: 6,
+                      background: 'rgba(255,255,255,0.06)', overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        height: '100%', borderRadius: 2,
+                        width: `${pct}%`,
+                        background: p.status === 'completed'
+                          ? 'linear-gradient(90deg, #22c55e, #4ade80)'
+                          : 'linear-gradient(90deg, #a855f7, #6366f1)',
+                        transition: 'width 500ms ease',
+                      }} />
+                    </div>
+                  </div>
+                  <ChevronRight
+                    size={16}
+                    style={{
+                      opacity: 0.3, transition: 'transform 200ms',
+                      transform: isExpanded ? 'rotate(90deg)' : 'none',
+                    }}
+                  />
+                </div>
+
+                {/* Expanded module list */}
+                {isExpanded && (
+                  <div style={{
+                    padding: '8px 0 4px 20px',
+                    display: 'flex', flexDirection: 'column', gap: 4,
+                  }}>
+                    {modules.map(m => (
+                      <div key={m.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '6px 10px', borderRadius: 8,
+                        opacity: m.status === 'locked' ? 0.35 : 1,
+                        background: m.status === 'completed' ? 'rgba(34,197,94,0.06)' : 'transparent',
+                      }}>
+                        {statusIcon(m.status)}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#fff' }}>
+                            {m.module_number}. {m.title}
+                          </div>
+                          {m.score !== null && (
+                            <div style={{ fontSize: 9, opacity: 0.5, marginTop: 1 }}>
+                              Score: {m.score}%
+                            </div>
+                          )}
+                        </div>
+                        {m.status === 'completed' && (
+                          <span style={{ fontSize: 9, color: '#22c55e', fontWeight: 700 }}>DONE</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

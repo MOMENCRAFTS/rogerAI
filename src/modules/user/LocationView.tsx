@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { MapPin, Cloud, Bell, BookOpen, Loader, Car, Train, Navigation, RefreshCw, AlertCircle } from 'lucide-react';
+import { MapPin, Cloud, Bell, BookOpen, Loader, Car, Train, Navigation, RefreshCw, AlertCircle, Compass, Sun, Eye, Gauge } from 'lucide-react';
 import { fetchWeather, type WeatherData } from '../../lib/weather';
 import { fetchReminders, fetchMemories, type DbReminder, type DbMemory } from '../../lib/api';
 import type { UserLocation } from '../../lib/useLocation';
@@ -12,6 +12,7 @@ import {
   type CommuteDestination,
   type CommuteMode,
 } from '../../lib/commute';
+import { fetchNearbyPlaces, NEARBY_CATEGORIES, type NearbyPlace } from '../../lib/nearbyPlaces';
 import { useI18n } from '../../context/I18nContext';
 
 interface LocationViewProps {
@@ -26,6 +27,11 @@ export default function LocationView({ userId, location }: LocationViewProps) {
   const [geoReminders, setGeoReminders] = useState<DbReminder[]>([]);
   const [placeMemories, setPlaceMemories] = useState<DbMemory[]>([]);
   const [loading, setLoading]       = useState(true);
+
+  // Nearby places state
+  const [nearbyCategory, setNearbyCategory] = useState<string | null>(null);
+  const [nearbyPlaces, setNearbyPlaces]     = useState<NearbyPlace[]>([]);
+  const [nearbyLoading, setNearbyLoading]   = useState(false);
 
   // Commute ETA state
   const [commute, setCommute]             = useState<CommuteSnapshot | null>(null);
@@ -162,22 +168,151 @@ export default function LocationView({ userId, location }: LocationViewProps) {
               </div>
             )}
             {hasLocation && !weatherLoading && weather && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 24 }}>{weather.icon}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
-                    {weather.tempC}°C · {weather.description}
-                  </div>
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {weather.feelsLike} · Humidity {weather.humidity}% · Wind {weather.windKph} kph
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: (weather.uvIndex !== undefined || weather.visibilityKm !== undefined) ? 10 : 0 }}>
+                  <span style={{ fontSize: 24 }}>{weather.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: 'monospace', fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
+                      {weather.tempC}°C · {weather.description}
+                    </div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {weather.feelsLike}{weather.feelsLikeC !== undefined ? ` (${weather.feelsLikeC}°C)` : ''} · Humidity {weather.humidity}% · Wind {weather.windKph} kph
+                    </div>
                   </div>
                 </div>
-              </div>
+                {/* ── Google Weather extras ── */}
+                {(weather.uvIndex !== undefined || weather.visibilityKm !== undefined || weather.pressureHPa !== undefined) && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {weather.uvIndex !== undefined && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 2 }}>
+                        <Sun size={10} style={{ color: '#f59e0b' }} />
+                        <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#f59e0b' }}>UV {weather.uvIndex}</span>
+                      </div>
+                    )}
+                    {weather.visibilityKm !== undefined && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 2 }}>
+                        <Eye size={10} style={{ color: '#6366f1' }} />
+                        <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>{weather.visibilityKm} km vis</span>
+                      </div>
+                    )}
+                    {weather.pressureHPa !== undefined && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 2 }}>
+                        <Gauge size={10} style={{ color: '#10b981' }} />
+                        <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>{weather.pressureHPa} hPa</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
             {hasLocation && !weatherLoading && !weather && (
               <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>Weather unavailable</span>
             )}
           </div>
+        </section>
+
+        {/* ── Nearby Places ── */}
+        <section>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Compass size={10} style={{ color: '#8b5cf6' }} />
+            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.18em' }}>
+              Nearby
+            </div>
+          </div>
+
+          {/* Category pills */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {NEARBY_CATEGORIES.map(cat => {
+              const active = nearbyCategory === cat.key;
+              return (
+                <button
+                  key={cat.key}
+                  onClick={() => {
+                    if (active) {
+                      setNearbyCategory(null);
+                      setNearbyPlaces([]);
+                      return;
+                    }
+                    if (!location) return;
+                    setNearbyCategory(cat.key);
+                    setNearbyLoading(true);
+                    fetchNearbyPlaces(location.latitude, location.longitude, cat.type)
+                      .then(setNearbyPlaces)
+                      .finally(() => setNearbyLoading(false));
+                  }}
+                  style={{
+                    padding: '5px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase',
+                    letterSpacing: '0.08em', cursor: hasLocation ? 'pointer' : 'not-allowed',
+                    display: 'flex', alignItems: 'center', gap: 5, borderRadius: 2,
+                    background: active ? 'rgba(139,92,246,0.12)' : 'transparent',
+                    border: `1px solid ${active ? 'rgba(139,92,246,0.5)' : 'var(--border-subtle)'}`,
+                    color: active ? '#8b5cf6' : 'var(--text-muted)',
+                    opacity: hasLocation ? 1 : 0.4,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <span style={{ fontSize: 12, lineHeight: 1 }}>{cat.icon}</span> {cat.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Results */}
+          {nearbyLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', border: '1px solid var(--border-subtle)' }}>
+              <Loader size={12} style={{ color: '#8b5cf6', animation: 'spin 1s linear infinite' }} />
+              <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>Scanning nearby...</span>
+            </div>
+          )}
+
+          {!nearbyLoading && nearbyCategory && nearbyPlaces.length === 0 && (
+            <div style={{ padding: '16px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                No results within 1.5 km
+              </span>
+            </div>
+          )}
+
+          {!nearbyLoading && nearbyPlaces.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {nearbyPlaces.map(p => (
+                <div key={p.id} style={{
+                  padding: '12px 14px', border: '1px solid rgba(139,92,246,0.15)',
+                  background: 'rgba(139,92,246,0.03)', display: 'flex', alignItems: 'center', gap: 12,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 2 }}>
+                      {p.name}
+                    </div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.address}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#8b5cf6' }}>
+                      {p.distanceM < 1000 ? `${p.distanceM}m` : `${(p.distanceM / 1000).toFixed(1)}km`}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 2 }}>
+                      {p.rating && (
+                        <span style={{ fontFamily: 'monospace', fontSize: 8, color: '#f59e0b' }}>
+                          ★ {p.rating.toFixed(1)}
+                        </span>
+                      )}
+                      {p.isOpen !== undefined && (
+                        <span style={{ fontFamily: 'monospace', fontSize: 7, padding: '1px 5px',
+                          background: p.isOpen ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                          border: `1px solid ${p.isOpen ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                          color: p.isOpen ? '#10b981' : '#ef4444', textTransform: 'uppercase',
+                        }}>
+                          {p.isOpen ? 'OPEN' : 'CLOSED'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* ── Commute ETA ── */}

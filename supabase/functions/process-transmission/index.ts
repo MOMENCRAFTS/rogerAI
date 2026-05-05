@@ -244,6 +244,57 @@ NEXT_STATION
   outcome: always "success"
 
 ═══════════════════════════════════════
+LOCATION INTELLIGENCE — NEARBY PLACES
+═══════════════════════════════════════
+NEARBY_SEARCH: "find me a gas station", "nearest pharmacy",
+  "where's the closest ATM", "any restaurants nearby",
+  "find a coffee shop near me", "I need a hospital",
+  "where can I park", "nearest supermarket"
+  → Entity: { "text": "<place_type>", "type": "PLACE_TYPE" }
+  → Response: "Scanning nearby. Stand by. Over."
+  → outcome: "success"
+  NOTE: Use when user wants to FIND a nearby place.
+  NOT for directions — that's COMMUTE_QUERY.
+
+═══════════════════════════════════════
+OFFROAD & NAVIGATION
+═══════════════════════════════════════
+OFFROAD_MODE: "I'm going offroad", "going off road", "entering offroad",
+  "offroad mode", "leaving the road", "desert drive", "trail mode"
+  → Response: "Offroad mode engaged. Tracking your trail. Say 'back on road' to exit. Over."
+  → outcome: "success"
+  NOTE: Toggles offroad tracking. "back on road" / "road mode" exits it.
+
+RETURN_HOME: "take me home", "navigate home", "I want to go home",
+  "how do I get home", "route to home", "back to home",
+  "head home", "go home", "directions home"
+  → Response: "Calculating route home. Stand by. Over."
+  → outcome: "success"
+  NOTE: Uses saved home_address for ETA. Different from COMMUTE_QUERY
+  because user doesn't specify a destination — it's always HOME.
+
+WAYPOINT_DROP: "mark this spot", "drop a pin", "save this location",
+  "note this waypoint", "remember this place", "mark waypoint",
+  "pin this", "drop a waypoint", "save waypoint"
+  → Entity (optional): { "text": "<label>", "type": "WAYPOINT_LABEL" }
+  → Response: "Waypoint marked. GPS coordinates logged. Over."
+  → outcome: "success"
+  NOTE: Saves current GPS position to offroad_waypoints table.
+  Especially useful during offroad driving to track interesting spots.
+
+═══════════════════════════════════════
+KNOWLEDGE PATHWAYS — CLASSROOM MODE
+═══════════════════════════════════════
+CLASSROOM_START: "teach me about [TOPIC]", "I want to learn about [TOPIC]",
+  "start a pathway on [TOPIC]", "can you teach me [TOPIC]",
+  "Roger, educate me on [TOPIC]", "let's study [TOPIC]"
+  → Entity: { "text": "<topic>", "type": "LEARNING_TOPIC" }
+  → Response: "Building your learning pathway on [topic]. Stand by. Over."
+  → outcome: "success"
+  NOTE: This creates a structured multi-module curriculum.
+  NOT for quick questions — only when user wants STRUCTURED LEARNING.
+
+═══════════════════════════════════════
 AMBIGUITY RESOLUTION PRIORITY
 ═══════════════════════════════════════
 Before setting outcome="clarification", ALWAYS attempt silent resolution:
@@ -568,6 +619,7 @@ Deno.serve(async (req: Request) => {
       langHint,
       clarificationContext,
       deepDiveContext,
+      classroomContext,
     } = body as unknown as {
       transcript: string;
       history: { role: string; content: string }[];
@@ -587,6 +639,18 @@ Deno.serve(async (req: Request) => {
         depth: number;
         coverageSummary: string;
       } | null;
+      classroomContext?: {
+        active: boolean;
+        topic: string;
+        module: number;
+        phase: string;
+        pathwayTitle?: string;
+        moduleTitle?: string;
+        lessonContent?: string;
+        keyConcepts?: string[];
+        totalModules?: number;
+        quizResults?: { question: string; result: string }[];
+      } | null;
     };
 
     if (!transcript) {
@@ -596,9 +660,84 @@ Deno.serve(async (req: Request) => {
     }
 
     // Build messages — mirrors the client-side structure exactly
-    const messages: { role: string; content: string }[] = [
-      { role: 'system', content: COMMAND_PROMPT },
-    ];
+    const messages: { role: string; content: string }[] = [];
+
+    // ── Classroom mode: inject classroom prompt BEFORE COMMAND_PROMPT ────────
+    if (classroomContext?.active) {
+      const phase = classroomContext.phase || 'teaching';
+      const lesson = classroomContext.lessonContent || '';
+      const concepts = (classroomContext.keyConcepts || []).join(', ');
+      const quizResultsSummary = (classroomContext.quizResults || [])
+        .map((r, i) => `Q${i + 1}: ${r.result}`).join(', ') || 'None yet';
+
+      let classroomPrompt = [
+        '═══════════════════════════════════════',
+        `CLASSROOM MODE — ${phase.toUpperCase()} (LOCKED)`,
+        '═══════════════════════════════════════',
+        `You are Roger — now in CLASSROOM MODE.`,
+        `PATHWAY: "${classroomContext.pathwayTitle || classroomContext.topic}"`,
+        `MODULE ${classroomContext.module} of ${classroomContext.totalModules || '?'}: "${classroomContext.moduleTitle || ''}"`,
+        `PHASE: ${phase.toUpperCase()}`,
+        '',
+        'CRITICAL: Do NOT classify as regular intents. ALL user speech is part of this lesson.',
+        'EXIT TRIGGERS: "exit classroom", "end lesson", "I\'m done", "leave class" → return intent: CLASSROOM_EXIT',
+        '',
+      ].join('\n');
+
+      if (phase === 'teaching') {
+        classroomPrompt += [
+          'LESSON CONTENT TO TEACH:',
+          '"""',
+          lesson,
+          '"""',
+          '',
+          'RULES:',
+          '1. Deliver the lesson content naturally via voice, in digestible chunks.',
+          '2. Use analogies, examples, and conversational tone.',
+          '3. After each chunk: "Following so far? Over."',
+          '4. If user asks a question, answer using the lesson material.',
+          '5. "next"/"continue" → deliver more content.',
+          '6. "quiz me"/"test me" → return intent: CLASSROOM_QUIZ',
+          '',
+          'RESPONSE FORMAT (JSON):',
+          '{ "intent": "CLASSROOM_TEACH", "roger_response": "[spoken]", "classroom_phase": "teaching", "classroom_progress": 0.0-1.0, "confidence": 95, "outcome": "success" }',
+          'End with "Over."',
+        ].join('\n');
+      } else if (phase === 'quiz') {
+        classroomPrompt += [
+          `KEY CONCEPTS TO TEST: ${concepts}`,
+          '',
+          'LESSON CONTENT (reference for grading):',
+          '"""',
+          lesson,
+          '"""',
+          '',
+          `PREVIOUS QUIZ RESULTS: ${quizResultsSummary}`,
+          '',
+          'Ask ONE conceptual question testing UNDERSTANDING, not memorization.',
+          'When user answers, evaluate: correct / partial / wrong with brief feedback.',
+          'After 3-5 questions, give final score.',
+          '',
+          'RESPONSE FORMAT: JSON with intent CLASSROOM_QUIZ or CLASSROOM_QUIZ_ANSWER or CLASSROOM_QUIZ_COMPLETE',
+          'Include: classroom_phase, classroom_quiz_result, classroom_quiz_question, classroom_quiz_score',
+          'End with "Over."',
+        ].join('\n');
+      } else {
+        classroomPrompt += [
+          'The user has a question about the module content.',
+          'LESSON CONTENT:',
+          '"""',
+          lesson,
+          '"""',
+          'Answer concisely (60-120 words). After: "Shall I continue the lesson, or quiz you? Over."',
+          'RESPONSE: { "intent": "CLASSROOM_DISCUSS", "roger_response": "[answer]", "classroom_phase": "discussion" }',
+        ].join('\n');
+      }
+
+      messages.push({ role: 'system', content: classroomPrompt });
+    }
+
+    messages.push({ role: 'system', content: COMMAND_PROMPT });
 
     if (memoryContext) {
       messages.push({ role: 'system', content: memoryContext });
