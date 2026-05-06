@@ -58,7 +58,7 @@ export function removeDeferredPermission(perm: DeferrablePermission): void {
 function isNativePlatform(): boolean {
   try {
     // Dynamic check without hard import — works even if Capacitor isn't installed
-    const cap = (window as Record<string, unknown>).Capacitor as { isNativePlatform?: () => boolean } | undefined;
+    const cap = (window as unknown as Record<string, unknown>).Capacitor as { isNativePlatform?: () => boolean } | undefined;
     return cap?.isNativePlatform?.() ?? false;
   } catch { return false; }
 }
