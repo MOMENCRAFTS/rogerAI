@@ -57,7 +57,7 @@ import { useArrivalDebrief } from '../../lib/useArrivalDebrief';
 import { useAlarmEngine } from '../../lib/useAlarmEngine';
 import {
   initProactive, handleProactivePTT, setProactiveMode, setTalkativeDelivery,
-  triggerIdleCheckin, triggerThinkingMessage,
+  triggerIdleCheckin, triggerThinkingMessage, triggerPrayerAlert,
   clearPending, type PendingMessage,
 } from '../../lib/proactiveEngine';
 import { useSubscription } from '../../lib/useSubscription';
@@ -344,7 +344,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   useAlarmEngine(userId);
 
   // ── Islamic Mode: proactive prayer alerts ─────────────────────────────────
-  // Fires TTS alerts:
+  // Now routes through proactiveEngine for PTT/snooze/banner support.
+  // Fires alerts:
+  //   • At exact prayer time (Adhan moment)
   //   • 10 min before each prayer STARTS
   //   • 30 min before each prayer window ENDS  (gentle reminder)
   //   • 15 min before each prayer window ENDS  (urgent reminder)
@@ -357,22 +359,23 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       try {
         const { data: prefs } = await (await import('../../lib/supabase')).supabase
           .from('user_preferences')
-          .select('islamic_mode, prayer_notifications')
+          .select('islamic_mode, prayer_notifications, prayer_method')
           .eq('user_id', userId)
           .maybeSingle();
 
         if (cancelled) return;
-        const islamicOn = !!(prefs as Record<string, unknown> | null)?.islamic_mode;
-        const notifOn   = (prefs as Record<string, unknown> | null)?.prayer_notifications !== false;
+        const islamicOn    = !!(prefs as Record<string, unknown> | null)?.islamic_mode;
+        const notifOn      = (prefs as Record<string, unknown> | null)?.prayer_notifications !== false;
+        const prayerMethod = ((prefs as Record<string, unknown> | null)?.prayer_method as number | null) ?? 3;
 
         if (!islamicOn || !notifOn || rogerMode === 'quiet') return;
 
-        // Fetch today's prayer times based on stable GPS or Riyadh fallback
+        // Fetch today's prayer times using the user's saved calculation method
         const lat = stableLat || 24.71;
         const lng = stableLng || 46.78;
         const { fetchPrayerTimes: fpt, bearingToCardinal: btc, getQiblaDirection: gqd, getPrayerEndTimes: gpet } =
           await import('../../lib/islamicApi');
-        const times = await fpt(lat, lng).catch(() => null);
+        const times = await fpt(lat, lng, prayerMethod).catch(() => null);
         if (!times || cancelled) return;
 
         const PRAYER_NAMES = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] as const;
@@ -393,15 +396,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           }).catch(() => {});
         };
 
-        // Helper: schedule a timer
-        const schedule = (delaySecs: number, msg: string, prayerName: string, alertType: string) => {
+        // Helper: schedule a prayer alert through proactive engine
+        const schedule = (delaySecs: number, msg: string, prayerName: string, alertType: 'start' | 'adhan' | 'ending_30' | 'ending_15') => {
           const delayMs = delaySecs * 1000;
           if (delayMs > 0) {
             const id = setTimeout(() => {
               if (cancelled || (rogerMode as string) === 'quiet') return;
-              speakResponse(msg).catch(() => {
-                window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
-              });
+              triggerPrayerAlert(prayerName, alertType, msg);
               logAlert(prayerName, alertType);
             }, delayMs);
             timerIds.push(id);
@@ -422,7 +423,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             'start',
           );
 
-          // ── 2. Alert 30 min BEFORE prayer window ends ──
+          // ── 2. Adhan moment — exact prayer start time ──
+          schedule(
+            prayerSecs - nowSecs,
+            `It is time for ${name} prayer. Allahu Akbar. Qibla is to your ${direction}. Over.`,
+            name,
+            'adhan',
+          );
+
+          // ── 3. Alert 30 min BEFORE prayer window ends ──
           // Only fire if the prayer window is > 30 minutes long
           const windowDuration = endSecs - prayerSecs;
           const end30Secs = endSecs - 1800; // 30 min before end
@@ -442,7 +451,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             );
           }
 
-          // ── 3. Alert 15 min BEFORE prayer window ends ──
+          // ── 4. Alert 15 min BEFORE prayer window ends (urgent) ──
           // Only fire if the prayer window is > 15 minutes long
           const end15Secs = endSecs - 900; // 15 min before end
 

@@ -31,7 +31,7 @@ export type TalkativeDelivery = 'auto_speak' | 'ptt_pulse';
 export interface PendingMessage {
   id:      string;
   text:    string;
-  trigger: 'hazard' | 'reminder' | 'departure' | 'briefing' | 'idle' | 'academy' | 'thinking';
+  trigger: 'hazard' | 'reminder' | 'departure' | 'briefing' | 'idle' | 'academy' | 'thinking' | 'prayer';
   urgent?: boolean;
 }
 
@@ -221,5 +221,19 @@ export function triggerThinkingMessage(thought: string, thoughtId?: string) {
     id:      thoughtId ?? `think-${Date.now()}`,
     text:    thought,
     trigger: 'thinking',
+  });
+}
+
+/** Prayer alert — routes through proactive engine for PTT/snooze support */
+export function triggerPrayerAlert(
+  prayerName: string,
+  alertType: 'start' | 'adhan' | 'ending_30' | 'ending_15',
+  message: string,
+) {
+  queueMessage({
+    id:      `prayer-${prayerName}-${alertType}`,
+    text:    message,
+    trigger: 'prayer',
+    urgent:  alertType === 'ending_15',
   });
 }
