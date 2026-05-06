@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Radio, Copy, Check, PhoneCall, PhoneMissed, Mic, X, Clock, Shield } from 'lucide-react';
+import { Radio, Copy, Check, PhoneCall, PhoneMissed, Mic, X, Clock, Shield, Waves } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
@@ -27,7 +27,7 @@ async function callEdge(fn: string, body: object): Promise<Record<string, unknow
   return res.json() as Promise<Record<string, unknown>>;
 }
 
-type SessionState = 'idle' | 'requesting' | 'incoming' | 'active' | 'ended';
+type SessionState = 'idle' | 'requesting' | 'incoming' | 'active' | 'ended' | 'echo';
 
 interface IncomingPayload {
   requestId: string;
@@ -51,6 +51,25 @@ export default function TuneIn() {
   const [sessionSecs, setSessionSecs] = useState(0);
   const [ghostHours, setGhostHours]   = useState(0);
   const [status, setStatus]           = useState('');
+  const [echoActive, setEchoActive]   = useState(false);
+
+  // Echo test handlers — broadcast to UserHome's Realtime listener
+  const handleEchoStart = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    setEchoActive(true);
+    await supabase.channel(`tunein-${session.user.id}`).send({
+      type: 'broadcast', event: 'echo_test_start', payload: {},
+    });
+  };
+  const handleEchoStop = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    setEchoActive(false);
+    await supabase.channel(`tunein-${session.user.id}`).send({
+      type: 'broadcast', event: 'echo_test_stop', payload: {},
+    });
+  };
 
   // Load my callsign
   const loadCallsign = useCallback(async () => {
@@ -244,6 +263,114 @@ export default function TuneIn() {
             </div>
           )}
         </div>
+
+        {/* ── ECHO TEST ── */}
+        {state === 'idle' && (
+          <div style={{
+            padding: '18px',
+            background: echoActive
+              ? 'rgba(168,85,247,0.08)'
+              : 'rgba(168,85,247,0.03)',
+            border: `1px solid ${echoActive ? 'rgba(168,85,247,0.5)' : 'rgba(168,85,247,0.15)'}`,
+            transition: 'all 300ms ease',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Waves size={12} style={{ color: '#a855f7' }} />
+                <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#a855f7', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700 }}>
+                  ECHO TEST
+                </span>
+              </div>
+              {echoActive && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} style={{
+                      width: 3, background: '#a855f7', borderRadius: 2,
+                      animation: `echoBar 0.8s ease-in-out ${i * 0.1}s infinite alternate`,
+                    }} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+              Verify your audio pipeline works before calling someone. Your voice gets encoded, relayed through the server, and played back to you.
+            </p>
+
+            {!echoActive ? (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                  {[
+                    { step: '1', text: 'Tap START below to enter echo mode' },
+                    { step: '2', text: 'Hold PTT on main screen and speak' },
+                    { step: '3', text: 'Release — hear your voice played back with latency shown' },
+                  ].map(({ step, text }) => (
+                    <div key={step} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{
+                        width: 18, height: 18, borderRadius: '50%',
+                        background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#a855f7', fontWeight: 700 }}>{step}</span>
+                      </div>
+                      <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5 }}>{text}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleEchoStart}
+                  style={{
+                    width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer',
+                    background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.4)',
+                    color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}
+                >
+                  <Waves size={12} /> START ECHO TEST
+                </button>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{
+                  display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 4,
+                  height: 40, marginBottom: 12,
+                }}>
+                  {[...Array(9)].map((_, i) => (
+                    <div key={i} style={{
+                      width: 4, borderRadius: 2, background: '#a855f7',
+                      animation: `echoBar 0.6s ease-in-out ${i * 0.07}s infinite alternate`,
+                    }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#a855f7', fontWeight: 600, margin: '0 0 4px' }}>
+                  Echo mode active
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '0 0 14px' }}>
+                  Go to main screen → hold PTT → speak → hear yourself
+                </p>
+                <button
+                  onClick={handleEchoStop}
+                  style={{
+                    width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer',
+                    background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)',
+                    color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}
+                >
+                  <X size={12} /> STOP ECHO TEST
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <style>{`
+          @keyframes echoBar {
+            from { height: 4px; opacity: 0.3; }
+            to { height: 24px; opacity: 1; }
+          }
+        `}</style>
 
         {/* ── INCOMING REQUEST ── */}
         {state === 'incoming' && incoming && (

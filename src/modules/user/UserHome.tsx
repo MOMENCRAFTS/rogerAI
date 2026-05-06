@@ -552,6 +552,15 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         setIncomingTuneInRequest(null);
         if (p.rogerSpeak) speakResponse(p.rogerSpeak).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       })
+      .on('broadcast', { event: 'echo_test_start' }, () => {
+        // Local echo test — session with yourself, no DB involved
+        setActiveTuneInSession({ sessionId: `echo-${Date.now()}`, withName: 'ECHO TEST' });
+        speakResponse('Echo test active. Hold PTT to record, release to hear yourself back.').catch(() => {});
+      })
+      .on('broadcast', { event: 'echo_test_stop' }, () => {
+        setActiveTuneInSession(null);
+        speakResponse('Echo test complete. Over.').catch(() => {});
+      })
       .subscribe();
 
     return () => { requestCh.unsubscribe(); };
@@ -572,9 +581,10 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     const sessionCh = supabase
       .channel(`tunein-session-${sid}`)
       .on('broadcast', { event: 'session_turn' }, ({ payload }) => {
-        const p = payload as { speakerId: string; spokenLine: string; transcript: string; audio?: string };
-        // Only play turns from the OTHER person
-        if (p.speakerId !== userId) {
+        const p = payload as { speakerId: string; spokenLine: string; transcript: string; audio?: string; sentAt?: number };
+        const isEchoTest = sid.startsWith('echo-');
+        // Play turns from the OTHER person — or from SELF during echo test
+        if (p.speakerId !== userId || isEchoTest) {
           // Accumulate transcript for background AI analysis
           tuneInTranscriptRef.current.push({ speaker: 'them', text: p.transcript });
 
@@ -599,7 +609,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           } else if (p.spokenLine) {
             speakResponse(p.spokenLine).catch(() => { console.warn('[TTS] TTS fallback for turn without audio'); });
           }
-          setMessages(prev => [...prev, { id: `turn-${Date.now()}`, role: 'roger', text: `📡 ${withName}: ${p.transcript}`, ts: Date.now() }]);
+          setMessages(prev => [...prev, { id: `turn-${Date.now()}`, role: 'roger', text: isEchoTest ? `🔊 Echo: ${p.transcript}${p.sentAt ? ` (${Date.now() - p.sentAt}ms)` : ''}` : `📡 ${withName}: ${p.transcript}`, ts: Date.now() }]);
         }
       })
       .on('broadcast', { event: 'session_ended' }, ({ payload }) => {
@@ -1188,6 +1198,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       tuneInTranscriptRef.current.push({ speaker: 'me', text: transcript });
 
       // Broadcast audio + transcript directly via Realtime (instant, ~200ms)
+      const isEcho = sess.sessionId.startsWith('echo-');
       supabase.channel(`tunein-session-${sess.sessionId}`).send({
         type: 'broadcast', event: 'session_turn',
         payload: {
@@ -1196,21 +1207,24 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           isFlagged,
           audio: audioBase64,  // base64 raw voice — played directly by recipient
           spokenLine: `From you: ${transcript}`, // TTS fallback text
+          sentAt: Date.now(), // timestamp for latency measurement
         },
       }).catch(() => {});
 
-      // Fire-and-forget: store turn in DB via edge function (background)
-      supabase.auth.getSession().then(async ({ data: { session } }) => {
-        const token = session?.access_token ?? SUPABASE_ANON_KEY;
-        await fetch(`${SUPABASE_URL}/functions/v1/relay-session-turn`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ sessionId: sess.sessionId, transcript, isFlagged }),
-        });
-      }).catch(() => {});
+      // Fire-and-forget: store turn in DB via edge function (skip during echo test)
+      if (!isEcho) {
+        supabase.auth.getSession().then(async ({ data: { session } }) => {
+          const token = session?.access_token ?? SUPABASE_ANON_KEY;
+          await fetch(`${SUPABASE_URL}/functions/v1/relay-session-turn`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ sessionId: sess.sessionId, transcript, isFlagged }),
+          });
+        }).catch(() => {});
+      }
 
       // Show transcript in message log
-      setMessages(prev => [...prev, { id: `r-${Date.now()}`, role: 'roger', text: `📡 You → ${sess.withName}: ${transcript}${isFlagged ? ' ⭐' : ''}`, ts: Date.now() }]);
+      setMessages(prev => [...prev, { id: `r-${Date.now()}`, role: 'roger', text: isEcho ? `🎤 You said: ${transcript}` : `📡 You → ${sess.withName}: ${transcript}${isFlagged ? ' ⭐' : ''}`, ts: Date.now() }]);
       setPttState('responded');
       // Quick beep confirmation instead of verbose TTS acknowledgment
       sfxRogerOut();
@@ -3206,36 +3220,44 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         const mins = Math.floor(tuneInCallSeconds / 60);
         const secs = tuneInCallSeconds % 60;
         const durationStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        const isEcho = activeTuneInSession.sessionId.startsWith('echo-');
         return (
           <div style={{
             margin: '12px 16px 0',
             padding: '14px 18px',
-            background: 'rgba(6,182,212,0.06)',
-            border: '1px solid rgba(6,182,212,0.35)',
+            background: isEcho ? 'rgba(168,85,247,0.06)' : 'rgba(6,182,212,0.06)',
+            border: `1px solid ${isEcho ? 'rgba(168,85,247,0.35)' : 'rgba(6,182,212,0.35)'}`,
             borderRadius: 4,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                 <div style={{
-                  width: 8, height: 8, borderRadius: '50%', background: '#10b981',
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: isEcho ? '#a855f7' : '#10b981',
                   animation: 'pulse 1.5s ease-in-out infinite',
-                  boxShadow: '0 0 8px rgba(16,185,129,0.5)',
+                  boxShadow: isEcho ? '0 0 8px rgba(168,85,247,0.5)' : '0 0 8px rgba(16,185,129,0.5)',
                 }} />
-                <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#06b6d4', fontWeight: 700 }}>
-                  LIVE · {durationStr}
+                <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: isEcho ? '#a855f7' : '#06b6d4', fontWeight: 700 }}>
+                  {isEcho ? 'ECHO TEST' : 'LIVE'} · {durationStr}
                 </span>
               </div>
               <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
-                {activeTuneInSession.withName}
+                {isEcho ? 'Testing Audio Pipeline' : activeTuneInSession.withName}
               </div>
               <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-                PTT relays your voice directly · Roger listening
+                {isEcho ? 'Hold PTT → speak → release → hear yourself back' : 'PTT relays your voice directly · Roger listening'}
               </div>
             </div>
             <button
               style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', borderRadius: 3, flexShrink: 0 }}
               onClick={async () => {
+                if (isEcho) {
+                  // Echo test — just clear state, no API call
+                  setActiveTuneInSession(null);
+                  speakResponse('Echo test complete. Over.').catch(() => {});
+                  return;
+                }
                 const SUPABASE_URL       = import.meta.env.VITE_SUPABASE_URL as string;
                 const SUPABASE_ANON_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
                 const { data: { session } } = await supabase.auth.getSession();
@@ -3256,7 +3278,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                   setTimeout(() => speakResponse(prompt).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }), 2000);
                 }
               }}>
-              END
+              {isEcho ? 'STOP' : 'END'}
             </button>
           </div>
         );
