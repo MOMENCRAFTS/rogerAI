@@ -145,7 +145,7 @@ interface PendingAction {
 
 interface Message { id: string; role: 'user' | 'roger'; text: string; ts: number; intent?: string; outcome?: string; news?: NewsArticle[]; isKnowledge?: boolean; subtopics?: { label: string; emoji: string }[]; deepDiveDepth?: number; translationSource?: string; translationTarget?: string; translationTargetLang?: string; translationRomanized?: string; searching?: boolean; webSearchUsed?: boolean; }
 
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'tunein' | 'settings';
 
 export default function UserHome({ userId, sessionId, onTabChange, location: locationProp }: { userId: string; sessionId: string; onTabChange: (t: UserTab) => void; location?: UserLocation | null }) {
   const { checkGate } = useSubscription(userId);
@@ -3053,9 +3053,13 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <Radio size={14} style={{ color: 'var(--green)' }} className="led-pulse" />
           <span style={{ fontFamily: 'monospace', fontSize: 12, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', fontWeight: 600 }}>{t('app.name')}</span>
           {myCallsign && (
-            <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: '1px solid rgba(212,160,68,0.25)', color: 'rgba(212,160,68,0.6)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            <button
+              onClick={() => onTabChange('tunein' as UserTab)}
+              style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: '1px solid rgba(6,182,212,0.3)', color: 'rgba(6,182,212,0.7)', letterSpacing: '0.12em', textTransform: 'uppercase', background: 'rgba(6,182,212,0.06)', cursor: 'pointer' }}
+              title="Open Tune In"
+            >
               {myCallsign}
-            </span>
+            </button>
           )}
           {profileContext && (
             <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: '1px solid rgba(74,222,128,0.2)', background: 'rgba(74,222,128,0.06)', color: 'rgba(74,222,128,0.7)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
@@ -4036,6 +4040,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           { label: 'News',            prompt: 'Give me a quick news briefing.' },
           { label: 'Markets',         prompt: 'Give me a market brief.' },
           { label: 'Uber',            prompt: 'Book me an Uber ride.' },
+          { label: 'Tune In',         prompt: undefined, isNav: true as const, tab: 'tunein' as UserTab },
           { label: 'Reminders',       prompt: 'Reminders', isNav: true as const, tab: 'reminders' as UserTab },
         ] as { label: string; prompt?: string; isNav?: true; tab?: UserTab }[]).map((chip, i) => (
           <button key={i}

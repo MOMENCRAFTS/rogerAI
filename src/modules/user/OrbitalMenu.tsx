@@ -3,12 +3,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Bell, CheckSquare, BookOpen, Mic, BookMarked,
   BarChart3, MapPin, Car, Crown, Moon, Lightbulb,
-  GraduationCap, X, TrendingUp,
+  GraduationCap, X, TrendingUp, Radio,
 } from 'lucide-react';
 import type { ComponentType, SVGProps } from 'react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'market' | 'settings';
+type UserTab = 'home' | 'reminders' | 'tasks' | 'memory' | 'journal' | 'analytics' | 'location' | 'commute' | 'meetings' | 'upgrade' | 'salah' | 'smarthome' | 'academy' | 'market' | 'tunein' | 'settings';
 
 interface OrbitalItem {
   key: UserTab;
@@ -38,6 +38,7 @@ const ORBITAL_ITEMS: OrbitalItem[] = [
   { key: 'memory',    label: 'Memory',    Icon: BookOpen,    ring: 0 },
   { key: 'journal',   label: 'Journal',   Icon: BookMarked,  ring: 0 },
   { key: 'meetings',  label: 'Meetings',  Icon: Mic,         ring: 0 },
+  { key: 'tunein',    label: 'Tune In',   Icon: Radio,       ring: 0, accent: '#06b6d4' },
 
   // Outer ring — lifestyle & intelligence (ring 1)
   { key: 'analytics', label: 'Stats',     Icon: BarChart3,      ring: 1 },
@@ -306,6 +307,7 @@ function OrbitalIcon({
     journal: 'nav.journal', meetings: 'nav.meetings', analytics: 'nav.stats',
     location: 'nav.locate', commute: 'nav.drive', salah: 'nav.salah',
     smarthome: 'nav.iot', academy: 'nav.academy', upgrade: 'nav.upgrade',
+    tunein: 'nav.tunein',
   };
   const displayLabel = labelKeyMap[key] ? t(labelKeyMap[key]) : label;
 
