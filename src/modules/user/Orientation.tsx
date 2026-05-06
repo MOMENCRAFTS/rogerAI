@@ -63,8 +63,9 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   // openaiKey is read from env inside whisper.ts — no need to pass it here
 
   const total   = CHAPTERS.length;
-  const current = CHAPTERS[chapter];
-  const isLast  = chapter === total - 1;
+  const safeCh  = Math.min(chapter, total - 1);
+  const current = CHAPTERS[safeCh]!;
+  const isLast  = safeCh === total - 1;
   const Icon    = current.icon;
 
   // ── Speak chapter on entry ────────────────────────────────────────────────
@@ -91,12 +92,18 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   // ── Navigation ────────────────────────────────────────────────────────────
   const goNext = useCallback(() => {
     stopSpeaking();
-    if (isLast) { handleComplete(); return; }
-    setDirection(1);
-    setChapter(c => c + 1);
-    setShowConfirmZone(false);
-    setVoiceFailed(false);
-  }, [isLast]); // eslint-disable-line react-hooks/exhaustive-deps
+    setChapter(c => {
+      if (c >= total - 1) {
+        // Already at or past last chapter — complete orientation
+        handleComplete();
+        return c;
+      }
+      setDirection(1);
+      setShowConfirmZone(false);
+      setVoiceFailed(false);
+      return c + 1;
+    });
+  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goPrev = useCallback(() => {
     if (chapter === 0) return;
