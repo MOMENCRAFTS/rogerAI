@@ -1513,6 +1513,70 @@ export async function upsertCommuteProfile(
   if (error) throw error;
 }
 
+// ─── Saved Spots (Pinned Locations) ───────────────────────────────────────────
+
+export type DbSavedSpot = {
+  id:         string;
+  user_id:    string;
+  label:      string;
+  spot_type:  'home' | 'work' | 'other';
+  lat:        number;
+  lng:        number;
+  address:    string | null;
+  icon:       string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchSavedSpots(userId: string): Promise<DbSavedSpot[]> {
+  const { data, error } = await supabase
+    .from('saved_spots')
+    .select('*')
+    .eq('user_id', userId)
+    .order('spot_type')   // home first, then work, then other
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as DbSavedSpot[];
+}
+
+export async function upsertSavedSpot(
+  userId: string,
+  spot: { label: string; spot_type: 'home' | 'work' | 'other'; lat: number; lng: number; address?: string | null; icon?: string }
+): Promise<void> {
+  const { error } = await supabase
+    .from('saved_spots')
+    .upsert({
+      user_id:    userId,
+      label:      spot.label,
+      spot_type:  spot.spot_type,
+      lat:        spot.lat,
+      lng:        spot.lng,
+      address:    spot.address ?? null,
+      icon:       spot.icon ?? (spot.spot_type === 'home' ? '🏠' : spot.spot_type === 'work' ? '🏢' : '📍'),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,label' });
+  if (error) throw error;
+}
+
+export async function deleteSavedSpot(spotId: string): Promise<void> {
+  const { error } = await supabase.from('saved_spots').delete().eq('id', spotId);
+  if (error) throw error;
+}
+
+/** Reverse-geocode lat/lng to a human-readable address via Google Maps */
+export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  if (!GOOGLE_MAPS_API_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`
+    );
+    const data = await res.json() as { results?: { formatted_address: string }[] };
+    return data.results?.[0]?.formatted_address ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Session Archive ───────────────────────────────────────────────────────────
 
 export interface DbSessionSummary {

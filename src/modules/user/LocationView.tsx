@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { MapPin, Cloud, Bell, BookOpen, Loader, Car, Train, Navigation, RefreshCw, AlertCircle, Compass, Sun, Eye, Gauge } from 'lucide-react';
+import { MapPin, Cloud, Bell, BookOpen, Loader, Car, Train, Navigation, RefreshCw, AlertCircle, Compass, Sun, Eye, Gauge, Pin, X, Check, Home, Briefcase, Plus } from 'lucide-react';
 import { fetchWeather, type WeatherData } from '../../lib/weather';
-import { fetchReminders, fetchMemories, type DbReminder, type DbMemory } from '../../lib/api';
+import {
+  fetchReminders, fetchMemories, upsertCommuteProfile, upsertMemoryFact,
+  fetchSavedSpots, upsertSavedSpot, deleteSavedSpot, reverseGeocode,
+  type DbReminder, type DbMemory, type DbSavedSpot,
+} from '../../lib/api';
 import type { UserLocation } from '../../lib/useLocation';
 import {
   fetchCommuteETAs,
@@ -40,6 +44,15 @@ export default function LocationView({ userId, location }: LocationViewProps) {
   const [commuteMode, setCommuteMode]     = useState<CommuteMode>('driving');
   const [destinations, setDestinations]   = useState<CommuteDestination[]>([]);
 
+  // Saved spots state
+  const [savedSpots, setSavedSpots]       = useState<DbSavedSpot[]>([]);
+  const [pinning, setPinning]             = useState(false);
+  const [pinFlash, setPinFlash]           = useState<string | null>(null);
+  const [customLabel, setCustomLabel]     = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [reverseAddr, setReverseAddr]     = useState<string | null>(null);
+  const [reverseLoading, setReverseLoading] = useState(false);
+
   // Fetch weather when location becomes available
   useEffect(() => {
     if (!location) return;
@@ -53,6 +66,91 @@ export default function LocationView({ userId, location }: LocationViewProps) {
   useEffect(() => {
     loadUserDestinations(userId).then(setDestinations);
   }, [userId]);
+
+  // Load saved spots
+  useEffect(() => {
+    fetchSavedSpots(userId).then(setSavedSpots).catch(() => {});
+  }, [userId]);
+
+  // Reverse-geocode current position
+  useEffect(() => {
+    if (!location) return;
+    setReverseLoading(true);
+    reverseGeocode(location.latitude, location.longitude)
+      .then(addr => { setReverseAddr(addr); setReverseLoading(false); })
+      .catch(() => setReverseLoading(false));
+  }, [location?.latitude, location?.longitude]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pin flash helper
+  const flash = (msg: string) => { setPinFlash(msg); setTimeout(() => setPinFlash(null), 2500); };
+
+  // Pin location handler
+  const handlePin = useCallback(async (type: 'home' | 'work' | 'other', label?: string) => {
+    if (!location || pinning) return;
+    setPinning(true);
+    try {
+      const addr = reverseAddr ?? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
+      const spotLabel = type === 'home' ? 'Home' : type === 'work' ? 'Work' : (label ?? 'Custom');
+
+      // Save to saved_spots table
+      await upsertSavedSpot(userId, {
+        label: spotLabel, spot_type: type,
+        lat: location.latitude, lng: location.longitude,
+        address: addr,
+      });
+
+      // For home/work, also update user_preferences for commute ETA integration
+      if (type === 'home') {
+        await upsertCommuteProfile(userId, {
+          home_address: addr, home_lat: location.latitude, home_lng: location.longitude,
+        });
+      } else if (type === 'work') {
+        await upsertCommuteProfile(userId, {
+          work_address: addr, work_lat: location.latitude, work_lng: location.longitude,
+        });
+      }
+
+      // Sync to memory graph for AI context
+      await upsertMemoryFact({
+        user_id: userId, fact_type: 'preference',
+        subject: 'user', predicate: `${type} location is`,
+        object: addr, confidence: 100,
+        is_confirmed: true, is_draft: false, source_tx: 'location_pin',
+      }).catch(() => {});
+
+      // Refresh spots list + destinations
+      const [spots] = await Promise.all([
+        fetchSavedSpots(userId).catch(() => [] as DbSavedSpot[]),
+        loadUserDestinations(userId).then(setDestinations).catch(() => {}),
+      ]);
+      setSavedSpots(spots);
+      flash(`✓ ${spotLabel} pinned`);
+      setShowCustomInput(false);
+      setCustomLabel('');
+    } catch (e) {
+      flash(`✕ Failed: ${(e as Error).message}`);
+    } finally {
+      setPinning(false);
+    }
+  }, [location, pinning, reverseAddr, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Delete spot handler
+  const handleDeleteSpot = useCallback(async (spot: DbSavedSpot) => {
+    try {
+      await deleteSavedSpot(spot.id);
+      setSavedSpots(prev => prev.filter(s => s.id !== spot.id));
+      flash(`✓ ${spot.label} removed`);
+    } catch { flash('✕ Failed to delete'); }
+  }, []);
+
+  // Distance calculator (meters between two points)
+  const distanceBetween = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
 
   // Fetch commute ETAs
   const refreshCommute = useCallback(async (mode: CommuteMode = commuteMode) => {
@@ -150,6 +248,196 @@ export default function LocationView({ userId, location }: LocationViewProps) {
               </div>
             )}
           </div>
+        </section>
+
+        {/* ── Pin This Location ── */}
+        <section>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Pin size={10} style={{ color: '#f59e0b' }} />
+            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.18em' }}>
+              Pin This Location
+            </div>
+            {pinFlash && (
+              <span style={{
+                fontFamily: 'monospace', fontSize: 9, marginLeft: 'auto',
+                color: pinFlash.startsWith('✓') ? 'var(--green)' : '#ef4444',
+                animation: 'pulse 0.6s ease-in-out',
+              }}>{pinFlash}</span>
+            )}
+          </div>
+
+          <div style={{
+            padding: '14px 16px', border: '1px solid rgba(245,158,11,0.2)',
+            background: 'rgba(245,158,11,0.03)',
+          }}>
+            {/* Current address readout */}
+            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', marginBottom: 12, minHeight: 14 }}>
+              {!hasLocation ? 'Awaiting GPS...' :
+               reverseLoading ? 'Resolving address...' :
+               reverseAddr ? reverseAddr : `${location!.latitude.toFixed(5)}, ${location!.longitude.toFixed(5)}`}
+            </div>
+
+            {/* Quick-pin buttons */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: showCustomInput ? 10 : 0 }}>
+              <button
+                onClick={() => handlePin('home')}
+                disabled={!hasLocation || pinning}
+                style={{
+                  flex: 1, padding: '10px 12px', display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', gap: 6, cursor: hasLocation ? 'pointer' : 'not-allowed',
+                  background: savedSpots.some(s => s.spot_type === 'home') ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.05)',
+                  border: `1px solid ${savedSpots.some(s => s.spot_type === 'home') ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.2)'}`,
+                  opacity: hasLocation ? 1 : 0.4, transition: 'all 200ms',
+                }}
+              >
+                <Home size={18} style={{ color: savedSpots.some(s => s.spot_type === 'home') ? '#10b981' : '#f59e0b' }} />
+                <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em',
+                  color: savedSpots.some(s => s.spot_type === 'home') ? '#10b981' : 'var(--text-muted)' }}>
+                  {savedSpots.some(s => s.spot_type === 'home') ? '✓ Home' : 'Home'}
+                </span>
+              </button>
+
+              <button
+                onClick={() => handlePin('work')}
+                disabled={!hasLocation || pinning}
+                style={{
+                  flex: 1, padding: '10px 12px', display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', gap: 6, cursor: hasLocation ? 'pointer' : 'not-allowed',
+                  background: savedSpots.some(s => s.spot_type === 'work') ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.05)',
+                  border: `1px solid ${savedSpots.some(s => s.spot_type === 'work') ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.2)'}`,
+                  opacity: hasLocation ? 1 : 0.4, transition: 'all 200ms',
+                }}
+              >
+                <Briefcase size={18} style={{ color: savedSpots.some(s => s.spot_type === 'work') ? '#10b981' : '#f59e0b' }} />
+                <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em',
+                  color: savedSpots.some(s => s.spot_type === 'work') ? '#10b981' : 'var(--text-muted)' }}>
+                  {savedSpots.some(s => s.spot_type === 'work') ? '✓ Work' : 'Work'}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setShowCustomInput(v => !v)}
+                disabled={!hasLocation || pinning}
+                style={{
+                  flex: 1, padding: '10px 12px', display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', gap: 6, cursor: hasLocation ? 'pointer' : 'not-allowed',
+                  background: showCustomInput ? 'rgba(139,92,246,0.08)' : 'rgba(245,158,11,0.05)',
+                  border: `1px solid ${showCustomInput ? 'rgba(139,92,246,0.4)' : 'rgba(245,158,11,0.2)'}`,
+                  opacity: hasLocation ? 1 : 0.4, transition: 'all 200ms',
+                }}
+              >
+                <Plus size={18} style={{ color: showCustomInput ? '#8b5cf6' : '#f59e0b' }} />
+                <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em',
+                  color: showCustomInput ? '#8b5cf6' : 'var(--text-muted)' }}>
+                  Custom
+                </span>
+              </button>
+            </div>
+
+            {/* Custom label input */}
+            {showCustomInput && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  value={customLabel}
+                  onChange={e => setCustomLabel(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customLabel.trim()) handlePin('other', customLabel.trim());
+                    if (e.key === 'Escape') { setShowCustomInput(false); setCustomLabel(''); }
+                  }}
+                  placeholder="Gym, Mom's house, Office 2…"
+                  autoFocus
+                  style={{
+                    flex: 1, padding: '8px 12px',
+                    background: 'rgba(139,92,246,0.04)',
+                    border: '1px solid rgba(139,92,246,0.3)',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'monospace', fontSize: 11,
+                    outline: 'none', caretColor: '#8b5cf6',
+                    letterSpacing: '0.04em',
+                  }}
+                />
+                <button
+                  onClick={() => { if (customLabel.trim()) handlePin('other', customLabel.trim()); }}
+                  disabled={!customLabel.trim() || pinning}
+                  style={{
+                    width: 34, height: 34, flexShrink: 0,
+                    background: customLabel.trim() ? 'rgba(139,92,246,0.1)' : 'transparent',
+                    border: '1px solid rgba(139,92,246,0.3)',
+                    color: customLabel.trim() ? '#8b5cf6' : 'var(--text-muted)',
+                    cursor: customLabel.trim() ? 'pointer' : 'default',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  {pinning ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />}
+                </button>
+              </div>
+            )}
+
+            {/* Pinning indicator */}
+            {pinning && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                <Loader size={11} style={{ color: '#f59e0b', animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#f59e0b' }}>Pinning location...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Saved spots list */}
+          {savedSpots.length > 0 && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {savedSpots.map(spot => {
+                const dist = location ? distanceBetween(location.latitude, location.longitude, spot.lat, spot.lng) : null;
+                const isNearby = dist !== null && dist < 100;
+                return (
+                  <div key={spot.id} style={{
+                    padding: '10px 14px',
+                    border: `1px solid ${isNearby ? 'rgba(16,185,129,0.35)' : 'rgba(245,158,11,0.12)'}`,
+                    background: isNearby ? 'rgba(16,185,129,0.04)' : 'rgba(245,158,11,0.02)',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>{spot.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
+                          {spot.label}
+                        </span>
+                        {isNearby && (
+                          <span style={{
+                            fontFamily: 'monospace', fontSize: 7, padding: '1px 5px',
+                            background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
+                            color: '#10b981', textTransform: 'uppercase',
+                          }}>HERE</span>
+                        )}
+                      </div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginTop: 2,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {spot.address ?? `${spot.lat.toFixed(4)}, ${spot.lng.toFixed(4)}`}
+                      </div>
+                    </div>
+                    {dist !== null && (
+                      <span style={{ fontFamily: 'monospace', fontSize: 10, color: isNearby ? '#10b981' : 'var(--text-muted)', fontWeight: 600, flexShrink: 0 }}>
+                        {dist < 1000 ? `${Math.round(dist)}m` : `${(dist / 1000).toFixed(1)}km`}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleDeleteSpot(spot)}
+                      title={`Remove ${spot.label}`}
+                      style={{
+                        width: 24, height: 24, flexShrink: 0,
+                        background: 'transparent', border: '1px solid rgba(239,68,68,0.2)',
+                        color: 'rgba(239,68,68,0.5)', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'all 200ms',
+                      }}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* ── Weather Now ── */}
