@@ -17,7 +17,6 @@ import {
 } from '../../lib/haptics';
 import {
   preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError,
-  sfxRogerRing,
 } from '../../lib/sfx';
 
 import { processTransmission, extractMemoryFacts, generateSurfaceScript, compileEncyclopediaArticle, type ConversationTurn } from '../../lib/openai';

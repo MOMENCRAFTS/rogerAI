@@ -133,7 +133,7 @@ export default function MorningBriefing({ userId, location }: { userId: string; 
       const goalFacts   = facts.filter((f: { fact_type: string }) => f.fact_type === 'goal').slice(0, 3);
 
       const contextPrompt = `Time of day: ${timeOfDay}
-Principal: ${prefs?.display_name ?? 'Commander'}${roleFact ? `, ${(roleFact as { object: string }).object}` : ''}
+Principal: ${(prefs as Record<string, unknown>)?.display_name ?? 'Commander'}${roleFact ? `, ${(roleFact as { object: string }).object}` : ''}
 Location: ${location?.city ?? 'unknown'}
 Weather: ${weatherLine}
 Calendar: ${calendarLine}

@@ -14,7 +14,7 @@
  *   muted      → silent, no ping
  */
 
-import { sfxRogerPing, sfxRogerRing } from './sfx';
+import { sfxRogerRing } from './sfx';
 import { hapticTick, hapticSuccess } from './haptics';
 import { speakResponse } from './tts';
 
