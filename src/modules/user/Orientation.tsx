@@ -49,6 +49,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   const [flashMsg, setFlashMsg]       = useState<string | null>(null);
   const [showConfirmZone, setShowConfirmZone] = useState(false);
   const [voiceFailed, setVoiceFailed] = useState(false);
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
 
   // Build chapter list: add Islamic chapter at the end if user opted in
   const CHAPTERS = islamicMode
@@ -109,6 +110,11 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
 
   const handleSkip = () => {
     stopSpeaking();
+    setShowSkipConfirm(true);
+  };
+
+  const confirmSkip = () => {
+    setShowSkipConfirm(false);
     handleComplete();
   };
 
@@ -274,10 +280,71 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
           {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
         </button>
         <button onClick={handleSkip} title="Skip orientation"
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 10px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(107,106,94,0.5)' }}>
-          {t('orientation.skip')}
+          style={{
+            background: 'rgba(212,160,68,0.06)', border: '1px solid rgba(212,160,68,0.25)',
+            cursor: 'pointer', padding: '5px 14px', borderRadius: 2,
+            fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase',
+            letterSpacing: '0.12em', color: 'rgba(212,160,68,0.7)',
+            animation: 'skipPulse 2.5s ease-in-out infinite',
+            transition: 'all 200ms',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(212,160,68,0.12)'; e.currentTarget.style.color = 'rgba(212,160,68,0.95)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(212,160,68,0.06)'; e.currentTarget.style.color = 'rgba(212,160,68,0.7)'; }}
+        >
+          {t('orientation.skip')} →
         </button>
       </div>
+
+      {/* ── Skip confirmation overlay ── */}
+      <AnimatePresence>
+        {showSkipConfirm && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.25 }}
+            style={{
+              position: 'fixed', top: 52, left: 0, right: 0, zIndex: 10,
+              padding: '16px 20px',
+              background: 'rgba(12,14,12,0.96)',
+              borderBottom: '1px solid rgba(212,160,68,0.25)',
+              backdropFilter: 'blur(10px)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+            }}
+          >
+            <p style={{
+              fontFamily: 'monospace', fontSize: 11, color: 'rgba(212,160,68,0.85)',
+              textAlign: 'center', margin: 0, lineHeight: 1.6, maxWidth: 360,
+            }}>
+              ⚠ We recommend going through the orientation — it helps you get the most out of Roger's capabilities.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setShowSkipConfirm(false)}
+                style={{
+                  padding: '8px 20px', fontFamily: 'monospace', fontSize: 10,
+                  textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer',
+                  background: 'rgba(212,160,68,0.1)', border: '1px solid rgba(212,160,68,0.4)',
+                  color: 'var(--amber)',
+                }}
+              >
+                I'll stay
+              </button>
+              <button
+                onClick={confirmSkip}
+                style={{
+                  padding: '8px 20px', fontFamily: 'monospace', fontSize: 10,
+                  textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer',
+                  background: 'transparent', border: '1px solid rgba(107,106,94,0.3)',
+                  color: 'rgba(107,106,94,0.6)',
+                }}
+              >
+                Skip anyway →
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Chapter card ── */}
       <div style={{ width: '100%', maxWidth: 420, position: 'relative', zIndex: 1 }}>
