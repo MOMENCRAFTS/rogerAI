@@ -83,19 +83,30 @@ export async function buildWhisperHint(userId: string): Promise<string> {
     // DB unavailable — skip
   }
 
-  // 3. Memory graph — person entities
+  // 3. Memory graph — person entities + family + contacts + vehicles
   try {
     const { data: personFacts } = await supabase
       .from('memory_graph')
-      .select('subject')
+      .select('subject, object, predicate')
       .eq('user_id', userId)
-      .eq('fact_type', 'person')
-      .limit(50);
+      .in('fact_type', ['person', 'preference', 'relationship'])
+      .limit(80);
 
     if (personFacts?.length) {
-      const subjects = [...new Set(
-        personFacts.map(f => (f as { subject?: string }).subject).filter(Boolean),
-      )];
+      const names = new Set<string>();
+      for (const f of personFacts) {
+        const fact = f as { subject?: string; object?: string; predicate?: string };
+        // Add subject names (skip generic "user")
+        if (fact.subject && fact.subject !== 'user') names.add(fact.subject);
+        // Pull names from family/contact/vehicle facts stored in the object field
+        if (fact.predicate?.includes('family') || fact.predicate?.includes('works with')
+            || fact.predicate?.includes('spouse') || fact.predicate?.includes('child')
+            || fact.predicate?.includes('wife') || fact.predicate?.includes('husband')
+            || fact.predicate?.includes('drives') || fact.predicate?.includes('rides')) {
+          if (fact.object) names.add(fact.object);
+        }
+      }
+      const subjects = [...names];
       parts.push(subjects.join(', '));
     }
   } catch {

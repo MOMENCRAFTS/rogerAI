@@ -25,6 +25,16 @@ DURABLE = store (who someone is, relationships, preferences, ongoing projects, h
 
 Fact types: person | company | project | preference | relationship | goal | habit | location
 
+HIGH-VALUE PERSONAL FACTS to watch for (capture with confidence 80+, is_draft: false):
+- Family: "my wife Sara", "son Adam is 5" → subject: "Sara", predicate: "family member is", object: "wife" / subject: "Adam", predicate: "child is", object: "son, age 5"
+- Commute: "I drive to KAFD every morning" → predicate: "commutes to", object: "KAFD"
+- Vehicle: "I ride a Harley Softail" → predicate: "drives", object: "Harley Davidson Softail"
+- Wake time: "I wake up at 5:30" → predicate: "wakes at", object: "05:30"
+- Financial: "I hold BTC and watch gold" → predicate: "watches market", object: "BTC" / predicate: "watches market", object: "Gold"
+- Health: "I do intermittent fasting" → predicate: "diet is", object: "intermittent fasting"
+- Goals: "I'm learning French" → fact_type: "goal", predicate: "learning", object: "French"
+- Contacts: "Nurse Fatima works with me" → predicate: "works with", object: "Nurse Fatima"
+
 For each fact, assign a confidence score AND a draft flag:
 - confidence 75–100, is_draft: false  → strong, durable, high-signal fact
 - confidence 50–74,  is_draft: true   → borderline — needs a second mention to confirm

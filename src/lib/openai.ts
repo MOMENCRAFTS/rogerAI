@@ -923,8 +923,26 @@ export async function processTransmission(
         .sort((a, b) => b.confidence - a.confidence)
         .slice(0, 25);
       if (confirmed.length > 0) {
+        // Extract high-value profile facts for prominent injection
+        const roleFact    = confirmed.find(f => f.predicate === 'role is');
+        const schedFact   = confirmed.find(f => f.predicate.includes('schedule') || f.predicate.includes('work'));
+        const locFact     = confirmed.find(f => f.predicate === 'location is');
+        const vehicleFact = confirmed.find(f => f.predicate === 'drives' || f.predicate === 'rides' || f.predicate.includes('vehicle'));
+        const familyFacts = confirmed.filter(f => f.predicate === 'family member is' || f.predicate.includes('spouse') || f.predicate.includes('child') || f.predicate.includes('wife') || f.predicate.includes('husband'));
+        const goalFacts   = confirmed.filter(f => f.fact_type === 'goal').slice(0, 3);
+
+        const profileLines = [
+          roleFact    && `ROLE: ${roleFact.object}`,
+          locFact     && `BASE: ${locFact.object}`,
+          schedFact   && `SCHEDULE: ${schedFact.object}`,
+          vehicleFact && `VEHICLE: ${vehicleFact.object}`,
+          familyFacts.length > 0 && `FAMILY: ${familyFacts.map(f => f.object).join(', ')}`,
+          goalFacts.length > 0   && `GOALS: ${goalFacts.map(f => f.object).join(', ')}`,
+        ].filter(Boolean).join(' | ');
+
         memoryContext =
           '=== ROGER KNOWS (confirmed facts about this user) ===\n' +
+          (profileLines ? `PRINCIPAL PROFILE: ${profileLines}\n` : '') +
           confirmed.map(f => `${f.subject} ${f.predicate} ${f.object}`).join('\n');
       }
     } catch (e) {

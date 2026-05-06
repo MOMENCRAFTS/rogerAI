@@ -121,10 +121,26 @@ export default function MorningBriefing({ userId, location }: { userId: string; 
         ? `LIVE DATA INTERESTS (search the web for current data on each):\n${interests.map((i: string, idx: number) => `${idx + 1}. ${i}`).join('\n')}`
         : '';
 
+      // Extract profile slots from memory_graph facts for personalized briefing
+      const roleFact    = facts.find((f: { predicate: string }) => f.predicate === 'role is');
+      const schedFact   = facts.find((f: { predicate: string }) => f.predicate.includes('schedule') || f.predicate.includes('work'));
+      const familyFacts = facts.filter((f: { predicate: string }) =>
+        f.predicate === 'family member is' || f.predicate.includes('child') || f.predicate.includes('spouse') || f.predicate.includes('wife') || f.predicate.includes('husband')
+      );
+      const vehicleFact = facts.find((f: { predicate: string }) =>
+        f.predicate === 'drives' || f.predicate === 'rides' || f.predicate.includes('vehicle')
+      );
+      const goalFacts   = facts.filter((f: { fact_type: string }) => f.fact_type === 'goal').slice(0, 3);
+
       const contextPrompt = `Time of day: ${timeOfDay}
+Principal: ${prefs?.display_name ?? 'Commander'}${roleFact ? `, ${(roleFact as { object: string }).object}` : ''}
 Location: ${location?.city ?? 'unknown'}
 Weather: ${weatherLine}
 Calendar: ${calendarLine}
+${schedFact ? `Work schedule: ${(schedFact as { object: string }).object}` : ''}
+${familyFacts.length ? `Family: ${familyFacts.map((f: { object: string }) => f.object).join(', ')}` : ''}
+${vehicleFact ? `Vehicle: ${(vehicleFact as { object: string }).object}` : ''}
+${goalFacts.length ? `Active goals: ${goalFacts.map((f: { object: string }) => f.object).join(', ')}` : ''}
 
 ${interestsSection}
 

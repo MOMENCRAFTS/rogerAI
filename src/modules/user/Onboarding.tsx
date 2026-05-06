@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Radio } from 'lucide-react';
+import { Radio, Keyboard, ArrowRight } from 'lucide-react';
 import RogerMascot from '../../components/RogerMascot';
 import { useI18n } from '../../context/I18nContext';
 import {
@@ -16,6 +16,7 @@ import { createAudioRecorder } from '../../lib/audioRecorder';
 import {
   upsertUserPreferences, upsertMemoryFact, upsertEntityMention,
 } from '../../lib/api';
+import { markOnboardingComplete } from '../../lib/progressiveProfiler';
 import { hapticPTTDown, hapticPTTUp, hapticTick, hapticSuccess, hapticError } from '../../lib/haptics';
 import { preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError } from '../../lib/sfx';
 
@@ -55,6 +56,8 @@ export default function Onboarding({ userId, onComplete }: Props) {
   const [holdMs, setHoldMs]       = useState(0);
   const [typeText, setTypeText]   = useState('');
   const [addingInfo, setAddingInfo] = useState(false);
+  const [showTypeInput, setShowTypeInput] = useState(false);
+  const [typedName, setTypedName] = useState('');
 
   const recorderRef  = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
   const holdRef      = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -95,6 +98,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
   const finishOnboarding = useCallback(async (finalAnswers: OnboardingAnswers) => {
     hapticSuccess();
     await persistOnboardingMemory(userId, finalAnswers);
+    markOnboardingComplete();
     setFlowPhase('complete');
     const doneScript = `Profile locked, ${finalAnswers.name ?? 'Commander'}. Roger standing by. Over.`;
     await speakNode(doneScript);
@@ -105,6 +109,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
       response_style: finalAnswers.comm_style ?? 'balanced',
       display_name: finalAnswers.name,
       ...(finalAnswers.islamic_mode !== undefined && { islamic_mode: finalAnswers.islamic_mode }),
+      ...(finalAnswers.interests?.length && { briefing_interests: finalAnswers.interests }),
     } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
     setTimeout(() => onComplete(finalAnswers), 1800);
   }, [userId, speakNode, onComplete]);
@@ -460,6 +465,64 @@ export default function Onboarding({ userId, onComplete }: Props) {
         </div>
       )}
 
+      {/* ── Type-your-name input — visible during name_confirm ── */}
+      {flowPhase === 'name_confirm' && showTypeInput && (
+        <div style={{
+          width: '100%', maxWidth: 360, marginBottom: 12, zIndex: 1,
+          display: 'flex', gap: 8, alignItems: 'center',
+        }}>
+          <input
+            type="text"
+            value={typedName}
+            onChange={e => setTypedName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && typedName.trim()) {
+                stopSpeaking();
+                setShowTypeInput(false);
+                advanceTurn(typedName.trim(), answers);
+                setTypedName('');
+              }
+            }}
+            placeholder="Type your name…"
+            autoFocus
+            style={{
+              flex: 1, padding: '10px 14px',
+              background: 'rgba(212,160,68,0.04)',
+              border: '1px solid rgba(212,160,68,0.3)',
+              color: 'var(--text-primary)',
+              fontFamily: 'monospace', fontSize: 13,
+              outline: 'none', caretColor: 'var(--amber)',
+              letterSpacing: '0.05em',
+              transition: 'border-color 200ms',
+            }}
+            onFocus={e => (e.target.style.borderColor = 'rgba(212,160,68,0.6)')}
+            onBlur={e => (e.target.style.borderColor = 'rgba(212,160,68,0.3)')}
+          />
+          <button
+            onClick={() => {
+              if (!typedName.trim()) return;
+              stopSpeaking();
+              setShowTypeInput(false);
+              advanceTurn(typedName.trim(), answers);
+              setTypedName('');
+            }}
+            disabled={!typedName.trim()}
+            style={{
+              width: 40, height: 40, flexShrink: 0,
+              background: typedName.trim() ? 'rgba(212,160,68,0.12)' : 'transparent',
+              border: '1px solid rgba(212,160,68,0.3)',
+              color: typedName.trim() ? 'var(--amber)' : 'var(--text-muted)',
+              cursor: typedName.trim() ? 'pointer' : 'default',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 200ms',
+            }}
+            aria-label="Submit name"
+          >
+            <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Script card */}
       <div style={{
         width: '100%', maxWidth: 360, marginBottom: 28, zIndex: 1,
@@ -535,11 +598,29 @@ export default function Onboarding({ userId, onComplete }: Props) {
             Skip this question →
           </button>
         )}
+
+        {/* Type-instead toggle — shown during name_confirm when input is hidden */}
+        {flowPhase === 'name_confirm' && !showTypeInput && (phase === 'waiting' || phase === 'speaking') && (
+          <button
+            onClick={() => { stopSpeaking(); setShowTypeInput(true); }}
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)',
+              textTransform: 'uppercase', letterSpacing: '0.1em', padding: '6px 14px',
+              display: 'flex', alignItems: 'center', gap: 6,
+              animation: 'typePulse 2s ease-in-out infinite',
+              borderBottom: '1px solid rgba(212,160,68,0.3)',
+            }}
+          >
+            <Keyboard size={14} /> Type my name instead
+          </button>
+        )}
       </div>
 
       <style>{`
         @keyframes ping { 0%,100% { transform:scale(1); opacity:.4; } 50% { transform:scale(1.2); opacity:.8; } }
         @keyframes pulse { 0%,100% { opacity:.5; } 50% { opacity:1; } }
+        @keyframes typePulse { 0%,100% { opacity:.5; text-shadow: 0 0 0 transparent; } 50% { opacity:1; text-shadow: 0 0 12px rgba(212,160,68,0.5); } }
         @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
         @keyframes sonar { 0% { transform:scale(0.7); opacity:0.8; } 100% { transform:scale(1.6); opacity:0; } }
       `}</style>

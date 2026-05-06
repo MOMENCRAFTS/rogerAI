@@ -168,3 +168,41 @@ export async function sfxRogerPing(driveMode = false): Promise<void> {
   } catch { /* silent */ }
 }
 
+/**
+ * sfxRogerRing — synthesized two-note ascending radio call tone.
+ * Used when Roger wants to talk (proactive ring). Distinct from sfxRogerPing.
+ * Sounds like a gentle 'doo-doot' attention chime.
+ * urgent = true → louder + higher second note for time-critical alerts.
+ */
+export async function sfxRogerRing(urgent = false): Promise<void> {
+  if (!sfxEnabled) return;
+  const c = await ensureRunning();
+  if (!c) return;
+  try {
+    const vol = urgent ? Math.min(1, masterGain * 2.0) : masterGain * 0.7;
+    const t = c.currentTime;
+
+    // Note 1 — lower tone
+    const osc1 = c.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.value = urgent ? 880 : 660;   // A5 or E5
+    const g1 = c.createGain();
+    g1.gain.setValueAtTime(0, t);
+    g1.gain.linearRampToValueAtTime(vol, t + 0.03);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc1.connect(g1); g1.connect(c.destination);
+    osc1.start(t); osc1.stop(t + 0.2);
+
+    // Note 2 — higher tone (ascending interval)
+    const osc2 = c.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.value = urgent ? 1174 : 880;  // D6 or A5
+    const g2 = c.createGain();
+    g2.gain.setValueAtTime(0, t + 0.15);
+    g2.gain.linearRampToValueAtTime(vol * 0.85, t + 0.18);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    osc2.connect(g2); g2.connect(c.destination);
+    osc2.start(t + 0.15); osc2.stop(t + 0.45);
+  } catch { /* silent */ }
+}
+

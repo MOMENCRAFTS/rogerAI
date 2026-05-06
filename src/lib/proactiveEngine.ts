@@ -14,7 +14,7 @@
  *   muted      → silent, no ping
  */
 
-import { sfxRogerPing } from './sfx';
+import { sfxRogerPing, sfxRogerRing } from './sfx';
 import { hapticTick, hapticSuccess } from './haptics';
 import { speakResponse } from './tts';
 
@@ -120,8 +120,9 @@ function _ping() {
     hapticTick();
   }
 
-  // Radio ping
-  sfxRogerPing(_mode === 'drive').catch(() => {});
+  // Ring tone — two-note ascending chime (distinct from radio ping)
+  const isUrgent = !!_pending.urgent || _pending.trigger === 'hazard';
+  sfxRogerRing(isUrgent || _mode === 'drive').catch(() => {});
 
   // Notify UI
   _onSpeak?.(_pending);

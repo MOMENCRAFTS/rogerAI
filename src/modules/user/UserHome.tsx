@@ -9,6 +9,7 @@ import { useLocation, type UserLocation } from '../../lib/useLocation';
 import { getCommute } from '../../lib/api';
 import { checkGeoFences, geocodePlace } from '../../lib/geoFence';
 import { supabase } from '../../lib/supabase';
+import { checkAndPromptProfile } from '../../lib/progressiveProfiler';
 import {
   hapticPTTDown, hapticPTTUp, hapticRogerSpeaking,
   hapticResponseReceived, hapticError, hapticGeoAlert, hapticSurface,
@@ -16,6 +17,7 @@ import {
 } from '../../lib/haptics';
 import {
   preloadAll, sfxPTTDown, sfxPTTUp, sfxRogerIn, sfxRogerOut, sfxError,
+  sfxRogerRing,
 } from '../../lib/sfx';
 
 import { processTransmission, extractMemoryFacts, generateSurfaceScript, compileEncyclopediaArticle, type ConversationTurn } from '../../lib/openai';
@@ -66,6 +68,33 @@ import type { DigestResult } from '../../lib/conversationDigester';
 import { useIntentStore } from '../../lib/intentStore';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
+
+// ── Proactive voice command phrases ─────────────────────────────────────────
+// Recognized after Whisper transcript when Roger has a pending proactive message
+const PROACTIVE_ACCEPT_PHRASES = [
+  /^tell me,?\s*roger/i,
+  /^i hear you/i,
+  /^i'?m listening/i,
+  /^what('?s up)?\??$/i,
+  /^go ahead/i,
+  /^what do you (want|have)/i,
+  /^speak/i,
+  /^yes,?\s*roger/i,
+];
+const PROACTIVE_SNOOZE_PHRASES = [
+  /^not now/i,
+  /^later/i,
+  /^snooze/i,
+  /^hold on/i,
+  /^busy/i,
+];
+const PROACTIVE_DISMISS_PHRASES = [
+  /^shut up/i,
+  /^quiet/i,
+  /^dismiss/i,
+  /^never ?mind/i,
+  /^cancel/i,
+];
 
 type PTTState = 'idle' | 'recording' | 'transcribing' | 'processing' | 'speaking' | 'searching' | 'responded' | 'awaiting_answer';
 
@@ -165,6 +194,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [pendingClarification, setPendingClarification] = useState<ClarificationContext | null>(null);
   const [intentOptions, setIntentOptions] = useState<IntentOption[] | null>(null);
   const clarificationExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Profile context (schedule-aware greeting) ─────────────────────────────
+  const [profileContext, setProfileContext] = useState('');
   // ── Badge celebration overlay ─────────────────────────────────────────────
   const [activeBadge, setActiveBadge] = useState<BadgeCelebration | null>(null);
   const badgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -615,9 +646,14 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
   useEffect(() => { resetIdleTimer(); return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); }; }, [resetIdleTimer]);
 
-  // ── 30-minute proactive check-in loop ────────────────────────────────────
+  // ── 30-minute proactive check-in loop + progressive profiler ──────────────
   const proactiveCheckInRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
+    // Initial progressive profile check after 60s settle
+    const profileTimeout = setTimeout(() => {
+      checkAndPromptProfile(userId).catch(() => {});
+    }, 60_000);
+
     proactiveCheckInRef.current = setInterval(async () => {
       if (pttState !== 'idle') return;
       try {
@@ -626,12 +662,42 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           fetchTasks(userId, 'open').catch(() => []),
         ]);
         const total = reminders.length + tasks.length;
-        if (total === 0) return;
-        triggerIdleCheckin(total);
+        if (total > 0) {
+          triggerIdleCheckin(total);
+        } else {
+          // If no pending items, check for progressive profile questions
+          checkAndPromptProfile(userId).catch(() => {});
+        }
       } catch { /* silent */ }
     }, 30 * 60 * 1000);
-    return () => { if (proactiveCheckInRef.current) clearInterval(proactiveCheckInRef.current); };
+    return () => {
+      clearTimeout(profileTimeout);
+      if (proactiveCheckInRef.current) clearInterval(proactiveCheckInRef.current);
+    };
   }, [userId, pttState]);
+
+  // ── Load schedule-aware profile context for greeting ──────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const { fetchMemoryGraph: fetchMG } = await import('../../lib/api');
+        const facts = await fetchMG(userId);
+        const role = facts.find((f: { predicate: string }) => f.predicate === 'role is');
+        const sched = facts.find((f: { predicate: string }) =>
+          f.predicate.includes('schedule') || f.predicate.includes('work')
+        );
+
+        const today = new Date().toLocaleDateString('en', { weekday: 'long' });
+        const todayShort = today.toLowerCase().slice(0, 3);
+        const isWorkDay = sched ? (sched as { object: string }).object.toLowerCase().includes(todayShort) : false;
+
+        const parts: string[] = [];
+        if (isWorkDay && role) parts.push(`Clinic day, ${(role as { object: string }).object.split(' ')[0]}.`);
+        else if (!isWorkDay && sched) parts.push('Off duty today.');
+        setProfileContext(parts.join(' '));
+      } catch { /* silent */ }
+    })();
+  }, [userId]);
 
   // ── Confirmation gate handlers ───────────────────────────────────────────────
   const confirmPendingAction = useCallback(() => {
@@ -959,6 +1025,40 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       speakResponse(m).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
       setPttState('idle');
       return;
+    }
+
+    // ── Proactive voice command intercept ──────────────────────────────────────
+    // If Roger has a pending proactive message, check if the user is responding to it
+    if (proactivePending) {
+      const voiceText = transcript.trim();
+      if (PROACTIVE_ACCEPT_PHRASES.some(r => r.test(voiceText))) {
+        // User said "tell me roger" / "what?" / "go ahead" → speak the pending message
+        setMessages(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', text: transcript, ts: Date.now() }]);
+        handleProactivePTT(); // triggers speak
+        setThinkingPulse(false);
+        setPttState('responded');
+        return;
+      }
+      if (PROACTIVE_SNOOZE_PHRASES.some(r => r.test(voiceText))) {
+        // User said "not now" / "later" → snooze
+        setMessages(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', text: transcript, ts: Date.now() }]);
+        handleProactivePTT(); handleProactivePTT(); // double-press = snooze
+        setThinkingPulse(false);
+        const snoozeMsg = 'Copy that. I\'ll check back later. Over.';
+        setMessages(prev => [...prev, { id: `r-snooze-${Date.now()}`, role: 'roger', text: snoozeMsg, ts: Date.now() }]);
+        speakResponse(snoozeMsg).catch(() => {});
+        setPttState('responded');
+        return;
+      }
+      if (PROACTIVE_DISMISS_PHRASES.some(r => r.test(voiceText))) {
+        // User said "quiet" / "dismiss" → clear completely
+        setMessages(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', text: transcript, ts: Date.now() }]);
+        clearPending();
+        setThinkingPulse(false);
+        setPttState('idle');
+        return;
+      }
+      // Not a proactive command → continue to normal GPT processing
     }
 
     // User message
@@ -2862,6 +2962,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               {myCallsign}
             </span>
           )}
+          {profileContext && (
+            <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: '1px solid rgba(74,222,128,0.2)', background: 'rgba(74,222,128,0.06)', color: 'rgba(74,222,128,0.7)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+              {profileContext}
+            </span>
+          )}
         </div>
         <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '2px 8px', border: '1px solid var(--green-border)', background: 'var(--green-dim)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
           <RogerIcon name="mode-active" size={9} color="var(--green)" style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{rogerMode.toUpperCase()}
@@ -2878,35 +2983,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         )}
       </div>
 
-      {/* ── Proactive Roger Ping Banner ── */}
-      {proactivePending && (
-        <div style={{
-          margin: '8px 16px 0',
-          background: proactivePending.trigger === 'thinking' ? 'rgba(239,161,51,0.10)' : 'rgba(212,160,68,0.08)',
-          border: `1px solid ${proactivePending.trigger === 'thinking' ? 'rgba(239,161,51,0.45)' : 'rgba(212,160,68,0.35)'}`,
-          padding: '10px 14px',
-          display: 'flex', alignItems: 'center', gap: 10,
-          animation: proactivePending.trigger === 'thinking' ? 'thinkingPulse 1.5s ease-in-out infinite' : 'rogerPingPulse 2s ease-in-out infinite',
-        }}>
-          <RogerIcon name={proactivePending.trigger === 'thinking' ? 'brain' : 'mode-active'} size={16} color={proactivePending.trigger === 'thinking' ? '#efa133' : 'var(--amber)'} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, color: proactivePending.trigger === 'thinking' ? '#efa133' : 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 2 }}>
-              {proactivePending.trigger === 'thinking' ? 'ROGER IS THINKING' : `ROGER HAS A MESSAGE · ${proactivePending.trigger.toUpperCase()}`}
-            </div>
-            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {proactivePending.text}
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              {proactivePending.trigger === 'thinking' ? '1×PTT → hear · 2×PTT → snooze 15m' : 'PTT → speak · 2×PTT → snooze'}
-            </span>
-            <button onClick={() => { clearPending(); setThinkingPulse(false); }} style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-subtle)', padding: '2px 8px', cursor: 'pointer', textTransform: 'uppercase' }}>
-              DISMISS
-            </button>
-          </div>
-        </div>
-      )}
+      {/* ── Proactive Roger Ping Banner — now a compact label (ring is on PTT) ── */}
+      {/* Old banner removed — ring visual is on the PTT button, compact label is above PTT area */}
 
       {/* ── Incoming Relay Transmission Card ── */}
       {incomingRelay && (
@@ -3875,9 +3953,54 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         flexShrink: 0,
         position: 'relative',
       }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 300ms', minHeight: 14 }}>
-          {stateLabel}
-        </span>
+        {/* Proactive compact label — replaces the old top banner */}
+        {proactivePending && (pttState === 'idle' || pttState === 'responded') ? (
+          <div style={{
+            textAlign: 'center',
+            animation: 'rogerRingLabel 2s ease-in-out infinite',
+            minHeight: 42,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span style={{
+                fontFamily: 'monospace', fontSize: 9,
+                color: proactivePending.trigger === 'thinking' ? '#efa133' : 'var(--amber)',
+                textTransform: 'uppercase', letterSpacing: '0.18em',
+              }}>
+                ◈ {proactivePending.trigger === 'thinking' ? 'ROGER IS THINKING' : 'INCOMING TRANSMISSION'}
+              </span>
+              <button
+                onClick={(e) => { e.stopPropagation(); clearPending(); setThinkingPulse(false); }}
+                style={{
+                  fontFamily: 'monospace', fontSize: 7, color: 'var(--text-muted)',
+                  background: 'transparent', border: '1px solid var(--border-subtle)',
+                  padding: '1px 6px', cursor: 'pointer', textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}
+              >✕</button>
+            </div>
+            <div style={{
+              fontFamily: 'monospace', fontSize: 10,
+              color: 'var(--text-secondary)',
+              maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              "{proactivePending.text.length > 55 ? proactivePending.text.slice(0, 55) + '…' : proactivePending.text}"
+            </div>
+            <div style={{
+              fontFamily: 'monospace', fontSize: 7,
+              color: 'var(--text-muted)', letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+            }}>
+              TAP TO HEAR · 2×TAP SNOOZE · SAY "TELL ME ROGER"
+            </div>
+          </div>
+        ) : (
+          <span style={{ fontFamily: 'monospace', fontSize: 10, color: btnColor, textTransform: 'uppercase', letterSpacing: '0.25em', transition: 'color 300ms', minHeight: 14 }}>
+            {stateLabel}
+          </span>
+        )}
 
         {/* Academy mode pill — shows active mode, tap to go configure */}
         {academyMode && (pttState === 'idle' || pttState === 'responded') && (
@@ -4037,15 +4160,45 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
             userSelect: 'none', WebkitUserSelect: 'none',
           }}
         >
-          {/* Idle breathing glow — subtle hero animation */}
-          {(pttState === 'idle' || pttState === 'responded' || pttState === 'awaiting_answer') && !thinkingPulse && (
+          {/* Idle breathing glow — subtle hero animation (hidden when proactive ring is showing) */}
+          {(pttState === 'idle' || pttState === 'responded' || pttState === 'awaiting_answer') && !thinkingPulse && !proactivePending && (
             <>
               <div style={{ position: 'absolute', width: 160, height: 160, borderRadius: '50%', border: `1.5px solid ${btnColor}`, opacity: 0.12, animation: 'pttBreathe 3s ease-in-out infinite' }} />
               <div style={{ position: 'absolute', width: 175, height: 175, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0.06, animation: 'pttBreathe 3s ease-in-out 1.5s infinite' }} />
             </>
           )}
-          {/* Thinking pulse — pulsating red glow when Roger has a thought */}
-          {thinkingPulse && (pttState === 'idle' || pttState === 'responded') && (
+          {/* ── Proactive Ring — "Roger Wants to Talk" ── */}
+          {proactivePending && (pttState === 'idle' || pttState === 'responded') && (() => {
+            const isThinking = proactivePending.trigger === 'thinking';
+            const isUrgent = !!proactivePending.urgent || proactivePending.trigger === 'hazard';
+            const ringColor = isUrgent ? '#ef4444'
+              : isThinking ? '#efa133'
+              : proactivePending.trigger === 'reminder' || proactivePending.trigger === 'departure' ? '#efa133'
+              : '#d4a044';
+            const pulseSpeed = isUrgent ? '1s' : isThinking ? '1.5s' : '2s';
+            return (
+              <>
+                {/* Outermost ripple — expanding and fading */}
+                <div style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', border: `2px solid ${ringColor}`, opacity: 0, animation: `rogerRingRipple 2.5s ease-out infinite` }} />
+                {/* Second ripple — staggered */}
+                <div style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', border: `1.5px solid ${ringColor}`, opacity: 0, animation: `rogerRingRipple 2.5s ease-out 0.8s infinite` }} />
+                {/* Inner pulsing ring */}
+                <div style={{
+                  position: 'absolute', width: 170, height: 170, borderRadius: '50%',
+                  border: `3px solid ${ringColor}`,
+                  animation: isUrgent ? `rogerRingUrgent ${pulseSpeed} ease-in-out infinite` : `rogerRingPulse ${pulseSpeed} ease-in-out infinite`,
+                }} />
+                {/* Glow disc behind PTT */}
+                <div style={{
+                  position: 'absolute', width: 160, height: 160, borderRadius: '50%',
+                  background: `radial-gradient(circle, ${ringColor}15 0%, transparent 70%)`,
+                  animation: `rogerRingPulse ${pulseSpeed} ease-in-out infinite`,
+                }} />
+              </>
+            );
+          })()}
+          {/* Legacy thinking pulse — kept for thinkingPulse state without proactivePending */}
+          {thinkingPulse && !proactivePending && (pttState === 'idle' || pttState === 'responded') && (
             <>
               <div style={{ position: 'absolute', width: 165, height: 165, borderRadius: '50%', border: '2px solid #ef4444', opacity: 0.5, animation: 'thinkingRedPulse 1.2s ease-in-out infinite' }} />
               <div style={{ position: 'absolute', width: 185, height: 185, borderRadius: '50%', border: '1.5px solid #ef4444', opacity: 0.25, animation: 'thinkingRedPulse 1.2s ease-in-out 0.4s infinite' }} />
@@ -4067,7 +4220,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           <div
             style={{
               width: 140, height: 140, borderRadius: '50%',
-              border: `3px solid ${thinkingPulse ? '#ef4444' : btnColor}`,
+              border: `3px solid ${proactivePending ? (proactivePending.urgent || proactivePending.trigger === 'hazard' ? '#ef4444' : '#efa133') : thinkingPulse ? '#ef4444' : btnColor}`,
               background: pttState === 'recording'
                 ? `radial-gradient(circle at 40% 40%, ${btnColor}40 0%, ${btnColor}15 60%, transparent 100%)`
                 : pttState === 'speaking' ? `radial-gradient(circle, ${btnColor}20 0%, ${btnColor}08 100%)`
@@ -4079,7 +4232,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
                 ? `0 0 60px ${btnColor}66, 0 0 24px ${btnColor}44, inset 0 0 28px ${btnColor}1a`
                 : pttState === 'speaking' ? `0 0 36px ${btnColor}44, 0 0 12px ${btnColor}22`
                 : `0 0 24px ${btnColor}20, 0 0 8px ${btnColor}10`,
-              animation: (pttState === 'idle' || pttState === 'responded') ? (thinkingPulse ? 'thinkingGlow 1.2s ease-in-out infinite' : 'pttGlow 3s ease-in-out infinite') : 'none',
+              animation: (pttState === 'idle' || pttState === 'responded') ? (proactivePending ? 'rogerRingPulse 2s ease-in-out infinite' : thinkingPulse ? 'thinkingGlow 1.2s ease-in-out infinite' : 'pttGlow 3s ease-in-out infinite') : 'none',
               pointerEvents: 'none',  /* visual only — parent handles events */
             }}
           >
