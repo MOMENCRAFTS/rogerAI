@@ -11,7 +11,7 @@ const TUYA_BASE_URL   = Deno.env.get('TUYA_API_ENDPOINT') ?? 'https://openapi.tu
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 // ── Token cache (in-memory, per-isolate) ──────────────────────────────────────

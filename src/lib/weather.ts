@@ -102,6 +102,11 @@ const GOOGLE_API_KEY = (typeof import.meta !== 'undefined')
 async function fetchGoogleWeather(lat: number, lng: number, city?: string): Promise<WeatherData | null> {
   if (!GOOGLE_API_KEY) return null;
 
+  // Google Weather API is server-side only — it doesn't send CORS headers,
+  // so browser requests always fail at the preflight stage. Skip entirely
+  // in browser context to avoid noisy console errors; Open-Meteo handles it.
+  if (typeof window !== 'undefined') return null;
+
   try {
     const url = `https://weather.googleapis.com/v1/currentConditions:lookup?key=${GOOGLE_API_KEY}`;
     const res = await fetch(url, {

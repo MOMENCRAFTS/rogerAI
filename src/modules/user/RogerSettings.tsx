@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw, Contact, Brain } from 'lucide-react';
+import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw, Contact, Brain, ShieldAlert } from 'lucide-react';
 import { RogerIcon } from '../../components/icons';
 import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, fullUserReset, type DbUserPreferences } from '../../lib/api';
 import { useLocation } from '../../lib/useLocation';
@@ -9,6 +9,7 @@ import { setTtsVolume } from '../../lib/tts';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
+import { getDeferredPermissions, removeDeferredPermission, type DeferrablePermission } from '../../components/PermissionGate';
 
 type Mode = 'quiet' | 'active' | 'briefing';
 
@@ -46,6 +47,10 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
   const [contactLastSync, setContactLastSync] = useState<number>(0);
   const [contactConnected, setContactConnected] = useState(false);
 
+  // ── Deferred permissions state ──
+  const [deferredPerms, setDeferredPerms] = useState<DeferrablePermission[]>([]);
+  const [grantingPerm, setGrantingPerm] = useState<string | null>(null);
+
   // ── Factory Reset state (3-step safe flow) ──
   const [resetStep, setResetStep]       = useState<0 | 1 | 2 | 3>(0); // 0=hidden, 1=confirm prompt, 2=type phrase, 3=final
   const [resetInput, setResetInput]     = useState('');
@@ -72,6 +77,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
       // Clear all local state so the user goes through Language → Permissions → Onboarding → Orientation
       resetLocale(); // clears both localStorage AND React state (I18nProvider is at app root)
       localStorage.removeItem('roger:perms_granted');
+      localStorage.removeItem('roger:deferred_permissions');
       localStorage.removeItem('roger_legal_v3');
       localStorage.removeItem('roger_contacts_prompted');
       localStorage.removeItem('sfxVolume');
@@ -106,6 +112,8 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         setContactLastSync(getLastSyncTime());
       } catch { /* silent */ }
     })();
+    // Load deferred permissions
+    setDeferredPerms(getDeferredPermissions());
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const copyCallsign = () => {
@@ -184,8 +192,123 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
 
   const locColor = locPerm === 'granted' ? 'var(--green)' : locPerm === 'denied' ? '#ef4444' : 'var(--text-muted)';
 
+  // ── Grant deferred permission handler ──
+  const handleGrantDeferred = async (perm: DeferrablePermission) => {
+    setGrantingPerm(perm);
+    try {
+      if (perm === 'contacts') {
+        const { requestContactsPermission, fetchDeviceContacts, getCachedContactCount, getLastSyncTime } = await import('../../lib/deviceContacts');
+        const { invalidateWhisperHint } = await import('../../lib/whisperHint');
+        const granted = await requestContactsPermission();
+        if (granted) {
+          await fetchDeviceContacts();
+          invalidateWhisperHint();
+          setContactConnected(true);
+          setContactCount(getCachedContactCount());
+          setContactLastSync(getLastSyncTime());
+          removeDeferredPermission('contacts');
+          setDeferredPerms(prev => prev.filter(p => p !== 'contacts'));
+        }
+      } else if (perm === 'notifications') {
+        if ('Notification' in window) {
+          const result = await Notification.requestPermission();
+          if (result === 'granted') {
+            removeDeferredPermission('notifications');
+            setDeferredPerms(prev => prev.filter(p => p !== 'notifications'));
+            // Auto-subscribe to push if VAPID key available
+            if (VAPID_PUBLIC_KEY && 'serviceWorker' in navigator) {
+              try {
+                const reg = await navigator.serviceWorker.register('/sw.js');
+                await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer,
+                });
+                await savePushSubscription(userId, sub);
+                setPushState('subscribed');
+              } catch { /* push subscribe failed — perm is still granted */ }
+            }
+          }
+        }
+      }
+    } catch { /* silent */ }
+    setGrantingPerm(null);
+  };
+
   return (
     <div style={{ padding: '16px' }}>
+
+      {/* ── Complete Your Setup Banner ── */}
+      {deferredPerms.length > 0 && (
+        <div style={{
+          marginBottom: 16, padding: '16px 18px',
+          background: 'linear-gradient(135deg, rgba(251,191,36,0.06) 0%, rgba(56,189,248,0.04) 100%)',
+          border: '1px solid rgba(251,191,36,0.3)',
+          borderRadius: 4,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <ShieldAlert size={18} style={{ color: '#fbbf24', flexShrink: 0 }} />
+            <div>
+              <p style={{ fontFamily: 'monospace', fontSize: 12, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 2px', fontWeight: 700 }}>Complete Your Setup</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                Some features are limited. Enable these to unlock Roger's full potential.
+              </p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {deferredPerms.includes('contacts') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 4 }}>
+                <Contact size={16} style={{ color: '#3b82f6', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#3b82f6', margin: '0 0 2px', fontWeight: 600 }}>Contacts</p>
+                  <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>
+                    "Text Mom" — name recognition for messaging and calls
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleGrantDeferred('contacts')}
+                  disabled={grantingPerm === 'contacts'}
+                  style={{
+                    flexShrink: 0, padding: '7px 14px', fontFamily: 'monospace', fontSize: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer',
+                    background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)',
+                    color: '#3b82f6', transition: 'background 150ms',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(59,130,246,0.2)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(59,130,246,0.12)')}
+                >
+                  {grantingPerm === 'contacts' ? 'Enabling…' : 'Enable'}
+                </button>
+              </div>
+            )}
+            {deferredPerms.includes('notifications') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 4 }}>
+                <Bell size={16} style={{ color: '#fbbf24', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#fbbf24', margin: '0 0 2px', fontWeight: 600 }}>Notifications</p>
+                  <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>
+                    Briefings, prayer alerts, and reminders when app is closed
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleGrantDeferred('notifications')}
+                  disabled={grantingPerm === 'notifications'}
+                  style={{
+                    flexShrink: 0, padding: '7px 14px', fontFamily: 'monospace', fontSize: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer',
+                    background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)',
+                    color: '#fbbf24', transition: 'background 150ms',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(251,191,36,0.2)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(251,191,36,0.1)')}
+                >
+                  {grantingPerm === 'notifications' ? 'Enabling…' : 'Enable'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Replay Orientation ── */}
       {onReplayOrientation && (

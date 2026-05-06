@@ -8,7 +8,7 @@ const OPENAI_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 const PROMPT = `You are an audio content classifier. A 30-second chunk of ambient audio was transcribed.

@@ -1,5 +1,6 @@
 -- 046: Saved Spots — user-pinned locations (Home, Work, custom)
 -- Enables one-tap location pinning from the Location tab.
+-- Idempotent: safe to re-run.
 
 CREATE TABLE IF NOT EXISTS saved_spots (
   id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS saved_spots (
 
 ALTER TABLE saved_spots ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users manage own spots" ON saved_spots;
 CREATE POLICY "Users manage own spots"
   ON saved_spots FOR ALL
   USING (auth.uid() = user_id)

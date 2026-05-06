@@ -44,7 +44,7 @@ const ROUTE_MODE_MAP: Record<string, string> = {
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey, x-client-info',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -128,6 +128,7 @@ Deno.serve(async (req) => {
 
     if (!gmRes.ok) {
       const errText = await gmRes.text().catch(() => 'unknown');
+      console.error(`[commute-eta] Routes API ${gmRes.status}: ${errText}`);
       return new Response(JSON.stringify({ error: `Routes API error: ${gmRes.status} — ${errText}` }), {
         status: 502, headers: { ...CORS, 'Content-Type': 'application/json' },
       });

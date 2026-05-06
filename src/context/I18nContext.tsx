@@ -11,10 +11,27 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import {
   type Locale,
+  ALL_LOCALES,
   getSavedLocale, saveLocale, clearLocale,
   loadDictionary, setCurrentDictionary,
   t as _t, isRTL as _isRTL,
 } from '../lib/i18n';
+
+// ── URL override: ?lang=en-us forces locale and persists it ─────────────
+function getUrlLocaleOverride(): Locale | null {
+  try {
+    const param = new URLSearchParams(window.location.search).get('lang');
+    if (param && ALL_LOCALES.includes(param as Locale)) {
+      saveLocale(param as Locale);          // persist so it sticks after reload
+      // Strip the ?lang= param from the URL to keep it clean
+      const url = new URL(window.location.href);
+      url.searchParams.delete('lang');
+      window.history.replaceState({}, '', url.toString());
+      return param as Locale;
+    }
+  } catch { /* SSR / restricted */ }
+  return null;
+}
 
 interface I18nContextValue {
   locale: Locale | null;
@@ -43,7 +60,7 @@ interface Props {
 }
 
 export function I18nProvider({ children }: Props) {
-  const [locale, setLocaleState] = useState<Locale | null>(getSavedLocale());
+  const [locale, setLocaleState] = useState<Locale | null>(getUrlLocaleOverride() ?? getSavedLocale());
   const [ready, setReady] = useState(false);
 
   // Load dictionary when locale changes

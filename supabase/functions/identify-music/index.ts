@@ -10,7 +10,7 @@ const ACR_SECRET = Deno.env.get('ACRCLOUD_SECRET') ?? '';
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 /** Build HMAC-SHA1 signature for ACRCloud */
