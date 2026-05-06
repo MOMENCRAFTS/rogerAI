@@ -116,14 +116,63 @@ If nothing actionable was discussed, return proposed_tasks: [].`,
       } catch { /* non-fatal */ }
     }
 
-    // Save notes to session
+    // Save notes + structured debrief to session
+    const debrief = { summary: rogerNotes, proposedTasks, durationMin, turnCount: turns?.length ?? 0 };
     await supabase.from('tune_in_sessions')
-      .update({ roger_notes: rogerNotes })
+      .update({
+        roger_notes: rogerNotes,
+        debrief_a: debrief,
+        debrief_b: debrief,
+      })
       .eq('id', sessionId);
 
-    // Surface notes + tasks to both participants
+    // Extract memory facts from conversation for both participants
     const otherUserId = session.participant_a === user.id ? session.participant_b : session.participant_a;
 
+    if (OPENAI_API_KEY && turns && turns.length >= 3) {
+      const transcript = turns.map(t =>
+        `[${t.speaker_id === session.participant_a ? 'A' : 'B'}]: ${t.transcript}`
+      ).join('\n');
+      try {
+        const memRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            response_format: { type: 'json_object' },
+            temperature: 0.1,
+            messages: [
+              {
+                role: 'system',
+                content: `Extract factual memories from this voice call transcript. Return JSON: { "facts": [{ "text": "fact", "tags": ["tag"] }] }. Only include concrete facts (dates, names, agreements, numbers). Max 5 facts.`,
+              },
+              { role: 'user', content: transcript },
+            ],
+          }),
+        });
+        if (memRes.ok) {
+          const memData = await memRes.json() as { choices: { message: { content: string } }[] };
+          const facts = JSON.parse(memData.choices[0]?.message?.content ?? '{}').facts as { text: string; tags: string[] }[] | undefined;
+          if (facts && facts.length > 0) {
+            for (const uid of [user.id, otherUserId]) {
+              for (const fact of facts) {
+                await supabase.from('memory_graph').insert({
+                  user_id: uid,
+                  type: 'call_fact',
+                  text: fact.text,
+                  entities: null,
+                  tags: [...(fact.tags || []), 'tune_in_call'],
+                  source_tx_id: sessionId,
+                  is_admin_test: false,
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    // Surface notes + tasks to both participants
     for (const uid of [user.id, otherUserId]) {
       await supabase.from('surface_items').insert({
         user_id:    uid,

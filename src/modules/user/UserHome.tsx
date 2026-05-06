@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Radio, MapPin, Square } from 'lucide-react';
+import { Radio, MapPin, Square, Satellite } from 'lucide-react';
 import { RogerIcon } from '../../components/icons';
 import { useI18n } from '../../context/I18nContext';
 import MorningBriefing from './MorningBriefing';
@@ -173,6 +173,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [pendingContactSave, setPendingContactSave] = useState<{ callsign: string; contactName: string } | null>(null);
   const [contactSaveInput, setContactSaveInput] = useState('');
   const [myCallsign, setMyCallsign] = useState<string | null>(null);
+  const [tuneInCallSeconds, setTuneInCallSeconds] = useState(0);
+  const tuneInTranscriptRef = useRef<{ speaker: 'me' | 'them'; text: string }[]>([]);
   // ── Confirmation gate ─────────────────────────────────────────────────────
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   // ── Conversation Digester state ────────────────────────────────────────────
@@ -560,13 +562,43 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     if (!activeTuneInSession) return;
     const { sessionId: sid, withName } = activeTuneInSession;
 
+    // Reset call state
+    setTuneInCallSeconds(0);
+    tuneInTranscriptRef.current = [];
+
+    // Call duration timer
+    const durationTimer = setInterval(() => setTuneInCallSeconds(s => s + 1), 1000);
+
     const sessionCh = supabase
       .channel(`tunein-session-${sid}`)
       .on('broadcast', { event: 'session_turn' }, ({ payload }) => {
-        const p = payload as { speakerId: string; spokenLine: string; transcript: string };
-        // Only speak turns from the OTHER person
-        if (p.speakerId !== userId && p.spokenLine) {
-          speakResponse(p.spokenLine).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+        const p = payload as { speakerId: string; spokenLine: string; transcript: string; audio?: string };
+        // Only play turns from the OTHER person
+        if (p.speakerId !== userId) {
+          // Accumulate transcript for background AI analysis
+          tuneInTranscriptRef.current.push({ speaker: 'them', text: p.transcript });
+
+          // Play base64 audio if available, otherwise fall back to TTS
+          if (p.audio) {
+            try {
+              const binaryStr = atob(p.audio);
+              const bytes = new Uint8Array(binaryStr.length);
+              for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+              const audioBlob = new Blob([bytes], { type: 'audio/webm' });
+              const audioUrl = URL.createObjectURL(audioBlob);
+              const audioEl = new Audio(audioUrl);
+              audioEl.onended = () => URL.revokeObjectURL(audioUrl);
+              audioEl.play().catch(() => {
+                // Audio play failed (autoplay policy) — fall back to TTS
+                if (p.spokenLine) speakResponse(p.spokenLine).catch(() => {});
+              });
+            } catch {
+              // Base64 decode failed — fall back to TTS
+              if (p.spokenLine) speakResponse(p.spokenLine).catch(() => {});
+            }
+          } else if (p.spokenLine) {
+            speakResponse(p.spokenLine).catch(() => { console.warn('[TTS] TTS fallback for turn without audio'); });
+          }
           setMessages(prev => [...prev, { id: `turn-${Date.now()}`, role: 'roger', text: `📡 ${withName}: ${p.transcript}`, ts: Date.now() }]);
         }
       })
@@ -586,7 +618,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       })
       .subscribe();
 
-    return () => { sessionCh.unsubscribe(); };
+    return () => { clearInterval(durationTimer); sessionCh.unsubscribe(); };
   }, [activeTuneInSession, userId]);
 
   // ── Geo-fence check — throttled to once per 60s ────────────────────────────
@@ -1014,8 +1046,9 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
     setPttState('transcribing');
     let transcript = '';
+    let blob: Blob | null = null;
     try {
-      const blob = await recorder.stop();
+      blob = await recorder.stop();
       recorder.dispose();
       // Force Whisper to transcribe in the user's chosen language (hard lock)
       const whisperLang = userLocale ? userLocale.split('-')[0] : undefined;
@@ -1125,19 +1158,48 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
 
     try {
     // ── SESSION MODE: In active Tune In session — relay PTT to partner ──────
+    // Voice-first: broadcast raw audio immediately, transcribe in background.
+    // NO AI processing during live call — Roger silently observes.
     if (activeTuneInSession) {
       const sess = activeTuneInSession;
       const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
       const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-      // AI-powered flag detection: run a quick classification to detect
-      // flag/note/mark intents instead of brittle regex matching
-      let isFlagged = false;
-      try {
-        const flagCheck = await processTransmission(transcript, [], undefined, userId);
-        isFlagged = flagCheck.intent === 'TUNE_IN_FLAG';
-      } catch { /* silent — default to not flagged */ }
+      // Regex-based flag detection (fast, no AI call needed)
+      const FLAG_REGEX = /\b(flag|mark|note|save|star|remember|important|highlight)\s*(this|that|it)?\b/i;
+      const isFlagged = FLAG_REGEX.test(transcript);
 
+      // Convert the audio blob to base64 for direct Realtime broadcast
+      let audioBase64: string | undefined;
+      if (blob) {
+        try {
+          const reader = new FileReader();
+          audioBase64 = await new Promise<string>((resolve) => {
+            reader.onloadend = () => {
+              const dataUrl = reader.result as string;
+              resolve(dataUrl.split(',')[1] || '');
+            };
+            reader.readAsDataURL(blob);
+          });
+        } catch { /* encoding failed — relay transcript only */ }
+      }
+
+      // Accumulate transcript for background analysis
+      tuneInTranscriptRef.current.push({ speaker: 'me', text: transcript });
+
+      // Broadcast audio + transcript directly via Realtime (instant, ~200ms)
+      supabase.channel(`tunein-session-${sess.sessionId}`).send({
+        type: 'broadcast', event: 'session_turn',
+        payload: {
+          speakerId: userId,
+          transcript,
+          isFlagged,
+          audio: audioBase64,  // base64 raw voice — played directly by recipient
+          spokenLine: `From you: ${transcript}`, // TTS fallback text
+        },
+      }).catch(() => {});
+
+      // Fire-and-forget: store turn in DB via edge function (background)
       supabase.auth.getSession().then(async ({ data: { session } }) => {
         const token = session?.access_token ?? SUPABASE_ANON_KEY;
         await fetch(`${SUPABASE_URL}/functions/v1/relay-session-turn`, {
@@ -1150,8 +1212,8 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
       // Show transcript in message log
       setMessages(prev => [...prev, { id: `r-${Date.now()}`, role: 'roger', text: `📡 You → ${sess.withName}: ${transcript}${isFlagged ? ' ⭐' : ''}`, ts: Date.now() }]);
       setPttState('responded');
-      const ack = isFlagged ? 'Flagged and relayed. Over.' : 'Relayed. Over.';
-      speakResponse(ack).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+      // Quick beep confirmation instead of verbose TTS acknowledgment
+      sfxRogerOut();
       return;
     }
 
@@ -2924,21 +2986,32 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   };
 
   // ── State display ─────────────────────────────────────────────────────────
-  const stateLabel = pttState === 'recording' ? `● ${t('ptt.recording_time', { time: (holdMs/1000).toFixed(1) })}`
-    : pttState === 'transcribing' ? `▸▸ ${t('ptt.listening')}`
-    : pttState === 'processing'   ? `◈ ${t('ptt.thinking')}`
-    : pttState === 'speaking'     ? `◉ ${t('ptt.speaking')}`
-    : pttState === 'awaiting_answer' ? 'ANSWER NOW'
-    : pttState === 'responded'    ? `${t('ptt.standing_by')}`
-    : `▣ ${t('ptt.hold_to_talk')}`;
+  const isRelayMode = !!activeTuneInSession;
+  const RELAY_COLOR = '#06b6d4'; // cyan — distinct from amber (Roger AI)
 
-  const btnColor = pttState === 'recording'       ? '#d4a044'
-    : pttState === 'speaking'                     ? '#4ade80'
-    : pttState === 'awaiting_answer'              ? '#4ade80'
-    : pttState === 'processing'                   ? '#a78bfa'
-    : pttState === 'transcribing'                 ? '#a78bfa'
-    : pttState === 'responded'                    ? '#4ade8088'
-    : 'rgba(255,255,255,0.25)';
+  const stateLabel = isRelayMode
+    ? (pttState === 'recording' ? `📡 TRANSMITTING ${(holdMs/1000).toFixed(1)}s`
+      : pttState === 'transcribing' ? '📡 SENDING...'
+      : pttState === 'processing'   ? '📡 RELAYING...'
+      : pttState === 'responded'    ? `📡 RELAY MODE`
+      : `📡 RELAY MODE`)
+    : (pttState === 'recording' ? `● ${t('ptt.recording_time', { time: (holdMs/1000).toFixed(1) })}`
+      : pttState === 'transcribing' ? `▸▸ ${t('ptt.listening')}`
+      : pttState === 'processing'   ? `◈ ${t('ptt.thinking')}`
+      : pttState === 'speaking'     ? `◉ ${t('ptt.speaking')}`
+      : pttState === 'awaiting_answer' ? 'ANSWER NOW'
+      : pttState === 'responded'    ? `${t('ptt.standing_by')}`
+      : `▣ ${t('ptt.hold_to_talk')}`);
+
+  const btnColor = isRelayMode
+    ? (pttState === 'recording' ? RELAY_COLOR : `${RELAY_COLOR}88`)
+    : (pttState === 'recording'       ? '#d4a044'
+      : pttState === 'speaking'       ? '#4ade80'
+      : pttState === 'awaiting_answer' ? '#4ade80'
+      : pttState === 'processing'     ? '#a78bfa'
+      : pttState === 'transcribing'   ? '#a78bfa'
+      : pttState === 'responded'      ? '#4ade8088'
+      : 'rgba(255,255,255,0.25)');
 
   const intentColor = (intent?: string) => {
     if (!intent) return 'var(--text-muted)';
@@ -3128,55 +3201,66 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
         );
       })()}
 
-      {/* ── Tune In: Active Session Banner ── */}
-      {activeTuneInSession && (
-        <div style={{
-          margin: '12px 16px 0',
-          padding: '14px 18px',
-          background: 'rgba(16,185,129,0.06)',
-          border: '1px solid rgba(16,185,129,0.35)',
-          borderRadius: 4,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#10b981', marginBottom: 4 }}>
-              LIVE SESSION — ROGER LISTENING
+      {/* ── Tune In: Active Call Bar ── */}
+      {activeTuneInSession && (() => {
+        const mins = Math.floor(tuneInCallSeconds / 60);
+        const secs = tuneInCallSeconds % 60;
+        const durationStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        return (
+          <div style={{
+            margin: '12px 16px 0',
+            padding: '14px 18px',
+            background: 'rgba(6,182,212,0.06)',
+            border: '1px solid rgba(6,182,212,0.35)',
+            borderRadius: 4,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%', background: '#10b981',
+                  animation: 'pulse 1.5s ease-in-out infinite',
+                  boxShadow: '0 0 8px rgba(16,185,129,0.5)',
+                }} />
+                <span style={{ fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#06b6d4', fontWeight: 700 }}>
+                  LIVE · {durationStr}
+                </span>
+              </div>
+              <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
+                {activeTuneInSession.withName}
+              </div>
+              <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+                PTT relays your voice directly · Roger listening
+              </div>
             </div>
-            <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
-              {activeTuneInSession.withName}
-            </div>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-              PTT relays your voice directly. Say "over and out" to end.
-            </div>
+            <button
+              style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', borderRadius: 3, flexShrink: 0 }}
+              onClick={async () => {
+                const SUPABASE_URL       = import.meta.env.VITE_SUPABASE_URL as string;
+                const SUPABASE_ANON_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+                const { data: { session } } = await supabase.auth.getSession();
+                const token = session?.access_token ?? SUPABASE_ANON_KEY;
+                const prevSess = activeTuneInSession;
+                const res = await fetch(`${SUPABASE_URL}/functions/v1/end-tune-in`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                  body: JSON.stringify({ sessionId: activeTuneInSession!.sessionId }),
+                }).then(r => r.json()).catch(() => ({ ok: false }));
+                setActiveTuneInSession(null);
+                const msg = res.rogerResponse ?? 'Channel closed. Over.';
+                speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
+                if (prevSess?.withName?.startsWith('Callsign ')) {
+                  const cs = prevSess.withName.replace('Callsign ', '');
+                  setPendingContactSave({ callsign: cs, contactName: '' });
+                  setContactSaveInput('');
+                  const prompt = `That was Callsign ${cs}. Want to save them? Type or say their name.`;
+                  setTimeout(() => speakResponse(prompt).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }), 2000);
+                }
+              }}>
+              END
+            </button>
           </div>
-          <button
-            style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', borderRadius: 3, flexShrink: 0 }}
-            onClick={async () => {
-              const SUPABASE_URL       = import.meta.env.VITE_SUPABASE_URL as string;
-              const SUPABASE_ANON_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-              const { data: { session } } = await supabase.auth.getSession();
-              const token = session?.access_token ?? SUPABASE_ANON_KEY;
-              const prevSess = activeTuneInSession;
-              const res = await fetch(`${SUPABASE_URL}/functions/v1/end-tune-in`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ sessionId: activeTuneInSession!.sessionId }),
-              }).then(r => r.json()).catch(() => ({ ok: false }));
-              setActiveTuneInSession(null);
-              const msg = res.rogerResponse ?? 'Channel closed. Over.';
-              speakResponse(msg).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); });
-              if (prevSess?.withName?.startsWith('Callsign ')) {
-                const cs = prevSess.withName.replace('Callsign ', '');
-                setPendingContactSave({ callsign: cs, contactName: '' });
-                setContactSaveInput('');
-                const prompt = `That was Callsign ${cs}. Want to save them? Type or say their name.`;
-                setTimeout(() => speakResponse(prompt).catch(() => { console.warn('[TTS] OpenAI TTS failed, silent fallback'); }), 2000);
-              }
-            }}>
-            END SESSION
-          </button>
-
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Ambient Listening Active Banner ── */}
       {ambientActive && (
@@ -4244,7 +4328,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               pointerEvents: 'none',  /* visual only — parent handles events */
             }}
           >
-            {pttState === 'speaking' ? <Square size={32} style={{ color: btnColor, transition: 'color 250ms' }} /> : <Radio size={44} style={{ color: btnColor, transition: 'color 250ms', filter: `drop-shadow(0 0 6px ${btnColor}44)` }} />}
+            {pttState === 'speaking' ? <Square size={32} style={{ color: btnColor, transition: 'color 250ms' }} /> : isRelayMode ? <Satellite size={44} style={{ color: btnColor, transition: 'color 250ms', filter: `drop-shadow(0 0 6px ${btnColor}44)` }} /> : <Radio size={44} style={{ color: btnColor, transition: 'color 250ms', filter: `drop-shadow(0 0 6px ${btnColor}44)` }} />}
           </div>
         </div>
 

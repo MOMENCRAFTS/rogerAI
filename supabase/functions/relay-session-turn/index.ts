@@ -48,21 +48,10 @@ Deno.serve(async (req) => {
       .update({ turn_count: session.turn_count + 1 })
       .eq('id', sessionId);
 
-    // Resolve speaker display name for recipient
-    const recipientId = session.participant_a === user.id ? session.participant_b : session.participant_a;
-    const { data: nameRow } = await supabase.from('roger_contacts')
-      .select('display_name').eq('user_id', recipientId).eq('contact_id', user.id).maybeSingle();
-    const speakerName = nameRow?.display_name ?? 'Them';
+    // NOTE: Realtime broadcast is handled by the frontend directly for lower latency.
+    // This function only persists the turn to the database (fire-and-forget from client).
 
-    const spokenLine = `From ${speakerName}: ${transcript}`;
-
-    // Broadcast to the other participant
-    await supabase.channel(`tunein-session-${sessionId}`).send({
-      type: 'broadcast', event: 'session_turn',
-      payload: { turnId: turn.id, speakerId: user.id, speakerName, transcript, isFlagged, spokenLine },
-    });
-
-    return new Response(JSON.stringify({ ok: true, turnId: turn.id, spokenLine }), {
+    return new Response(JSON.stringify({ ok: true, turnId: turn.id }), {
       headers: { ...cors, 'Content-Type': 'application/json' },
     });
 
