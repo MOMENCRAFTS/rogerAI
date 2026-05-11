@@ -1,333 +1,291 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Radio, Loader, Trash2, Plus, Wifi, WifiOff, Camera, X } from 'lucide-react';
+import { Radio, Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, Monitor, CheckCircle, ArrowLeft } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { fetchPairedDevices, pairDevice, unpairDevice, type DbPairedDevice } from '../../lib/api';
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return 'Never';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  if (diff < 60_000) return 'Just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
+/* ── helpers ─────────────────────────────────────────────────────────── */
+function timeAgo(d: string | null) {
+  if (!d) return 'Never';
+  const ms = Date.now() - new Date(d).getTime();
+  if (ms < 60_000) return 'Just now';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return `${Math.floor(ms / 86_400_000)}d ago`;
 }
 
-/** Parse roger://pair?device_id=xxx&code=yyy from QR content */
-function parseQrData(raw: string): { device_id: string; code: string } | null {
+function parseQr(raw: string) {
   try {
-    // Handle both roger:// scheme and plain URL
-    const url = raw.replace('roger://', 'https://roger.local/');
-    const u = new URL(url);
-    const device_id = u.searchParams.get('device_id');
-    const code = u.searchParams.get('code');
-    if (device_id && code) return { device_id, code };
-  } catch { /* not a URL */ }
-
-  // Fallback: try JSON
-  try {
-    const obj = JSON.parse(raw);
-    if (obj.device_id && obj.code) return obj;
-  } catch { /* not JSON */ }
-
+    const u = new URL(raw.replace('roger://', 'https://r.local/'));
+    const id = u.searchParams.get('device_id'), c = u.searchParams.get('code');
+    if (id && c) return { device_id: id, code: c };
+  } catch { /* */ }
+  try { const o = JSON.parse(raw); if (o.device_id && o.code) return o; } catch { /* */ }
   return null;
 }
 
+/* ── shared style helpers (Roger design system) ──────────────────────── */
+const label = (sz = 9): React.CSSProperties => ({
+  fontFamily: 'monospace', fontSize: sz, textTransform: 'uppercase',
+  letterSpacing: '0.15em', color: 'var(--text-muted)', margin: 0,
+});
+
+const btn = (c: string, hover = true): React.CSSProperties => ({
+  width: '100%', padding: '11px 14px', fontFamily: 'monospace', fontSize: 10,
+  textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
+  background: `rgba(${c},0.1)`, border: `1px solid rgba(${c},0.3)`,
+  color: `rgb(${c})`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+  transition: hover ? 'background 150ms' : 'none',
+});
+
+const AMBER = '212,160,68';
+const GREEN = '34,197,94';
+const PURPLE = '139,92,246';
+const RED = '239,68,68';
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/*  Setup Wizard                                                        */
+/* ══════════════════════════════════════════════════════════════════════ */
+type Step = 'wifi' | 'portal' | 'scan' | 'done';
+
+function SetupWizard({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [step, setStep] = useState<Step>('wifi');
+  const [scanning, setScanning] = useState(false);
+  const [pairing, setPairing] = useState(false);
+  const [error, setError] = useState('');
+  const [manualId, setManualId] = useState('');
+  const [manualCode, setManualCode] = useState('');
+  const [showManual, setShowManual] = useState(false);
+  const ref = useRef<Html5Qrcode | null>(null);
+  const divId = 'roger-qr';
+
+  useEffect(() => () => { ref.current?.stop().catch(() => {}); }, []);
+
+  const startScan = async () => {
+    setError(''); setScanning(true);
+    await new Promise(r => setTimeout(r, 120));
+    try {
+      const s = new Html5Qrcode(divId);
+      ref.current = s;
+      await s.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 200, height: 200 } },
+        async (txt) => {
+          const p = parseQr(txt);
+          if (p) { await s.stop().catch(() => {}); ref.current = null; setScanning(false); doPair(p.device_id, p.code); }
+        }, () => {});
+    } catch { setError('Camera access denied.'); setScanning(false); setShowManual(true); }
+  };
+
+  const stopScan = () => { ref.current?.stop().catch(() => {}); ref.current = null; setScanning(false); };
+
+  const doPair = async (id: string, code: string) => {
+    setPairing(true); setError('');
+    try { await pairDevice(id, code); setStep('done'); }
+    catch (e: any) { setError(e.message || 'Pairing failed.'); }
+    setPairing(false);
+  };
+
+  /* ── Step 1: WiFi ── */
+  if (step === 'wifi') return (
+    <div style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <p style={{ ...label(9), color: 'var(--amber)' }}>Step 1 of 3</p>
+        <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={14} /></button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <Wifi size={18} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontWeight: 600 }}>Connect to Device WiFi</p>
+      </div>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
+        Open your phone's WiFi settings and connect to the network below. No password required.
+      </p>
+      <div style={{ padding: '14px', marginBottom: 14, textAlign: 'center', background: 'rgba(212,160,68,0.06)', border: '1px dashed rgba(212,160,68,0.35)' }}>
+        <p style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, color: 'var(--amber)', margin: '0 0 2px', letterSpacing: '0.05em' }}>RogerDevice-Setup</p>
+        <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>Open network · no password</p>
+      </div>
+      <button onClick={() => setStep('portal')} style={btn(AMBER)}
+        onMouseEnter={e => (e.currentTarget.style.background = `rgba(${AMBER},0.2)`)}
+        onMouseLeave={e => (e.currentTarget.style.background = `rgba(${AMBER},0.1)`)}>
+        I'm Connected <ChevronRight size={12} />
+      </button>
+    </div>
+  );
+
+  /* ── Step 2: Portal ── */
+  if (step === 'portal') return (
+    <div style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <p style={{ ...label(9), color: 'var(--amber)' }}>Step 2 of 3</p>
+        <button onClick={() => setStep('wifi')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><ArrowLeft size={14} /></button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <Monitor size={18} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontWeight: 600 }}>Configure Home WiFi</p>
+      </div>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
+        Tap below to open the device portal. Select your home WiFi network and enter the password. The device will restart automatically.
+      </p>
+      <a href="http://192.168.4.1" target="_blank" rel="noopener noreferrer"
+        style={{ ...btn(PURPLE), textDecoration: 'none', marginBottom: 10 }}>
+        <Monitor size={13} /> Open WiFi Portal
+      </a>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
+        After saving, switch your phone back to your home WiFi. The device display will show a QR code when ready.
+      </p>
+      <button onClick={() => setStep('scan')} style={btn(GREEN)}
+        onMouseEnter={e => (e.currentTarget.style.background = `rgba(${GREEN},0.2)`)}
+        onMouseLeave={e => (e.currentTarget.style.background = `rgba(${GREEN},0.1)`)}>
+        Device Shows QR Code <ChevronRight size={12} />
+      </button>
+    </div>
+  );
+
+  /* ── Step 3: Scan ── */
+  if (step === 'scan') return (
+    <div style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <p style={{ ...label(9), color: 'var(--amber)' }}>Step 3 of 3</p>
+        <button onClick={() => setStep('portal')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><ArrowLeft size={14} /></button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <Camera size={18} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontWeight: 600 }}>Scan Device QR Code</p>
+      </div>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
+        Point your camera at the QR code on the round display of your Roger device.
+      </p>
+
+      {pairing ? (
+        <div style={{ textAlign: 'center', padding: '20px 0' }}>
+          <Loader size={20} style={{ color: 'var(--amber)', animation: 'spin 1s linear infinite', marginBottom: 6 }} />
+          <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', margin: 0 }}>Pairing device…</p>
+        </div>
+      ) : !scanning ? (
+        <button onClick={startScan} style={btn(AMBER)}
+          onMouseEnter={e => (e.currentTarget.style.background = `rgba(${AMBER},0.2)`)}
+          onMouseLeave={e => (e.currentTarget.style.background = `rgba(${AMBER},0.1)`)}>
+          <Camera size={14} /> Open Camera
+        </button>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', margin: 0 }}>Scanning…</p>
+            <button onClick={stopScan} style={{ background: 'none', border: 'none', color: `rgb(${RED})`, cursor: 'pointer' }}><X size={14} /></button>
+          </div>
+          <div id={divId} style={{ width: '100%', maxWidth: 260, margin: '0 auto', borderRadius: 6, overflow: 'hidden', border: '2px solid rgba(212,160,68,0.35)' }} />
+        </div>
+      )}
+
+      {error && <p style={{ fontFamily: 'monospace', fontSize: 10, color: `rgb(${RED})`, margin: '8px 0 0' }}>{error}</p>}
+
+      {/* Manual fallback */}
+      <div style={{ marginTop: 12, borderTop: '1px solid var(--border-subtle)', paddingTop: 10 }}>
+        <button onClick={() => setShowManual(!showManual)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', textDecoration: 'underline' }}>
+          {showManual ? 'Hide manual entry' : 'Enter code manually'}
+        </button>
+        {showManual && (
+          <div style={{ marginTop: 8 }}>
+            <input value={manualId} onChange={e => setManualId(e.target.value)} placeholder="Device ID"
+              style={{ width: '100%', padding: '8px 10px', marginBottom: 6, fontFamily: 'monospace', fontSize: 11, boxSizing: 'border-box', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
+            <input value={manualCode} onChange={e => setManualCode(e.target.value.toUpperCase())} placeholder="6-char code" maxLength={6}
+              style={{ width: '100%', padding: '8px 10px', marginBottom: 8, fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.3em', textAlign: 'center', boxSizing: 'border-box', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
+            <button onClick={() => { if (manualId && manualCode) doPair(manualId.trim(), manualCode.trim()); else setError('Enter both fields'); }} disabled={pairing} style={btn(AMBER)}>Pair Device</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  /* ── Done ── */
+  return (
+    <div style={{ padding: '20px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12, textAlign: 'center' }}>
+      <CheckCircle size={32} style={{ color: `rgb(${GREEN})`, marginBottom: 8 }} />
+      <p style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: `rgb(${GREEN})`, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Device Paired</p>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 14px' }}>
+        Your Roger device is connected. It will confirm on its display within a few seconds.
+      </p>
+      <button onClick={onDone} style={btn(GREEN)}
+        onMouseEnter={e => (e.currentTarget.style.background = `rgba(${GREEN},0.2)`)}
+        onMouseLeave={e => (e.currentTarget.style.background = `rgba(${GREEN},0.1)`)}>Done</button>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/*  Main Section                                                        */
+/* ══════════════════════════════════════════════════════════════════════ */
 export default function PairedDevicesSection({ userId: _userId }: { userId: string }) {
   const [devices, setDevices] = useState<DbPairedDevice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showPairForm, setShowPairForm] = useState(false);
-  const [pairDeviceId, setPairDeviceId] = useState('');
-  const [pairCode, setPairCode] = useState('');
-  const [pairing, setPairing] = useState(false);
-  const [pairError, setPairError] = useState('');
-  const [pairSuccess, setPairSuccess] = useState('');
+  const [wizard, setWizard] = useState(false);
   const [unpairingId, setUnpairingId] = useState<string | null>(null);
 
-  // QR Scanner state
-  const [scanning, setScanning] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const scannerDivId = 'roger-qr-scanner';
-
   const load = useCallback(async () => {
-    try {
-      const d = await fetchPairedDevices();
-      setDevices(d);
-    } catch { /* silent */ }
+    try { setDevices(await fetchPairedDevices()); } catch { /* */ }
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // Cleanup scanner on unmount
-  useEffect(() => {
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
-        scannerRef.current = null;
-      }
-    };
-  }, []);
-
-  const startScanner = async () => {
-    setPairError('');
-    setPairSuccess('');
-    setScanning(true);
-
-    // Wait for DOM element to render
-    await new Promise(r => setTimeout(r, 100));
-
-    try {
-      const scanner = new Html5Qrcode(scannerDivId);
-      scannerRef.current = scanner;
-
-      await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 200, height: 200 } },
-        (decodedText) => {
-          // QR code detected
-          const parsed = parseQrData(decodedText);
-          if (parsed) {
-            setPairDeviceId(parsed.device_id);
-            setPairCode(parsed.code);
-            setPairSuccess('QR code scanned — pairing...');
-            stopScanner();
-            // Auto-pair
-            autoPair(parsed.device_id, parsed.code);
-          } else {
-            setPairError('Invalid QR code. Point at the Roger device display.');
-          }
-        },
-        () => { /* ignore scan failures */ }
-      );
-    } catch (err: any) {
-      setPairError('Camera access denied. Use manual entry below.');
-      setScanning(false);
-    }
-  };
-
-  const stopScanner = async () => {
-    if (scannerRef.current) {
-      try { await scannerRef.current.stop(); } catch { /* */ }
-      scannerRef.current = null;
-    }
-    setScanning(false);
-  };
-
-  const autoPair = async (deviceId: string, code: string) => {
-    setPairing(true);
-    setPairError('');
-    try {
-      await pairDevice(deviceId, code);
-      setPairSuccess('Device paired successfully.');
-      setShowPairForm(false);
-      setPairDeviceId('');
-      setPairCode('');
-      await load();
-    } catch (e: any) {
-      setPairError(e.message || 'Pairing failed');
-      setPairSuccess('');
-    }
-    setPairing(false);
-  };
-
-  const handlePair = async () => {
-    if (!pairDeviceId.trim() || !pairCode.trim()) {
-      setPairError('Enter both device ID and pairing code');
-      return;
-    }
-    await autoPair(pairDeviceId.trim(), pairCode.trim().toUpperCase());
-  };
-
-  const handleUnpair = async (deviceId: string) => {
-    setUnpairingId(deviceId);
-    try {
-      await unpairDevice(deviceId);
-      setDevices(prev => prev.filter(d => d.device_id !== deviceId));
-    } catch { /* silent */ }
+  const handleUnpair = async (id: string) => {
+    setUnpairingId(id);
+    try { await unpairDevice(id); setDevices(p => p.filter(d => d.device_id !== id)); } catch { /* */ }
     setUnpairingId(null);
   };
 
   return (
     <div style={{ marginBottom: 24 }}>
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', margin: 0 }}>
-          Paired Devices
-        </p>
-        <button
-          onClick={() => { setShowPairForm(!showPairForm); if (scanning) stopScanner(); }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 4,
-            padding: '4px 10px', fontFamily: 'monospace', fontSize: 9,
-            textTransform: 'uppercase', letterSpacing: '0.1em',
-            background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.3)',
-            color: '#3b82f6', cursor: 'pointer',
-          }}
-        >
-          <Plus size={10} /> Pair
-        </button>
+        <p style={label(10)}>Paired Devices</p>
+        {!wizard && (
+          <button onClick={() => setWizard(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(212,160,68,0.1)', border: '1px solid rgba(212,160,68,0.3)', color: 'var(--amber)', cursor: 'pointer', transition: 'background 150ms' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.2)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.1)')}>
+            <Radio size={10} /> Setup Device
+          </button>
+        )}
       </div>
 
-      {/* Pair Form */}
-      {showPairForm && (
-        <div style={{
-          marginBottom: 12, padding: '14px 16px',
-          border: '1px solid rgba(59,130,246,0.3)',
-          background: 'rgba(59,130,246,0.04)',
-        }}>
-          {/* QR Scanner */}
-          {!scanning ? (
-            <button
-              onClick={startScanner}
-              style={{
-                width: '100%', padding: '14px', marginBottom: 12,
-                fontFamily: 'monospace', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em',
-                background: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15))',
-                border: '1px solid rgba(59,130,246,0.4)', color: '#3b82f6', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              }}
-            >
-              <Camera size={16} /> Scan QR Code on Device
-            </button>
-          ) : (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#3b82f6', margin: 0, fontWeight: 600 }}>
-                  Point camera at the device display
-                </p>
-                <button
-                  onClick={stopScanner}
-                  style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: 4 }}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              <div
-                id={scannerDivId}
-                style={{
-                  width: '100%', maxWidth: 280, margin: '0 auto',
-                  borderRadius: 8, overflow: 'hidden',
-                  border: '2px solid rgba(59,130,246,0.4)',
-                }}
-              />
-            </div>
-          )}
+      {/* Wizard */}
+      {wizard && <SetupWizard onDone={() => { setWizard(false); load(); }} onCancel={() => setWizard(false)} />}
 
-          {/* Success message */}
-          {pairSuccess && (
-            <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#22c55e', margin: '0 0 8px', fontWeight: 600 }}>{pairSuccess}</p>
-          )}
-
-          {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 12px' }}>
-            <div style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>or enter manually</span>
-            <div style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
-          </div>
-
-          <input
-            value={pairDeviceId}
-            onChange={e => setPairDeviceId(e.target.value)}
-            placeholder="Device ID (from device screen)"
-            style={{
-              width: '100%', padding: '8px 10px', marginBottom: 8,
-              fontFamily: 'monospace', fontSize: 11,
-              background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
-              color: 'var(--text-primary)', boxSizing: 'border-box',
-            }}
-          />
-          <input
-            value={pairCode}
-            onChange={e => setPairCode(e.target.value.toUpperCase())}
-            placeholder="6-digit pairing code"
-            maxLength={6}
-            style={{
-              width: '100%', padding: '8px 10px', marginBottom: 8,
-              fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.3em', textAlign: 'center',
-              background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
-              color: 'var(--text-primary)', boxSizing: 'border-box',
-            }}
-          />
-          {pairError && (
-            <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#ef4444', margin: '0 0 8px' }}>{pairError}</p>
-          )}
-          <button
-            onClick={handlePair}
-            disabled={pairing}
-            style={{
-              width: '100%', padding: '10px',
-              fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
-              background: pairing ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.12)',
-              border: '1px solid rgba(59,130,246,0.4)', color: '#3b82f6', cursor: pairing ? 'wait' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}
-          >
-            {pairing ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Pairing...</> : 'Pair Device'}
-          </button>
-        </div>
-      )}
-
-      {/* Device List */}
+      {/* List */}
       {loading ? (
-        <div style={{ padding: '20px', textAlign: 'center' }}>
+        <div style={{ padding: 20, textAlign: 'center' }}>
           <Loader size={16} style={{ color: 'var(--text-muted)', animation: 'spin 1s linear infinite' }} />
         </div>
-      ) : devices.length === 0 ? (
-        <div style={{
-          padding: '20px 16px', textAlign: 'center',
-          border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)',
-        }}>
-          <Radio size={24} style={{ color: 'var(--text-muted)', opacity: 0.4, marginBottom: 8 }} />
-          <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>
-            No devices paired. Tap "+ Pair" to connect your Roger hardware.
-          </p>
+      ) : devices.length === 0 && !wizard ? (
+        <div style={{ padding: '24px 16px', textAlign: 'center', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)' }}>
+          <Radio size={28} style={{ color: 'var(--text-muted)', opacity: 0.3, marginBottom: 10 }} />
+          <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 12px' }}>No devices paired yet.</p>
+          <button onClick={() => setWizard(true)}
+            style={{ padding: '9px 18px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(212,160,68,0.1)', border: '1px solid rgba(212,160,68,0.3)', color: 'var(--amber)', cursor: 'pointer', transition: 'background 150ms' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.2)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.1)')}>
+            Setup Roger Device
+          </button>
         </div>
-      ) : (
-        devices.map(dev => (
-          <div
-            key={dev.id}
-            style={{
-              marginBottom: 8, padding: '12px 16px',
-              border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)',
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}
-          >
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%',
-              background: dev.last_used_at && (Date.now() - new Date(dev.last_used_at).getTime() < 300_000)
-                ? 'rgba(34,197,94,0.12)' : 'rgba(107,114,128,0.08)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              {dev.last_used_at && (Date.now() - new Date(dev.last_used_at).getTime() < 300_000)
-                ? <Wifi size={14} style={{ color: '#22c55e' }} />
-                : <WifiOff size={14} style={{ color: '#6b7280' }} />
-              }
+      ) : devices.map(dev => {
+        const online = dev.last_used_at && (Date.now() - new Date(dev.last_used_at).getTime() < 300_000);
+        return (
+          <div key={dev.id} style={{ marginBottom: 8, padding: '12px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: online ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {online ? <Wifi size={14} style={{ color: `rgb(${GREEN})` }} /> : <WifiOff size={14} style={{ color: '#6b7280' }} />}
             </div>
-
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', margin: '0 0 2px', fontWeight: 600 }}>
-                {dev.device_name || 'Roger Device'}
-              </p>
-              <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>
-                {dev.device_id.substring(0, 18)} · FW {dev.firmware_ver || '?'} · {timeAgo(dev.last_used_at)}
-              </p>
+              <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', margin: '0 0 2px', fontWeight: 600 }}>{dev.device_name || 'Roger Device'}</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>{dev.device_id.substring(0, 18)} · FW {dev.firmware_ver || '?'} · {timeAgo(dev.last_used_at)}</p>
             </div>
-
-            <button
-              onClick={() => handleUnpair(dev.device_id)}
-              disabled={unpairingId === dev.device_id}
-              style={{
-                flexShrink: 0, padding: '6px 8px', background: 'transparent',
-                border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', cursor: 'pointer',
-              }}
-            >
-              {unpairingId === dev.device_id
-                ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} />
-                : <Trash2 size={12} />
-              }
+            <button onClick={() => handleUnpair(dev.device_id)} disabled={unpairingId === dev.device_id}
+              style={{ flexShrink: 0, padding: '6px 8px', background: 'transparent', border: `1px solid rgba(${RED},0.2)`, color: `rgb(${RED})`, cursor: 'pointer', transition: 'background 150ms' }}
+              onMouseEnter={e => (e.currentTarget.style.background = `rgba(${RED},0.06)`)}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              {unpairingId === dev.device_id ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={12} />}
             </button>
           </div>
-        ))
-      )}
+        );
+      })}
     </div>
   );
 }
