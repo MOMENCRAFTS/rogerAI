@@ -23,6 +23,11 @@ String deviceId;
 String userId;
 String deviceToken;
 bool   isPaired = false;
+DisplayPayload displayData = {"", "", "", 0};
+
+// ── Clock idle timeout (switch to clock face after 2 min idle) ────────
+static unsigned long lastActivityMs = 0;
+static const unsigned long CLOCK_IDLE_TIMEOUT = 120000;  // 2 minutes
 
 // ── NVS persistent storage ───────────────────────────────────────────
 static Preferences prefs;
@@ -243,9 +248,83 @@ void setup() {
   Serial.println("[BOOT] Device ready — hold KEY1 to talk to Roger");
 }
 
+// ── Backend display state polling ─────────────────────────────────────
+static unsigned long lastDisplayPollMs = 0;
+static const unsigned long DISPLAY_POLL_INTERVAL = 3000;
+
+static void pollDisplayState() {
+  if (!isPaired || currentState == STATE_RECORDING ||
+      currentState == STATE_UPLOADING || currentState == STATE_WAITING) return;
+
+  unsigned long now = millis();
+  if (now - lastDisplayPollMs < DISPLAY_POLL_INTERVAL) return;
+  lastDisplayPollMs = now;
+
+  // Piggyback on the device-relay heartbeat (GET with device token)
+  String url = String(SUPABASE_URL) + "/functions/v1/device-relay/heartbeat"
+               "?device_id=" + deviceId;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  http.addHeader("Authorization", "Bearer " SUPABASE_ANON_KEY);
+  if (deviceToken.length() > 0) http.addHeader("X-Device-Token", deviceToken);
+  http.setTimeout(5000);
+
+  int code = http.GET();
+  if (code != 200) { http.end(); return; }
+
+  String body = http.getString();
+  http.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) return;
+
+  // Check for revoked status
+  if (doc["revoked"] | false) {
+    currentState = STATE_LOCKED;
+    tftSetState(STATE_LOCKED);
+    isPaired = false;
+    return;
+  }
+
+  const char* dState = doc["display_state"] | "";
+  if (strlen(dState) == 0) return;
+
+  // Map backend display_state string to enum
+  DisplayPayload dp = {"", "", "", 0};
+  strncpy(dp.line1, doc["display_line1"] | "", 31);
+  strncpy(dp.line2, doc["display_line2"] | "", 31);
+  strncpy(dp.line3, doc["display_line3"] | "", 31);
+  dp.value = doc["display_value"] | 0;
+
+  if (strcmp(dState, "prayer") == 0)        { tftSetStateWithData(STATE_PRAYER, dp); currentState = STATE_PRAYER; }
+  else if (strcmp(dState, "reminder") == 0)  { tftSetStateWithData(STATE_REMINDER, dp); currentState = STATE_REMINDER; }
+  else if (strcmp(dState, "briefing") == 0)  { tftSetStateWithData(STATE_BRIEFING, dp); currentState = STATE_BRIEFING; }
+  else if (strcmp(dState, "relay") == 0)     { tftSetStateWithData(STATE_RELAY, dp); currentState = STATE_RELAY; }
+  else if (strcmp(dState, "idle") == 0)      { currentState = STATE_IDLE; tftSetState(STATE_IDLE); }
+}
+
 void loop() {
-  pollPairingStatus();  // non-blocking — returns immediately if not pairing
-  pttLoop();            // PTT state machine
-  tftLoop();            // display animations (30fps)
-  audioPlayerLoop();    // non-blocking audio playback
+  pollPairingStatus();     // non-blocking — returns immediately if not pairing
+  pttLoop();               // PTT state machine
+  tftLoop();               // display animations (30fps)
+  audioPlayerLoop();       // non-blocking audio playback
+  pollDisplayState();      // backend-pushed LCD states
+
+  // Auto-switch to clock face after idle timeout
+  if (currentState == STATE_IDLE) {
+    if (millis() - lastActivityMs > CLOCK_IDLE_TIMEOUT) {
+      currentState = STATE_CLOCK;
+      tftSetState(STATE_CLOCK);
+      // NTP time sync (once)
+      configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    }
+  }
+
+  // Reset activity timer on any state change away from clock
+  if (currentState != STATE_IDLE && currentState != STATE_CLOCK) {
+    lastActivityMs = millis();
+  }
 }

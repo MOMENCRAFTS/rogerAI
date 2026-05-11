@@ -162,6 +162,19 @@ export default function Onboarding({ userId, onComplete }: Props) {
       const isYes = it.extracted_value?.toLowerCase() === 'yes';
       const merged = { ...currentAnswers, islamic_mode: isYes };
       setAnswers(merged);
+      // Move to hardware question
+      setFlowPhase('hardware');
+      const hwScript = 'One more — do you have a Roger hardware device? It\'s a dedicated speaker with a push-to-talk button. Say yes if you have one, or no to skip.';
+      await speakNode(hwScript);
+      return;
+    }
+
+    // ── HARDWARE ──────────────────────────────────────────────────────────
+    if (flowPhase === 'hardware') {
+      const lower = transcript.toLowerCase();
+      const isYes = /\b(yes|yeah|yep|yup|got one|have one|i do|نعم|أيوه)\b/.test(lower);
+      const merged = { ...currentAnswers, has_hardware: isYes };
+      setAnswers(merged);
       // Move to review
       setFlowPhase('review');
       const reviewScript = await buildReviewScript(merged);
@@ -408,6 +421,9 @@ export default function Onboarding({ userId, onComplete }: Props) {
             ))}
             {answers.islamic_mode && (
               <span style={{ ...chipStyle, borderColor: 'rgba(16,185,129,0.4)', color: '#34d399', background: 'rgba(16,185,129,0.06)' }}>Islamic Mode</span>
+            )}
+            {answers.has_hardware && (
+              <span style={{ ...chipStyle, borderColor: 'rgba(212,160,68,0.4)', color: '#d4a044', background: 'rgba(212,160,68,0.06)' }}>Roger Hardware</span>
             )}
           </div>
 

@@ -7,6 +7,7 @@ void tftLoop();                                   // animation tick — call in 
 
 // ── State-driven screens ──────────────────────────────────────────────
 void tftSetState(DeviceState state);
+void tftSetStateWithData(DeviceState state, const DisplayPayload& data);
 
 // ── Content screens ───────────────────────────────────────────────────
 void tftShowText(const char* line1, const char* line2 = "",

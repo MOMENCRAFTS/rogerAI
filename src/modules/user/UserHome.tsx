@@ -4299,6 +4299,18 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               <div style={{ position: 'absolute', width: 175, height: 175, borderRadius: '50%', border: `1px solid ${btnColor}`, opacity: 0.06, animation: 'pttBreathe 3s ease-in-out 1.5s infinite' }} />
             </>
           )}
+          {/* Hardware-connected dot — subtle amber indicator at 2 o'clock */}
+          {hwStatus === 'online' && (pttState === 'idle' || pttState === 'responded') && (
+            <div style={{
+              position: 'absolute',
+              width: 8, height: 8, borderRadius: '50%',
+              background: '#d4a044',
+              boxShadow: '0 0 6px #d4a044, 0 0 12px rgba(212,160,68,0.3)',
+              top: 12, right: 28,
+              animation: 'pttBreathe 3s ease-in-out infinite',
+              zIndex: 2,
+            }} title="Hardware device online" />
+          )}
           {/* ── Proactive Ring — "Roger Wants to Talk" ── */}
           {proactivePending && (pttState === 'idle' || pttState === 'responded') && (() => {
             const isThinking = proactivePending.trigger === 'thinking';

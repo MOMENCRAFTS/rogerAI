@@ -10,6 +10,7 @@ export type OnboardingPhase =
   | 'welcome'        // Roger introduces himself, asks name + open question
   | 'name_confirm'   // spelling check with phonetic variants
   | 'islamic'        // must-ask: Islamic mode
+  | 'hardware'       // ask about Roger hardware device
   | 'review'         // AI-generated profile summary
   | 'complete';
 
@@ -25,6 +26,7 @@ export interface OnboardingAnswers {
   interests?: string[];
   feature_prefs?: string[];
   islamic_mode?: boolean;
+  has_hardware?: boolean;
 }
 
 // Minimum / maximum elastic interview turns (kept for backward compat)
@@ -50,6 +52,7 @@ export const PHASE_LABELS: Record<OnboardingPhase, string> = {
   welcome:      'WELCOME',
   name_confirm: 'SPELL YOUR NAME PLEASE',
   islamic:      'PREFERENCES',
+  hardware:     'ROGER HARDWARE',
   review:       'REVIEW',
   complete:     'COMPLETE',
 };
