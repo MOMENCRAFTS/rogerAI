@@ -1,6 +1,5 @@
 #pragma once
 #include <Arduino.h>
-#include <FastLED.h>
 #include "config.h"
 
 // ── Device States (mirrors the app PTT state machine) ────────────────
@@ -12,11 +11,13 @@ enum DeviceState {
   STATE_PLAYING,
   STATE_ERROR,
   STATE_OFFLINE,
-  STATE_WIFI_SETUP
+  STATE_WIFI_SETUP,
+  STATE_PAIRING           // QR code displayed, waiting for app scan
 };
 
 // ── Global state ──────────────────────────────────────────────────────
 extern DeviceState currentState;
-extern CRGB leds[LED_COUNT];
-extern String deviceId;       // MAC-based e.g. "device_a4cf127b3ef1"
-extern String userId;         // linked Roger AI user
+extern String deviceId;           // MAC-based e.g. "device_a4cf127b3ef1"
+extern String userId;             // linked Roger AI user (from NVS)
+extern String deviceToken;        // persistent auth token (from NVS)
+extern bool   isPaired;           // true after successful QR pairing

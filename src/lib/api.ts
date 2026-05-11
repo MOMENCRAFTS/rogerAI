@@ -158,6 +158,47 @@ export async function fetchDevices(): Promise<DbDevice[]> {
   return data ?? [];
 }
 
+// ─── Device Pairing (ESP32 QR-code flow) ─────────────────────────────────────
+export type DbPairedDevice = {
+  id: string; device_id: string; device_name: string;
+  firmware_ver: string | null; paired_at: string; last_used_at: string | null;
+};
+
+export async function fetchPairedDevices(): Promise<DbPairedDevice[]> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/pair-device`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Failed to fetch paired devices: ${res.status}`);
+  const json = await res.json();
+  return json.devices ?? [];
+}
+
+export async function pairDevice(deviceId: string, pairingCode: string, deviceName?: string): Promise<{ device_token: string; user_id: string }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/pair-device`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, pairing_code: pairingCode, device_name: deviceName }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Pairing failed' }));
+    throw new Error(err.error || 'Pairing failed');
+  }
+  return res.json();
+}
+
+export async function unpairDevice(deviceId: string): Promise<void> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/pair-device`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId }),
+  });
+  if (!res.ok) throw new Error('Failed to unpair device');
+}
+
 // ─── Platform Stats ───────────────────────────────────────────────────────────
 export async function fetchLatestPlatformStat(): Promise<DbPlatformStat | null> {
   const { data, error } = await supabase.from('platform_stats').select('*')

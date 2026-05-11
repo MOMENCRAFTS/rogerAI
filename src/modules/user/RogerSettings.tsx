@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
 import { getDeferredPermissions, removeDeferredPermission, type DeferrablePermission } from '../../components/PermissionGate';
+import PairedDevicesSection from './PairedDevicesSection';
 
 type Mode = 'quiet' | 'active' | 'briefing';
 
@@ -517,6 +518,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         )}
         <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '8px 0 0', opacity: 0.6 }}>Only names are read. Numbers stay on your device.</p>
       </div>
+
+      {/* ── Paired Devices (ESP32 Hardware) ── */}
+      <PairedDevicesSection userId={userId} />
 
       {/* Push Notifications */}
       <div style={{ marginBottom: 28 }}>

@@ -47,3 +47,5 @@ supabase/.temp/
 # Capacitor generated
 android/app/src/main/assets/public/
 ios/App/App/public/
+
+esp32-firmware/.pio/

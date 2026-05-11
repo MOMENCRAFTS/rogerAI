@@ -1,83 +1,83 @@
 #include "audio_recorder.h"
 #include "config.h"
-#include <driver/i2s.h>
+#include "AudioKitHAL.h"
 
-// ── WAV header builder ────────────────────────────────────────────────
+// ── AudioKit HAL instance (shared with audio_player) ──────────────────
+extern AudioKit audioKit;
+
+// ── WAV header builder (reused from original firmware) ────────────────
 static void writeWavHeader(uint8_t* buf, uint32_t dataSize) {
-  uint32_t sampleRate  = I2S_SAMPLE_RATE;
-  uint16_t bitsPerSample = I2S_SAMPLE_BITS;
-  uint16_t channels    = I2S_CHANNELS;
-  uint32_t byteRate    = sampleRate * channels * bitsPerSample / 8;
-  uint16_t blockAlign  = channels * bitsPerSample / 8;
-  uint32_t chunkSize   = dataSize + 36;
+  uint32_t sampleRate    = AUDIO_SAMPLE_RATE;
+  uint16_t bitsPerSample = AUDIO_BITS;
+  uint16_t channels      = AUDIO_CHANNELS;
+  uint32_t byteRate      = sampleRate * channels * bitsPerSample / 8;
+  uint16_t blockAlign    = channels * bitsPerSample / 8;
+  uint32_t chunkSize     = dataSize + 36;
 
   memcpy(buf,      "RIFF", 4);
-  memcpy(buf + 4,  &chunkSize,   4);
+  memcpy(buf + 4,  &chunkSize,     4);
   memcpy(buf + 8,  "WAVE", 4);
   memcpy(buf + 12, "fmt ", 4);
   uint32_t fmtSize = 16; memcpy(buf + 16, &fmtSize, 4);
   uint16_t audioFormat = 1; memcpy(buf + 20, &audioFormat, 2);
-  memcpy(buf + 22, &channels,    2);
-  memcpy(buf + 24, &sampleRate,  4);
-  memcpy(buf + 28, &byteRate,    4);
-  memcpy(buf + 32, &blockAlign,  2);
+  memcpy(buf + 22, &channels,      2);
+  memcpy(buf + 24, &sampleRate,    4);
+  memcpy(buf + 28, &byteRate,      4);
+  memcpy(buf + 32, &blockAlign,    2);
   memcpy(buf + 34, &bitsPerSample, 2);
   memcpy(buf + 36, "data", 4);
-  memcpy(buf + 40, &dataSize,    4);
+  memcpy(buf + 40, &dataSize,      4);
 }
 
-// ── Static buffer (44 byte WAV header + PCM data) ─────────────────────
-static uint8_t  audioBuf[44 + AUDIO_BUFFER_SIZE];
+// ── Audio buffer (44-byte WAV header + PCM data) ──────────────────────
+static uint8_t* audioBuf = nullptr;
 static size_t   pcmWritten = 0;
-static bool     recording  = false;
+static volatile bool recording = false;
 
 void audioRecorderInit() {
-  i2s_config_t cfg = {
-    .mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate          = I2S_SAMPLE_RATE,
-    .bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format       = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count        = 8,
-    .dma_buf_len          = 64,
-    .use_apll             = false,
-    .tx_desc_auto_clear   = false,
-    .fixed_mclk           = 0
-  };
-  i2s_pin_config_t pins = {
-    .bck_io_num   = I2S_MIC_SCK,
-    .ws_io_num    = I2S_MIC_WS,
-    .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num  = I2S_MIC_SD
-  };
-  i2s_driver_install(I2S_MIC_PORT, &cfg, 0, NULL);
-  i2s_set_pin(I2S_MIC_PORT, &pins);
-  Serial.println("[MIC] I2S microphone initialized");
+  // Allocate audio buffer in PSRAM if available, else heap
+  audioBuf = (uint8_t*)ps_malloc(44 + AUDIO_BUFFER_SIZE);
+  if (!audioBuf) {
+    audioBuf = (uint8_t*)malloc(44 + AUDIO_BUFFER_SIZE);
+  }
+  if (!audioBuf) {
+    Serial.println("[MIC] FATAL: Cannot allocate audio buffer!");
+    return;
+  }
+  Serial.printf("[MIC] Audio buffer allocated: %u bytes\n", 44 + AUDIO_BUFFER_SIZE);
 }
 
 void audioRecorderStart() {
   pcmWritten = 0;
   recording  = true;
-  memset(audioBuf, 0, sizeof(audioBuf));
-  // Write placeholder WAV header — will be filled on stop
-  i2s_start(I2S_MIC_PORT);
+  memset(audioBuf, 0, 44);   // clear WAV header area
 
-  // Record in a task to avoid blocking main loop
+  // Configure AudioKit for input (mic recording)
+  auto cfg = audioKit.defaultConfig(KitInput);
+  cfg.adc_input       = AUDIO_HAL_ADC_INPUT_LINE2;   // onboard MEMS mic
+  cfg.sample_rate     = AUDIO_HAL_16K_SAMPLES;
+  cfg.bits_per_sample = AUDIO_HAL_BIT_LENGTH_16BITS;
+  cfg.sd_active       = false;   // we don't use SD card
+  audioKit.begin(cfg);
+
+  Serial.println("[MIC] Recording started (ES8388 ADC)");
+
+  // Record in a background task to avoid blocking main loop
   xTaskCreate([](void*) {
     while (recording) {
-      size_t bytesRead = 0;
       uint8_t tmp[512];
-      i2s_read(I2S_MIC_PORT, tmp, sizeof(tmp), &bytesRead, portMAX_DELAY);
-      size_t space = AUDIO_BUFFER_SIZE - pcmWritten;
-      size_t toCopy = min(bytesRead, space);
-      if (toCopy > 0) {
-        memcpy(audioBuf + 44 + pcmWritten, tmp, toCopy);
-        pcmWritten += toCopy;
-      }
-      if (pcmWritten >= AUDIO_BUFFER_SIZE) {
-        recording = false;   // buffer full → auto stop
-        break;
+      size_t bytesRead = audioKit.read(tmp, sizeof(tmp));
+      if (bytesRead > 0) {
+        size_t space  = AUDIO_BUFFER_SIZE - pcmWritten;
+        size_t toCopy = min(bytesRead, space);
+        if (toCopy > 0) {
+          memcpy(audioBuf + 44 + pcmWritten, tmp, toCopy);
+          pcmWritten += toCopy;
+        }
+        if (pcmWritten >= AUDIO_BUFFER_SIZE) {
+          recording = false;   // buffer full — auto stop
+          break;
+        }
       }
     }
     vTaskDelete(NULL);
@@ -86,8 +86,9 @@ void audioRecorderStart() {
 
 void audioRecorderStop() {
   recording = false;
-  delay(50);   // allow task to flush
-  i2s_stop(I2S_MIC_PORT);
+  vTaskDelay(pdMS_TO_TICKS(80));   // let task flush final samples
+  audioKit.end();
+
   // Write real WAV header now we know data size
   writeWavHeader(audioBuf, (uint32_t)pcmWritten);
   Serial.printf("[MIC] Recorded %u PCM bytes → WAV total %u bytes\n",

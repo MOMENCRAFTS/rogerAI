@@ -1,5 +1,6 @@
 #include "http_client.h"
 #include "config.h"
+#include "globals.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
@@ -56,6 +57,10 @@ DeviceRelayResponse httpPostAudio(uint8_t* wavBuf, size_t wavSize,
   http.addHeader("Content-Type",
                  "multipart/form-data; boundary=" + BOUNDARY);
   http.addHeader("Authorization", "Bearer " SUPABASE_ANON_KEY);
+  // Send device token for secure auth (Phase 5)
+  if (deviceToken.length() > 0) {
+    http.addHeader("X-Device-Token", deviceToken);
+  }
   http.setTimeout(30000);   // 30s — Whisper + GPT-4o can be slow
 
   Serial.printf("[HTTP] POST %u bytes to %s\n", bodySize, DEVICE_RELAY_URL);
@@ -97,6 +102,9 @@ void httpRegisterDevice(const String& deviceId, const String& userId) {
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " SUPABASE_ANON_KEY);
+  if (deviceToken.length() > 0) {
+    http.addHeader("X-Device-Token", deviceToken);
+  }
 
   JsonDocument doc;
   doc["device_id"]        = deviceId;

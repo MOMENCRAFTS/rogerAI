@@ -1,26 +1,52 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
-#include <FastLED.h>
-#include <Wire.h>
-#include <Adafruit_SSD1306.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <Preferences.h>
+#include "AudioKitHAL.h"
 #include "config.h"
 #include "globals.h"
-#include "led_controller.h"
-#include "oled_display.h"
+#include "tft_display.h"
 #include "ptt_handler.h"
 #include "audio_recorder.h"
 #include "audio_player.h"
 #include "http_client.h"
 
+// ── AudioKit HAL instance (shared by recorder + player) ───────────────
+AudioKit audioKit;
+
 // ── Global definitions ────────────────────────────────────────────────
 DeviceState currentState = STATE_WIFI_SETUP;
-CRGB leds[LED_COUNT];
 String deviceId;
-String userId = DEFAULT_USER_ID;
+String userId;
+String deviceToken;
+bool   isPaired = false;
+
+// ── NVS persistent storage ───────────────────────────────────────────
+static Preferences prefs;
+
+static void loadPairingFromNVS() {
+  prefs.begin(NVS_NAMESPACE, true);   // read-only
+  isPaired    = prefs.getBool(NVS_KEY_PAIRED, false);
+  userId      = prefs.getString(NVS_KEY_USER_ID, "");
+  deviceToken = prefs.getString(NVS_KEY_TOKEN, "");
+  prefs.end();
+
+  if (isPaired && userId.length() > 0 && deviceToken.length() > 0) {
+    Serial.printf("[NVS] Loaded pairing: user=%s token=%s...%s\n",
+                  userId.c_str(),
+                  deviceToken.substring(0, 8).c_str(),
+                  deviceToken.substring(deviceToken.length() - 4).c_str());
+  } else {
+    Serial.println("[NVS] No pairing data found — device needs pairing");
+    isPaired = false;
+  }
+}
 
 // ── Build device ID from MAC address ─────────────────────────────────
-void buildDeviceId() {
+static void buildDeviceId() {
   uint8_t mac[6];
   WiFi.macAddress(mac);
   char buf[32];
@@ -31,75 +57,195 @@ void buildDeviceId() {
 }
 
 // ── WiFiManager setup with captive portal ─────────────────────────────
-void setupWiFi() {
-  ledSetState(STATE_WIFI_SETUP);
-  oledShow("ROGER DEVICE", "Connect to:", WIFI_AP_NAME, "to configure WiFi");
+static void setupWiFi() {
+  currentState = STATE_WIFI_SETUP;
+  tftSetState(STATE_WIFI_SETUP);
 
   WiFiManager wm;
   wm.setConfigPortalTimeout(300);          // 5 min portal timeout
   wm.setConnectTimeout(20);
-
-  // Custom parameter: user_id binding
-  WiFiManagerParameter param_user("userid", "Roger User ID", DEFAULT_USER_ID, 64);
-  wm.addParameter(&param_user);
 
   bool connected = wm.autoConnect(WIFI_AP_NAME, WIFI_AP_PASSWORD);
 
   if (!connected) {
     Serial.println("[WIFI] Failed to connect — entering offline mode");
     currentState = STATE_OFFLINE;
-    ledSetState(STATE_OFFLINE);
-    oledShow("ROGER DEVICE", "OFFLINE", "No WiFi", "PTT disabled");
+    tftSetState(STATE_OFFLINE);
     return;
   }
 
-  userId = String(param_user.getValue());
-  if (userId.length() == 0) userId = DEFAULT_USER_ID;
-
   Serial.printf("[WIFI] Connected. IP: %s\n", WiFi.localIP().toString().c_str());
-  Serial.printf("[WIFI] User ID: %s\n", userId.c_str());
-
-  currentState = STATE_IDLE;
-  ledSetState(STATE_IDLE);
-  oledShow("ROGER AI", deviceId.c_str(), "READY", "Hold PTT to speak");
 }
 
+// ── Generate 6-char pairing code ──────────────────────────────────────
+static String generatePairingCode() {
+  const char charset[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no I/O/0/1
+  char code[7];
+  for (int i = 0; i < 6; i++) {
+    code[i] = charset[random(0, sizeof(charset) - 1)];
+  }
+  code[6] = '\0';
+  return String(code);
+}
+
+// ── Enter pairing mode ───────────────────────────────────────────────
+static String activePairingCode = "";
+static unsigned long lastPollMs  = 0;
+static const unsigned long PAIR_POLL_INTERVAL = 3000;   // poll every 3s
+
+static void enterPairingMode() {
+  currentState = STATE_PAIRING;
+  activePairingCode = generatePairingCode();
+
+  Serial.printf("[PAIR] Pairing code: %s\n", activePairingCode.c_str());
+  Serial.printf("[PAIR] QR content: roger://pair?device_id=%s&code=%s\n",
+                deviceId.c_str(), activePairingCode.c_str());
+
+  tftShowPairing(activePairingCode.c_str());
+  lastPollMs = 0;   // force immediate first poll
+  Serial.println("[PAIR] Waiting for app to scan QR code...");
+}
+
+// ── Poll server for pairing confirmation ─────────────────────────────
+static void savePairingToNVS(const String& token, const String& uid) {
+  prefs.begin(NVS_NAMESPACE, false);   // read-write
+  prefs.putBool(NVS_KEY_PAIRED, true);
+  prefs.putString(NVS_KEY_USER_ID, uid);
+  prefs.putString(NVS_KEY_TOKEN, token);
+  prefs.end();
+  Serial.printf("[NVS] Saved pairing: user=%s token=%s...%s\n",
+                uid.c_str(),
+                token.substring(0, 8).c_str(),
+                token.substring(token.length() - 4).c_str());
+}
+
+static void pollPairingStatus() {
+  if (currentState != STATE_PAIRING) return;
+  unsigned long now = millis();
+  if (now - lastPollMs < PAIR_POLL_INTERVAL) return;
+  lastPollMs = now;
+
+  // Build poll URL: GET /pair-device?device_id=X&pairing_code=Y
+  String url = String(PAIR_DEVICE_URL) +
+               "?device_id=" + deviceId +
+               "&pairing_code=" + activePairingCode;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  http.addHeader("Authorization", "Bearer " SUPABASE_ANON_KEY);
+  http.setTimeout(8000);
+
+  int code = http.GET();
+  if (code != 200) {
+    Serial.printf("[PAIR] Poll HTTP %d — retrying...\n", code);
+    http.end();
+    return;
+  }
+
+  String body = http.getString();
+  http.end();
+
+  // Parse JSON response
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    Serial.printf("[PAIR] JSON parse error: %s\n", err.c_str());
+    return;
+  }
+
+  bool paired = doc["paired"] | false;
+  if (!paired) {
+    // Not yet — keep polling (dot animation on serial)
+    Serial.print(".");
+    return;
+  }
+
+  // ── PAIRED! ────────────────────────────────────────────────────────
+  const char* token = doc["device_token"] | "";
+  const char* uid   = doc["user_id"]      | "";
+
+  if (strlen(token) == 0 || strlen(uid) == 0) {
+    Serial.println("[PAIR] Paired but missing token/user_id — retrying...");
+    return;
+  }
+
+  Serial.printf("\n[PAIR] ✓ Paired successfully!\n");
+  Serial.printf("[PAIR] User: %s\n", uid);
+  Serial.printf("[PAIR] Token: %s...%s\n",
+                String(token).substring(0, 8).c_str(),
+                String(token).substring(strlen(token) - 4).c_str());
+
+  // Save to globals
+  deviceToken = String(token);
+  userId      = String(uid);
+  isPaired    = true;
+
+  // Persist to NVS flash
+  savePairingToNVS(deviceToken, userId);
+
+  // Show success on display
+  tftShowText("PAIRED!", "Connected to", "your account", "");
+  delay(2000);
+
+  // Register with server
+  httpRegisterDevice(deviceId, userId);
+
+  // Transition to ready state
+  currentState = STATE_IDLE;
+  tftSetState(STATE_IDLE);
+  Serial.println("[BOOT] Device ready — hold KEY1 to talk to Roger");
+}
+
+// ══════════════════════════════════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\n=== ROGER AI DEVICE BOOT ===");
+  Serial.println("\n=== ROGER AI DEVICE v" FIRMWARE_VERSION " ===");
+  Serial.println("=== ESP32-A1S Audio Kit + GC9A01 Display ===\n");
 
-  // LED ring
-  FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, LED_COUNT);
-  FastLED.setBrightness(LED_BRIGHTNESS);
-  FastLED.clear();
-  FastLED.show();
+  // ── Step 1: Display (first, for visual boot feedback) ──────────────
+  tftInit();
 
-  // OLED
-  Wire.begin(OLED_SDA, OLED_SCL);
-  oledInit();
-
-  // PTT button
-  pttInit();
-
-  // Audio
-  audioRecorderInit();
+  // ── Step 2: Speaker amplifier ──────────────────────────────────────
   audioPlayerInit();
 
-  // Device ID from MAC
+  // ── Step 3: PTT button ─────────────────────────────────────────────
+  pttInit();
+
+  // ── Step 4: Audio recorder (buffer allocation) ─────────────────────
+  audioRecorderInit();
+
+  // ── Step 5: Load pairing data from NVS ─────────────────────────────
+  loadPairingFromNVS();
+
+  // ── Step 6: Device ID from MAC ─────────────────────────────────────
   buildDeviceId();
 
-  // WiFi + portal
+  // ── Step 7: WiFi + portal ──────────────────────────────────────────
   setupWiFi();
 
-  // Self-register with server (fire-and-forget)
-  if (currentState != STATE_OFFLINE) {
-    httpRegisterDevice(deviceId, userId);
+  if (currentState == STATE_OFFLINE) return;   // no WiFi — stop here
+
+  // ── Step 8: Check pairing status ───────────────────────────────────
+  if (!isPaired) {
+    enterPairingMode();
+    return;   // loop() will handle polling
   }
+
+  // ── Step 9: Self-register with server ──────────────────────────────
+  httpRegisterDevice(deviceId, userId);
+
+  // ── Ready ──────────────────────────────────────────────────────────
+  currentState = STATE_IDLE;
+  tftSetState(STATE_IDLE);
+  Serial.println("[BOOT] Device ready — hold KEY1 to talk to Roger");
 }
 
 void loop() {
-  pttLoop();          // PTT state machine
-  ledLoop();          // LED animations
-  audioPlayerLoop();  // non-blocking MP3 playback
+  pollPairingStatus();  // non-blocking — returns immediately if not pairing
+  pttLoop();            // PTT state machine
+  tftLoop();            // display animations (30fps)
+  audioPlayerLoop();    // non-blocking audio playback
 }

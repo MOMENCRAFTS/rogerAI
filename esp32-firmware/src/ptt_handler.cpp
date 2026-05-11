@@ -4,8 +4,7 @@
 #include "audio_recorder.h"
 #include "audio_player.h"
 #include "http_client.h"
-#include "led_controller.h"
-#include "oled_display.h"
+#include "tft_display.h"
 
 // ── PTT State Machine ─────────────────────────────────────────────────
 //   IDLE → RECORDING → UPLOADING → WAITING → PLAYING → IDLE
@@ -14,10 +13,16 @@ static bool     buttonDown       = false;
 static bool     lastButtonState  = HIGH;
 static unsigned long pressStart  = 0;
 static unsigned long debounceTs  = 0;
+static unsigned long errorTs     = 0;       // non-blocking error timeout
+static bool     errorRecovery    = false;
+static unsigned long briefTs     = 0;       // non-blocking "too brief" timeout
+static bool     briefRecovery   = false;
 
 void pttInit() {
-  pinMode(PTT_BUTTON_PIN, INPUT_PULLUP);
-  Serial.println("[PTT] Initialized");
+  // GPIO 36 is input-only — no internal pullup available
+  // The Audio Kit has an external 10K pullup on KEY1
+  pinMode(PTT_BUTTON_PIN, INPUT);
+  Serial.println("[PTT] KEY1 (GPIO 36) initialized");
 }
 
 // Called when user presses PTT
@@ -29,8 +34,7 @@ static void onPTTDown() {
 
   pressStart = millis();
   currentState = STATE_RECORDING;
-  ledSetState(STATE_RECORDING);
-  oledShow("ROGER AI", "● RECORDING", "Speak now...", "Release to send");
+  tftSetState(STATE_RECORDING);
 
   audioRecorderStart();
   Serial.println("[PTT] Recording started");
@@ -43,13 +47,12 @@ static void onPTTUp() {
   audioRecorderStop();
 
   if (holdMs < PTT_MIN_HOLD_MS) {
-    // Too brief — ignore
+    // Too brief — show message, recover after 1.5s (non-blocking)
     Serial.println("[PTT] Too brief — ignored");
     currentState = STATE_IDLE;
-    ledSetState(STATE_IDLE);
-    oledShow("ROGER AI", "TOO BRIEF", "Hold longer", "Try again");
-    delay(1500);
-    oledShow("ROGER AI", deviceId.c_str(), "READY", "Hold PTT to speak");
+    tftShowText("TOO BRIEF", "Hold longer", "Try again", "");
+    briefTs = millis();
+    briefRecovery = true;
     return;
   }
 
@@ -62,53 +65,70 @@ static void onPTTUp() {
   if (audioSize == 0) {
     Serial.println("[PTT] Empty audio buffer — aborting");
     currentState = STATE_IDLE;
-    ledSetState(STATE_IDLE);
+    tftSetState(STATE_IDLE);
     return;
   }
 
   // Upload to server
   currentState = STATE_UPLOADING;
-  ledSetState(STATE_UPLOADING);
-  oledShow("ROGER AI", "UPLOADING", "Sending to Roger...", "");
+  tftSetState(STATE_UPLOADING);
 
   DeviceRelayResponse resp = httpPostAudio(audioBuf, audioSize, deviceId, userId);
 
   if (!resp.success) {
     Serial.printf("[PTT] Upload failed: %s\n", resp.error.c_str());
     currentState = STATE_ERROR;
-    ledSetState(STATE_ERROR);
-    oledShow("ROGER AI", "ERROR", resp.error.c_str(), "Try again");
-    delay(3000);
-    currentState = STATE_IDLE;
-    ledSetState(STATE_IDLE);
-    oledShow("ROGER AI", deviceId.c_str(), "READY", "Hold PTT to speak");
+    tftSetState(STATE_ERROR);
+    tftShowText("ERROR", resp.error.c_str(), "Try again", "");
+    errorTs = millis();
+    errorRecovery = true;
     return;
   }
 
   Serial.printf("[PTT] Transcript: %s\n", resp.transcript.c_str());
   Serial.printf("[PTT] Roger says: %s\n", resp.rogerResponse.c_str());
 
-  // Show transcript on OLED
-  oledShow("YOU SAID:", resp.transcript.substring(0, 20).c_str(),
-           "ROGER:", resp.rogerResponse.substring(0, 20).c_str());
+  // Show transcript on display
+  tftShowTranscript(resp.transcript.c_str(), resp.rogerResponse.c_str());
 
   // Play TTS response
   if (resp.ttsUrl.length() > 0) {
     currentState = STATE_PLAYING;
-    ledSetState(STATE_PLAYING);
+    tftSetState(STATE_PLAYING);
     audioPlayerPlay(resp.ttsUrl);
     // audioPlayerLoop() in main loop handles completion
   } else {
     currentState = STATE_IDLE;
-    ledSetState(STATE_IDLE);
-    oledShow("ROGER AI", deviceId.c_str(), "READY", "Hold PTT to speak");
+    tftSetState(STATE_IDLE);
   }
 }
 
 void pttLoop() {
-  if (currentState == STATE_OFFLINE || currentState == STATE_WIFI_SETUP) return;
+  if (currentState == STATE_OFFLINE ||
+      currentState == STATE_WIFI_SETUP ||
+      currentState == STATE_PAIRING) return;
 
   unsigned long now = millis();
+
+  // Non-blocking error recovery (replaces delay(3000))
+  if (errorRecovery && (now - errorTs > 3000)) {
+    errorRecovery = false;
+    currentState = STATE_IDLE;
+    tftSetState(STATE_IDLE);
+    return;
+  }
+
+  // Non-blocking "too brief" recovery (replaces delay(1500))
+  if (briefRecovery && (now - briefTs > 1500)) {
+    briefRecovery = false;
+    currentState = STATE_IDLE;
+    tftSetState(STATE_IDLE);
+    return;
+  }
+
+  // Don't process button during recovery
+  if (errorRecovery || briefRecovery) return;
+
   bool reading = digitalRead(PTT_BUTTON_PIN);
 
   // Debounce
@@ -117,7 +137,7 @@ void pttLoop() {
 
   if ((now - debounceTs) < PTT_DEBOUNCE_MS) return;
 
-  bool pressed = (reading == LOW);   // active-low (INPUT_PULLUP)
+  bool pressed = (reading == LOW);   // active-low (external pullup)
 
   if (pressed && !buttonDown) {
     buttonDown = true;

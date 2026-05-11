@@ -41,14 +41,55 @@ async function handlePTT(req: Request) {
   }
 
   const form = await req.formData();
-  const deviceId = form.get('device_id') as string;
-  const userId   = form.get('user_id')   as string;
-  const audioFile = form.get('audio')    as File;
+  const audioFile = form.get('audio') as File;
 
-  if (!deviceId || !userId || !audioFile) {
-    return new Response(JSON.stringify({ error: 'Missing fields' }), {
+  if (!audioFile) {
+    return new Response(JSON.stringify({ error: 'Missing audio file' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+  }
+
+  // ── Device Token Authentication ─────────────────────────────────────
+  // Priority: X-Device-Token header → form-data fallback (legacy)
+  const deviceToken = req.headers.get('x-device-token') ?? '';
+  let deviceId: string;
+  let userId: string;
+
+  if (deviceToken) {
+    // Secure path: validate device token from DB
+    const { data: tokenAuth, error: tokenErr } = await supabase
+      .from('device_tokens')
+      .select('user_id, device_id')
+      .eq('token', deviceToken)
+      .eq('revoked', false)
+      .single();
+
+    if (tokenErr || !tokenAuth) {
+      console.warn(`[device-relay] Invalid device token: ${deviceToken.substring(0, 8)}...`);
+      return new Response(JSON.stringify({ error: 'Invalid or revoked device token' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    deviceId = tokenAuth.device_id;
+    userId   = tokenAuth.user_id;
+
+    // Update last_used_at timestamp
+    supabase.from('device_tokens')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('token', deviceToken);
+
+    console.log(`[device-relay] Token auth OK: device=${deviceId} user=${userId}`);
+  } else {
+    // Legacy fallback: trust form-data (for backward compatibility)
+    deviceId = form.get('device_id') as string;
+    userId   = form.get('user_id')   as string;
+    if (!deviceId || !userId) {
+      return new Response(JSON.stringify({ error: 'Missing device_id/user_id (no token provided)' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    console.warn(`[device-relay] Legacy auth (no token): device=${deviceId} user=${userId}`);
   }
 
   console.log(`[device-relay] Device: ${deviceId} | User: ${userId} | Audio: ${audioFile.size} bytes`);
