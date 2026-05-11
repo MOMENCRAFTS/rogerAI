@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Radio, Loader, Trash2, Plus, Wifi, WifiOff } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Radio, Loader, Trash2, Plus, Wifi, WifiOff, Camera, X } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { fetchPairedDevices, pairDevice, unpairDevice, type DbPairedDevice } from '../../lib/api';
 
 function timeAgo(dateStr: string | null): string {
@@ -11,6 +12,26 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
+/** Parse roger://pair?device_id=xxx&code=yyy from QR content */
+function parseQrData(raw: string): { device_id: string; code: string } | null {
+  try {
+    // Handle both roger:// scheme and plain URL
+    const url = raw.replace('roger://', 'https://roger.local/');
+    const u = new URL(url);
+    const device_id = u.searchParams.get('device_id');
+    const code = u.searchParams.get('code');
+    if (device_id && code) return { device_id, code };
+  } catch { /* not a URL */ }
+
+  // Fallback: try JSON
+  try {
+    const obj = JSON.parse(raw);
+    if (obj.device_id && obj.code) return obj;
+  } catch { /* not JSON */ }
+
+  return null;
+}
+
 export default function PairedDevicesSection({ userId: _userId }: { userId: string }) {
   const [devices, setDevices] = useState<DbPairedDevice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,7 +40,13 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
   const [pairCode, setPairCode] = useState('');
   const [pairing, setPairing] = useState(false);
   const [pairError, setPairError] = useState('');
+  const [pairSuccess, setPairSuccess] = useState('');
   const [unpairingId, setUnpairingId] = useState<string | null>(null);
+
+  // QR Scanner state
+  const [scanning, setScanning] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerDivId = 'roger-qr-scanner';
 
   const load = useCallback(async () => {
     try {
@@ -31,23 +58,84 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
 
   useEffect(() => { load(); }, [load]);
 
-  const handlePair = async () => {
-    if (!pairDeviceId.trim() || !pairCode.trim()) {
-      setPairError('Enter both device ID and pairing code');
-      return;
+  // Cleanup scanner on unmount
+  useEffect(() => {
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {});
+        scannerRef.current = null;
+      }
+    };
+  }, []);
+
+  const startScanner = async () => {
+    setPairError('');
+    setPairSuccess('');
+    setScanning(true);
+
+    // Wait for DOM element to render
+    await new Promise(r => setTimeout(r, 100));
+
+    try {
+      const scanner = new Html5Qrcode(scannerDivId);
+      scannerRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 200, height: 200 } },
+        (decodedText) => {
+          // QR code detected
+          const parsed = parseQrData(decodedText);
+          if (parsed) {
+            setPairDeviceId(parsed.device_id);
+            setPairCode(parsed.code);
+            setPairSuccess('QR code scanned — pairing...');
+            stopScanner();
+            // Auto-pair
+            autoPair(parsed.device_id, parsed.code);
+          } else {
+            setPairError('Invalid QR code. Point at the Roger device display.');
+          }
+        },
+        () => { /* ignore scan failures */ }
+      );
+    } catch (err: any) {
+      setPairError('Camera access denied. Use manual entry below.');
+      setScanning(false);
     }
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try { await scannerRef.current.stop(); } catch { /* */ }
+      scannerRef.current = null;
+    }
+    setScanning(false);
+  };
+
+  const autoPair = async (deviceId: string, code: string) => {
     setPairing(true);
     setPairError('');
     try {
-      await pairDevice(pairDeviceId.trim(), pairCode.trim().toUpperCase());
+      await pairDevice(deviceId, code);
+      setPairSuccess('Device paired successfully.');
       setShowPairForm(false);
       setPairDeviceId('');
       setPairCode('');
       await load();
     } catch (e: any) {
       setPairError(e.message || 'Pairing failed');
+      setPairSuccess('');
     }
     setPairing(false);
+  };
+
+  const handlePair = async () => {
+    if (!pairDeviceId.trim() || !pairCode.trim()) {
+      setPairError('Enter both device ID and pairing code');
+      return;
+    }
+    await autoPair(pairDeviceId.trim(), pairCode.trim().toUpperCase());
   };
 
   const handleUnpair = async (deviceId: string) => {
@@ -66,7 +154,7 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
           Paired Devices
         </p>
         <button
-          onClick={() => setShowPairForm(!showPairForm)}
+          onClick={() => { setShowPairForm(!showPairForm); if (scanning) stopScanner(); }}
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
             padding: '4px 10px', fontFamily: 'monospace', fontSize: 9,
@@ -86,9 +174,56 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
           border: '1px solid rgba(59,130,246,0.3)',
           background: 'rgba(59,130,246,0.04)',
         }}>
-          <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#3b82f6', margin: '0 0 10px', fontWeight: 600 }}>
-            Scan the QR code on your Roger device, or enter the code manually:
-          </p>
+          {/* QR Scanner */}
+          {!scanning ? (
+            <button
+              onClick={startScanner}
+              style={{
+                width: '100%', padding: '14px', marginBottom: 12,
+                fontFamily: 'monospace', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em',
+                background: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15))',
+                border: '1px solid rgba(59,130,246,0.4)', color: '#3b82f6', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              <Camera size={16} /> Scan QR Code on Device
+            </button>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#3b82f6', margin: 0, fontWeight: 600 }}>
+                  Point camera at the device display
+                </p>
+                <button
+                  onClick={stopScanner}
+                  style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: 4 }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div
+                id={scannerDivId}
+                style={{
+                  width: '100%', maxWidth: 280, margin: '0 auto',
+                  borderRadius: 8, overflow: 'hidden',
+                  border: '2px solid rgba(59,130,246,0.4)',
+                }}
+              />
+            </div>
+          )}
+
+          {/* Success message */}
+          {pairSuccess && (
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#22c55e', margin: '0 0 8px', fontWeight: 600 }}>{pairSuccess}</p>
+          )}
+
+          {/* Divider */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 12px' }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>or enter manually</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
+          </div>
+
           <input
             value={pairDeviceId}
             onChange={e => setPairDeviceId(e.target.value)}
