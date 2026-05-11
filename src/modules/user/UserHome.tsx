@@ -3074,11 +3074,18 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
               {profileContext}
             </span>
           )}
-          {hwStatus && (
-            <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: `1px solid ${hwStatus === 'online' ? 'rgba(212,160,68,0.3)' : 'rgba(107,114,128,0.2)'}`, background: hwStatus === 'online' ? 'rgba(212,160,68,0.06)' : 'transparent', color: hwStatus === 'online' ? 'var(--amber)' : 'rgba(107,114,128,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-              📡 {hwStatus === 'online' ? 'DEVICE' : 'OFFLINE'}
-            </span>
-          )}
+          <span
+            onClick={() => onTabChange('settings' as UserTab)}
+            style={{
+              fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', cursor: 'pointer',
+              border: `1px solid ${hwStatus === 'online' ? 'rgba(212,160,68,0.3)' : hwStatus === 'offline' ? 'rgba(107,114,128,0.2)' : 'rgba(212,160,68,0.25)'}`,
+              background: hwStatus === 'online' ? 'rgba(212,160,68,0.06)' : hwStatus === null ? 'rgba(212,160,68,0.08)' : 'transparent',
+              color: hwStatus === 'online' ? 'var(--amber)' : hwStatus === null ? 'var(--amber)' : 'rgba(107,114,128,0.5)',
+              letterSpacing: '0.1em', textTransform: 'uppercase',
+              animation: hwStatus === null ? 'pttBreathe 3s ease-in-out infinite' : 'none',
+            }}>
+              📡 {hwStatus === 'online' ? 'DEVICE' : hwStatus === 'offline' ? 'OFFLINE' : 'PAIR DEVICE'}
+          </span>
         </div>
         <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '2px 8px', border: '1px solid var(--green-border)', background: 'var(--green-dim)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
           <RogerIcon name="mode-active" size={9} color="var(--green)" style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{rogerMode.toUpperCase()}
