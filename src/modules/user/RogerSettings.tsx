@@ -398,6 +398,25 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </button>
       </div>
 
+      {/* ── Roger Hardware — prominent banner ── */}
+      <div style={{
+        marginBottom: 20, padding: '18px',
+        background: 'linear-gradient(135deg, rgba(212,160,68,0.08) 0%, rgba(139,92,246,0.05) 100%)',
+        border: '1px solid rgba(212,160,68,0.3)',
+        borderLeft: '3px solid var(--amber)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Radio size={18} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+          <div>
+            <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 2px', fontWeight: 700 }}>Roger Hardware</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+              Connect and manage your ESP32 device.
+            </p>
+          </div>
+        </div>
+        <PairedDevicesSection userId={userId} />
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
         <Settings size={16} style={{ color: 'var(--amber)' }} />
         <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>
@@ -519,8 +538,6 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '8px 0 0', opacity: 0.6 }}>Only names are read. Numbers stay on your device.</p>
       </div>
 
-      {/* ── Paired Devices (ESP32 Hardware) ── */}
-      <PairedDevicesSection userId={userId} />
 
       {/* Push Notifications */}
       <div style={{ marginBottom: 28 }}>
