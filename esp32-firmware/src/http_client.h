@@ -14,3 +14,4 @@ struct DeviceRelayResponse {
 DeviceRelayResponse httpPostAudio(uint8_t* wavBuf, size_t wavSize,
                                    const String& deviceId, const String& userId);
 void                httpRegisterDevice(const String& deviceId, const String& userId);
+void                httpRegisterPairingCode(const String& deviceId, const String& pairingCode);

@@ -209,6 +209,18 @@ export async function renameDevice(deviceId: string, newName: string): Promise<v
   if (!res.ok) throw new Error('Failed to rename device');
 }
 
+export type DiscoveredDevice = { device_id: string; pending_code: string; firmware_version: string | null; last_seen: string };
+
+export async function discoverDevices(): Promise<DiscoveredDevice[]> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/pair-device/discover`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const json = await res.json();
+  return json.devices ?? [];
+}
+
 // ─── Platform Stats ───────────────────────────────────────────────────────────
 export async function fetchLatestPlatformStat(): Promise<DbPlatformStat | null> {
   const { data, error } = await supabase.from('platform_stats').select('*')

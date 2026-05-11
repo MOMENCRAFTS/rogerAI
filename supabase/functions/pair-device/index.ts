@@ -272,6 +272,69 @@ async function handleDevicePoll(url: URL): Promise<Response> {
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
+// ── POST /pair-device/register-code — ESP32 registers its pairing code ─
+// Called by ESP32 AFTER WiFi connects. Stores the code so the app can discover it.
+async function handleRegisterCode(req: Request): Promise<Response> {
+  const body = await req.json();
+  const { device_id, pairing_code, firmware_ver } = body;
+
+  if (!device_id || !pairing_code) {
+    return new Response(JSON.stringify({ error: 'Missing device_id or pairing_code' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Upsert into a pending_pairings record (or reuse device_registry)
+  await supabase.from('device_registry').upsert({
+    device_id,
+    status: 'awaiting_pair',
+    pending_code: pairing_code,
+    firmware_version: firmware_ver ?? null,
+    last_seen: new Date().toISOString(),
+  }, { onConflict: 'device_id' });
+
+  console.log(`[pair-device] Device ${device_id} registered pairing code ${pairing_code}`);
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// ── GET /pair-device/discover — App discovers unpaired devices ─────────
+// Returns devices that registered a pairing code in the last 10 minutes
+async function handleDiscover(req: Request): Promise<Response> {
+  const auth = await verifyUser(req);
+  if (!auth) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+  // Find devices that are awaiting_pair and were seen recently
+  const { data: pending } = await supabase
+    .from('device_registry')
+    .select('device_id, pending_code, firmware_version, last_seen')
+    .eq('status', 'awaiting_pair')
+    .gte('last_seen', tenMinAgo)
+    .order('last_seen', { ascending: false });
+
+  // Filter out devices already paired to this user
+  const { data: paired } = await supabase
+    .from('device_tokens')
+    .select('device_id')
+    .eq('user_id', auth.userId)
+    .eq('revoked', false);
+
+  const pairedIds = new Set((paired ?? []).map(d => d.device_id));
+  const available = (pending ?? []).filter(d => !pairedIds.has(d.device_id));
+
+  return new Response(JSON.stringify({ devices: available }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ── Router ────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -281,11 +344,21 @@ Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
 
-    if (req.method === 'POST')   return await handlePair(req);
+    if (req.method === 'POST') {
+      // Route: /register-code (ESP32 registers its code)
+      if (url.pathname.endsWith('/register-code')) {
+        return await handleRegisterCode(req);
+      }
+      return await handlePair(req);
+    }
     if (req.method === 'DELETE') return await handleUnpair(req);
     if (req.method === 'PATCH')  return await handleRename(req);
 
     if (req.method === 'GET') {
+      // Route: /discover (app auto-finds devices)
+      if (url.pathname.endsWith('/discover')) {
+        return await handleDiscover(req);
+      }
       // Device poll: has query params, no JWT
       if (url.searchParams.has('device_id') && url.searchParams.has('pairing_code')) {
         return await handleDevicePoll(url);

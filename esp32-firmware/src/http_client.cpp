@@ -118,3 +118,28 @@ void httpRegisterDevice(const String& deviceId, const String& userId) {
   Serial.printf("[HTTP] Device registration: %d\n", code);
   http.end();
 }
+
+void httpRegisterPairingCode(const String& deviceId, const String& pairingCode) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+
+  String url = String(SUPABASE_URL) + "/functions/v1/pair-device/register-code";
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " SUPABASE_ANON_KEY);
+
+  JsonDocument doc;
+  doc["device_id"]    = deviceId;
+  doc["pairing_code"] = pairingCode;
+  doc["firmware_ver"]  = FIRMWARE_VERSION;
+
+  String body;
+  serializeJson(doc, body);
+
+  int code = http.POST(body);
+  Serial.printf("[HTTP] Pairing code registration: %d\n", code);
+  http.end();
+}

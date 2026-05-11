@@ -107,8 +107,9 @@ static void enterPairingMode() {
                 deviceId.c_str(), activePairingCode.c_str());
 
   tftShowPairing(activePairingCode.c_str());
+  httpRegisterPairingCode(deviceId, activePairingCode);   // register with backend for auto-discovery
   lastPollMs = 0;   // force immediate first poll
-  Serial.println("[PAIR] Waiting for app to scan QR code...");
+  Serial.println("[PAIR] Waiting for app to scan QR code or auto-pair...");
 }
 
 // ── Poll server for pairing confirmation ─────────────────────────────

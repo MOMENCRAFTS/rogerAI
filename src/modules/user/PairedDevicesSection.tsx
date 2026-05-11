@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Radio, Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, Monitor, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Radio, Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, CheckCircle } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { fetchPairedDevices, pairDevice, unpairDevice, renameDevice, type DbPairedDevice } from '../../lib/api';
 
@@ -39,18 +39,16 @@ const btn = (c: string, hover = true): React.CSSProperties => ({
 
 const AMBER = '212,160,68';
 const GREEN = '34,197,94';
-const PURPLE = '139,92,246';
 const RED = '239,68,68';
 
 /* ══════════════════════════════════════════════════════════════════════ */
-/*  Setup Wizard                                                        */
+/*  Setup Wizard — Single-step QR scan                                   */
 /* ══════════════════════════════════════════════════════════════════════ */
-type Step = 'wifi' | 'portal' | 'scan' | 'done';
 
 function SetupWizard({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
-  const [step, setStep] = useState<Step>('wifi');
   const [scanning, setScanning] = useState(false);
   const [pairing, setPairing] = useState(false);
+  const [paired, setPaired] = useState(false);
   const [error, setError] = useState('');
   const [manualId, setManualId] = useState('');
   const [manualCode, setManualCode] = useState('');
@@ -71,86 +69,46 @@ function SetupWizard({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
           const p = parseQr(txt);
           if (p) { await s.stop().catch(() => {}); ref.current = null; setScanning(false); doPair(p.device_id, p.code); }
         }, () => {});
-    } catch { setError('Camera access denied.'); setScanning(false); setShowManual(true); }
+    } catch { setError('Camera access denied. Use manual entry below.'); setScanning(false); setShowManual(true); }
   };
 
   const stopScan = () => { ref.current?.stop().catch(() => {}); ref.current = null; setScanning(false); };
 
   const doPair = async (id: string, code: string) => {
     setPairing(true); setError('');
-    try { await pairDevice(id, code); setStep('done'); }
-    catch (e: any) { setError(e.message || 'Pairing failed.'); }
+    try { await pairDevice(id, code); setPaired(true); }
+    catch (e: any) { setError(e.message || 'Pairing failed'); }
     setPairing(false);
   };
 
-  /* ── Step 1: WiFi ── */
-  if (step === 'wifi') return (
-    <div style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <p style={{ ...label(9), color: 'var(--amber)' }}>Step 1 of 3</p>
-        <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={14} /></button>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-        <Wifi size={18} style={{ color: 'var(--amber)', flexShrink: 0 }} />
-        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontWeight: 600 }}>Connect to Device WiFi</p>
-      </div>
-      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
-        Open your phone's WiFi settings and connect to the network below. No password required.
+  /* ── Paired success ── */
+  if (paired) return (
+    <div style={{ padding: '20px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12, textAlign: 'center' }}>
+      <CheckCircle size={32} style={{ color: `rgb(${GREEN})`, marginBottom: 8 }} />
+      <p style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: `rgb(${GREEN})`, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Device Paired</p>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 14px' }}>
+        Your Roger device is connected and will confirm on its display within seconds.
       </p>
-      <div style={{ padding: '14px', marginBottom: 14, textAlign: 'center', background: 'rgba(212,160,68,0.06)', border: '1px dashed rgba(212,160,68,0.35)' }}>
-        <p style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, color: 'var(--amber)', margin: '0 0 2px', letterSpacing: '0.05em' }}>RogerDevice-Setup</p>
-        <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>Open network · no password</p>
-      </div>
-      <button onClick={() => setStep('portal')} style={btn(AMBER)}
-        onMouseEnter={e => (e.currentTarget.style.background = `rgba(${AMBER},0.2)`)}
-        onMouseLeave={e => (e.currentTarget.style.background = `rgba(${AMBER},0.1)`)}>
-        I'm Connected <ChevronRight size={12} />
-      </button>
-    </div>
-  );
-
-  /* ── Step 2: Portal ── */
-  if (step === 'portal') return (
-    <div style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <p style={{ ...label(9), color: 'var(--amber)' }}>Step 2 of 3</p>
-        <button onClick={() => setStep('wifi')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><ArrowLeft size={14} /></button>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-        <Monitor size={18} style={{ color: 'var(--amber)', flexShrink: 0 }} />
-        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontWeight: 600 }}>Configure Home WiFi</p>
-      </div>
-      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
-        Tap below to open the device portal. Select your home WiFi network and enter the password. The device will restart automatically.
-      </p>
-      <a href="http://192.168.4.1" target="_blank" rel="noopener noreferrer"
-        style={{ ...btn(PURPLE), textDecoration: 'none', marginBottom: 10 }}>
-        <Monitor size={13} /> Open WiFi Portal
-      </a>
-      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
-        After saving, switch your phone back to your home WiFi. The device display will show a QR code when ready.
-      </p>
-      <button onClick={() => setStep('scan')} style={btn(GREEN)}
+      <button onClick={onDone} style={btn(GREEN)}
         onMouseEnter={e => (e.currentTarget.style.background = `rgba(${GREEN},0.2)`)}
-        onMouseLeave={e => (e.currentTarget.style.background = `rgba(${GREEN},0.1)`)}>
-        Device Shows QR Code <ChevronRight size={12} />
-      </button>
+        onMouseLeave={e => (e.currentTarget.style.background = `rgba(${GREEN},0.1)`)}>Done</button>
     </div>
   );
 
-  /* ── Step 3: Scan ── */
-  if (step === 'scan') return (
+  /* ── Main scan UI ── */
+  return (
     <div style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <p style={{ ...label(9), color: 'var(--amber)' }}>Step 3 of 3</p>
-        <button onClick={() => setStep('portal')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><ArrowLeft size={14} /></button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Camera size={16} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+          <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontWeight: 600 }}>Scan Device QR</p>
+        </div>
+        <button onClick={() => { stopScan(); onCancel(); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={14} /></button>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-        <Camera size={18} style={{ color: 'var(--amber)', flexShrink: 0 }} />
-        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontWeight: 600 }}>Scan Device QR Code</p>
-      </div>
-      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
-        Point your camera at the QR code on the round display of your Roger device.
+
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 14px' }}>
+        Point your camera at the QR code displayed on your Roger device's round screen.
       </p>
 
       {pairing ? (
@@ -167,10 +125,10 @@ function SetupWizard({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
       ) : (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', margin: 0 }}>Scanning…</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)', margin: 0, animation: 'pulse 1.5s ease-in-out infinite' }}>Scanning…</p>
             <button onClick={stopScan} style={{ background: 'none', border: 'none', color: `rgb(${RED})`, cursor: 'pointer' }}><X size={14} /></button>
           </div>
-          <div id={divId} style={{ width: '100%', maxWidth: 260, margin: '0 auto', borderRadius: 6, overflow: 'hidden', border: '2px solid rgba(212,160,68,0.35)' }} />
+          <div id={divId} style={{ width: '100%', maxWidth: 280, margin: '0 auto', borderRadius: 8, overflow: 'hidden', border: '2px solid rgba(212,160,68,0.35)' }} />
         </div>
       )}
 
@@ -194,21 +152,8 @@ function SetupWizard({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
       </div>
     </div>
   );
-
-  /* ── Done ── */
-  return (
-    <div style={{ padding: '20px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 12, textAlign: 'center' }}>
-      <CheckCircle size={32} style={{ color: `rgb(${GREEN})`, marginBottom: 8 }} />
-      <p style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: `rgb(${GREEN})`, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Device Paired</p>
-      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 14px' }}>
-        Your Roger device is connected. It will confirm on its display within a few seconds.
-      </p>
-      <button onClick={onDone} style={btn(GREEN)}
-        onMouseEnter={e => (e.currentTarget.style.background = `rgba(${GREEN},0.2)`)}
-        onMouseLeave={e => (e.currentTarget.style.background = `rgba(${GREEN},0.1)`)}>Done</button>
-    </div>
-  );
 }
+
 
 /* ══════════════════════════════════════════════════════════════════════ */
 /*  Main Section                                                        */
