@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, GET, DELETE, PATCH, OPTIONS',
 };
 
 const supabase = createClient(
@@ -191,6 +191,44 @@ async function handleUnpair(req: Request): Promise<Response> {
   });
 }
 
+// ── PATCH /pair-device — Rename a device ──────────────────────────────
+async function handleRename(req: Request): Promise<Response> {
+  const auth = await verifyUser(req);
+  if (!auth) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const body = await req.json();
+  const { device_id, device_name } = body;
+
+  if (!device_id || !device_name) {
+    return new Response(JSON.stringify({ error: 'Missing device_id or device_name' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { error } = await supabase
+    .from('device_tokens')
+    .update({ device_name })
+    .eq('device_id', device_id)
+    .eq('user_id', auth.userId)
+    .eq('revoked', false);
+
+  if (error) {
+    return new Response(JSON.stringify({ error: 'Failed to rename device' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  console.log(`[pair-device] Renamed device ${device_id} → "${device_name}"`);
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ── GET /pair-device?device_id=X&pairing_code=Y — ESP32 polls for token ──
 // No JWT required — the device authenticates via its unique device_id + code
 async function handleDevicePoll(url: URL): Promise<Response> {
@@ -245,6 +283,7 @@ Deno.serve(async (req) => {
 
     if (req.method === 'POST')   return await handlePair(req);
     if (req.method === 'DELETE') return await handleUnpair(req);
+    if (req.method === 'PATCH')  return await handleRename(req);
 
     if (req.method === 'GET') {
       // Device poll: has query params, no JWT

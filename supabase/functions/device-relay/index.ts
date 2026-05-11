@@ -4,7 +4,7 @@ import OpenAI from 'https://esm.sh/openai@4';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
 const supabase = createClient(
@@ -248,6 +248,79 @@ Response format: {"intent":"SHORT_SNAKE_CASE","roger_response":"...","confidence
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
+// ── Heartbeat endpoint (ESP32 polls every 3s) ────────────────────────
+async function handleHeartbeat(url: URL, req: Request): Promise<Response> {
+  const deviceId = url.searchParams.get('device_id');
+  if (!deviceId) {
+    return new Response(JSON.stringify({ error: 'Missing device_id' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Validate device token
+  const deviceToken = req.headers.get('x-device-token') ?? '';
+  let userId = '';
+  let revoked = false;
+
+  if (deviceToken) {
+    const { data: tokenRow } = await supabase
+      .from('device_tokens')
+      .select('user_id, revoked, display_state, display_line1, display_line2, display_line3, display_value')
+      .eq('device_id', deviceId)
+      .eq('token', deviceToken)
+      .maybeSingle();
+
+    if (!tokenRow) {
+      return new Response(JSON.stringify({ revoked: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    userId = tokenRow.user_id;
+    revoked = tokenRow.revoked ?? false;
+
+    // Update heartbeat timestamp
+    if (!revoked) {
+      supabase.from('device_tokens')
+        .update({ last_used_at: new Date().toISOString() })
+        .eq('device_id', deviceId)
+        .eq('token', deviceToken);
+
+      supabase.from('device_registry').upsert({
+        device_id: deviceId,
+        user_id: userId,
+        last_seen: new Date().toISOString(),
+        status: 'online',
+      }, { onConflict: 'device_id' });
+    }
+
+    // Return display state and clear it (one-shot push)
+    const resp: Record<string, unknown> = { revoked };
+    if (tokenRow.display_state) {
+      resp.display_state = tokenRow.display_state;
+      resp.display_line1 = tokenRow.display_line1 ?? '';
+      resp.display_line2 = tokenRow.display_line2 ?? '';
+      resp.display_line3 = tokenRow.display_line3 ?? '';
+      resp.display_value = tokenRow.display_value ?? 0;
+
+      // Clear after reading (one-shot)
+      supabase.from('device_tokens')
+        .update({ display_state: null, display_line1: null, display_line2: null, display_line3: null, display_value: 0 })
+        .eq('device_id', deviceId)
+        .eq('token', deviceToken);
+    }
+
+    return new Response(JSON.stringify(resp), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // No token — legacy fallback
+  return new Response(JSON.stringify({ revoked: false }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ── Router ────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -260,6 +333,9 @@ Deno.serve(async (req) => {
     if (url.pathname.endsWith('/register') && req.method === 'POST') {
       const body = await req.json();
       return await handleRegister(body);
+    }
+    if (url.pathname.endsWith('/heartbeat') && req.method === 'GET') {
+      return await handleHeartbeat(url, req);
     }
     if (req.method === 'POST') {
       return await handlePTT(req);

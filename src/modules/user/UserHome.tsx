@@ -175,6 +175,24 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [contactSaveInput, setContactSaveInput] = useState('');
   const [myCallsign, setMyCallsign] = useState<string | null>(null);
   const [hwStatus, setHwStatus] = useState<'online' | 'offline' | null>(null);
+
+  // ── Hardware device status polling ──────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    const checkHw = async () => {
+      try {
+        const devices = await fetchPairedDevices();
+        if (cancelled) return;
+        if (devices.length === 0) { setHwStatus(null); return; }
+        // If any device was seen in the last 5 minutes, consider "online"
+        const online = devices.some(d => d.last_used_at && (Date.now() - new Date(d.last_used_at).getTime() < 300_000));
+        setHwStatus(online ? 'online' : 'offline');
+      } catch { if (!cancelled) setHwStatus(null); }
+    };
+    checkHw();
+    const iv = setInterval(checkHw, 60_000); // re-check every 60s
+    return () => { cancelled = true; clearInterval(iv); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [tuneInCallSeconds, setTuneInCallSeconds] = useState(0);
   const tuneInTranscriptRef = useRef<{ speaker: 'me' | 'them'; text: string }[]>([]);
   // ── Confirmation gate ─────────────────────────────────────────────────────
