@@ -58,6 +58,7 @@ export default function Onboarding({ userId, onComplete }: Props) {
   const [addingInfo, setAddingInfo] = useState(false);
   const [showTypeInput, setShowTypeInput] = useState(false);
   const [typedName, setTypedName] = useState('');
+  const [showSkipAll, setShowSkipAll] = useState(false);
 
   const recorderRef  = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
   const holdRef      = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -113,6 +114,19 @@ export default function Onboarding({ userId, onComplete }: Props) {
     } as Parameters<typeof upsertUserPreferences>[1]).catch(() => {});
     setTimeout(() => onComplete(finalAnswers), 1800);
   }, [userId, speakNode, onComplete]);
+
+  // ── Skip entire onboarding ────────────────────────────────────────────────
+  const handleSkipAll = useCallback(async () => {
+    stopSpeaking();
+    setShowSkipAll(false);
+    const defaultAnswers: OnboardingAnswers = {
+      name: 'User',
+      comm_style: 'balanced',
+      islamic_mode: false,
+      has_hardware: false,
+    };
+    await finishOnboarding(defaultAnswers);
+  }, [finishOnboarding]);
 
   // ── Advance turn (phase-aware router) ─────────────────────────────────────
   const advanceTurn = useCallback(async (transcript: string, currentAnswers: OnboardingAnswers) => {
@@ -330,6 +344,70 @@ export default function Onboarding({ userId, onComplete }: Props) {
         background: 'radial-gradient(circle, rgba(212,160,68,0.08) 0%, transparent 70%)',
         animation: 'pulse 3s ease-in-out infinite', pointerEvents: 'none',
       }} />
+
+      {/* ── Skip Setup button — top right ── */}
+      {flowPhase !== 'complete' && (phase === 'waiting' || phase === 'speaking') && (
+        <button
+          onClick={() => { stopSpeaking(); setShowSkipAll(true); }}
+          style={{
+            position: 'absolute', top: 16, right: 16, zIndex: 10,
+            background: 'rgba(212,160,68,0.06)', border: '1px solid rgba(212,160,68,0.25)',
+            cursor: 'pointer', padding: '5px 14px', borderRadius: 2,
+            fontFamily: 'monospace', fontSize: 10, color: 'var(--amber)',
+            textTransform: 'uppercase', letterSpacing: '0.12em',
+            animation: 'skipPulse 2.5s ease-in-out infinite',
+          }}
+        >
+          Skip Setup →
+        </button>
+      )}
+
+      {/* ── Skip confirmation overlay ── */}
+      {showSkipAll && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 20,
+          background: 'rgba(0,0,0,0.85)', display: 'flex',
+          flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          padding: 32, gap: 16,
+        }}>
+          <div style={{
+            maxWidth: 340, padding: '20px 24px',
+            border: '1px solid rgba(212,160,68,0.3)',
+            background: 'rgba(10,10,8,0.95)',
+          }}>
+            <p style={{ margin: '0 0 6px', fontFamily: 'monospace', fontSize: 11, color: 'var(--amber)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+              ⚠ Skip Setup?
+            </p>
+            <p style={{ margin: '0 0 18px', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              Roger works best when he knows your name, preferences, and style. Skipping means you'll get a generic experience — you can always update later in Settings.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setShowSkipAll(false)}
+                style={{
+                  flex: 1, padding: '8px 0', fontFamily: 'monospace', fontSize: 10,
+                  background: 'rgba(212,160,68,0.1)', border: '1px solid rgba(212,160,68,0.4)',
+                  color: 'var(--amber)', cursor: 'pointer', textTransform: 'uppercase',
+                  letterSpacing: '0.1em', fontWeight: 700,
+                }}
+              >
+                I'll stay
+              </button>
+              <button
+                onClick={handleSkipAll}
+                style={{
+                  flex: 1, padding: '8px 0', fontFamily: 'monospace', fontSize: 10,
+                  background: 'transparent', border: '1px solid rgba(107,114,128,0.3)',
+                  color: 'rgba(107,114,128,0.7)', cursor: 'pointer', textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                }}
+              >
+                Skip anyway →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mascot + title */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24, gap: 10, zIndex: 1 }}>
