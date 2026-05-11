@@ -199,6 +199,16 @@ export async function unpairDevice(deviceId: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to unpair device');
 }
 
+export async function renameDevice(deviceId: string, newName: string): Promise<void> {
+  const token = await getAuthToken();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/pair-device`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, device_name: newName }),
+  });
+  if (!res.ok) throw new Error('Failed to rename device');
+}
+
 // ─── Platform Stats ───────────────────────────────────────────────────────────
 export async function fetchLatestPlatformStat(): Promise<DbPlatformStat | null> {
   const { data, error } = await supabase.from('platform_stats').select('*')

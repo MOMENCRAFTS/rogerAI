@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Bell, CheckSquare, BookOpen, Mic, BookMarked,
   BarChart3, MapPin, Car, Crown, Moon, Lightbulb,
-  GraduationCap, X, TrendingUp, Radio,
+  GraduationCap, X, TrendingUp, Radio, Satellite,
 } from 'lucide-react';
 import type { ComponentType, SVGProps } from 'react';
 
@@ -39,6 +39,7 @@ const ORBITAL_ITEMS: OrbitalItem[] = [
   { key: 'journal',   label: 'Journal',   Icon: BookMarked,  ring: 0 },
   { key: 'meetings',  label: 'Meetings',  Icon: Mic,         ring: 0 },
   { key: 'tunein',    label: 'Tune In',   Icon: Radio,       ring: 0, accent: '#06b6d4' },
+  { key: 'settings',  label: 'Hardware',  Icon: Satellite,   ring: 0, accent: '#d4a044' },
 
   // Outer ring — lifestyle & intelligence (ring 1)
   { key: 'analytics', label: 'Stats',     Icon: BarChart3,      ring: 1 },

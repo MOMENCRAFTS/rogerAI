@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Radio, Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, Monitor, CheckCircle, ArrowLeft } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { fetchPairedDevices, pairDevice, unpairDevice, type DbPairedDevice } from '../../lib/api';
+import { fetchPairedDevices, pairDevice, unpairDevice, renameDevice, type DbPairedDevice } from '../../lib/api';
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
 function timeAgo(d: string | null) {
@@ -218,6 +218,10 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
   const [loading, setLoading] = useState(true);
   const [wizard, setWizard] = useState(false);
   const [unpairingId, setUnpairingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [revokeConfirm, setRevokeConfirm] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try { setDevices(await fetchPairedDevices()); } catch { /* */ }
@@ -228,8 +232,18 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
 
   const handleUnpair = async (id: string) => {
     setUnpairingId(id);
-    try { await unpairDevice(id); setDevices(p => p.filter(d => d.device_id !== id)); } catch { /* */ }
+    try { await unpairDevice(id); setDevices(p => p.filter(d => d.device_id !== id)); setExpandedId(null); setRevokeConfirm(null); } catch { /* */ }
     setUnpairingId(null);
+  };
+
+  const handleRename = async (id: string) => {
+    if (!editName.trim()) return;
+    setRenaming(true);
+    try {
+      await renameDevice(id, editName.trim());
+      setDevices(p => p.map(d => d.device_id === id ? { ...d, device_name: editName.trim() } : d));
+    } catch { /* */ }
+    setRenaming(false);
   };
 
   return (
@@ -268,24 +282,92 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
         </div>
       ) : devices.map(dev => {
         const online = dev.last_used_at && (Date.now() - new Date(dev.last_used_at).getTime() < 300_000);
+        const isExpanded = expandedId === dev.device_id;
         return (
-          <div key={dev.id} style={{ marginBottom: 8, padding: '12px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: online ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              {online ? <Wifi size={14} style={{ color: `rgb(${GREEN})` }} /> : <WifiOff size={14} style={{ color: '#6b7280' }} />}
+          <div key={dev.id} style={{ marginBottom: 8, border: `1px solid ${isExpanded ? 'rgba(212,160,68,0.3)' : 'var(--border-subtle)'}`, background: 'var(--bg-elevated)', transition: 'border-color 150ms' }}>
+            {/* Device row — tappable */}
+            <div
+              onClick={() => { setExpandedId(isExpanded ? null : dev.device_id); setEditName(dev.device_name || 'Roger Device'); setRevokeConfirm(null); }}
+              style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', background: online ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {online ? <Wifi size={14} style={{ color: `rgb(${GREEN})` }} /> : <WifiOff size={14} style={{ color: '#6b7280' }} />}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', margin: '0 0 2px', fontWeight: 600 }}>{dev.device_name || 'Roger Device'}</p>
+                <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>
+                  {online ? '🟢 Online' : '⚫ Offline'} · FW {dev.firmware_ver || '?'} · {timeAgo(dev.last_used_at)}
+                </p>
+              </div>
+              <ChevronRight size={14} style={{ color: 'var(--text-muted)', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 150ms', flexShrink: 0 }} />
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', margin: '0 0 2px', fontWeight: 600 }}>{dev.device_name || 'Roger Device'}</p>
-              <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>{dev.device_id.substring(0, 18)} · FW {dev.firmware_ver || '?'} · {timeAgo(dev.last_used_at)}</p>
-            </div>
-            <button onClick={() => handleUnpair(dev.device_id)} disabled={unpairingId === dev.device_id}
-              style={{ flexShrink: 0, padding: '6px 8px', background: 'transparent', border: `1px solid rgba(${RED},0.2)`, color: `rgb(${RED})`, cursor: 'pointer', transition: 'background 150ms' }}
-              onMouseEnter={e => (e.currentTarget.style.background = `rgba(${RED},0.06)`)}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-              {unpairingId === dev.device_id ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={12} />}
-            </button>
+
+            {/* Expanded management panel */}
+            {isExpanded && (
+              <div style={{ padding: '0 16px 14px', borderTop: '1px solid var(--border-subtle)' }}>
+                {/* Info row */}
+                <div style={{ padding: '10px 0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <div>
+                    <p style={label(8)}>Device ID</p>
+                    <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-primary)', margin: '2px 0 0', wordBreak: 'break-all' }}>{dev.device_id}</p>
+                  </div>
+                  <div>
+                    <p style={label(8)}>Paired</p>
+                    <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-primary)', margin: '2px 0 0' }}>{new Date(dev.paired_at).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p style={label(8)}>Last Active</p>
+                    <p style={{ fontFamily: 'monospace', fontSize: 9, color: online ? `rgb(${GREEN})` : 'var(--text-primary)', margin: '2px 0 0' }}>{dev.last_used_at ? new Date(dev.last_used_at).toLocaleString() : 'Never'}</p>
+                  </div>
+                  <div>
+                    <p style={label(8)}>Firmware</p>
+                    <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-primary)', margin: '2px 0 0' }}>{dev.firmware_ver || 'Unknown'}</p>
+                  </div>
+                </div>
+
+                {/* Rename */}
+                <div style={{ marginBottom: 10 }}>
+                  <p style={{ ...label(8), marginBottom: 4 }}>Rename Device</p>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input value={editName} onChange={e => setEditName(e.target.value)} maxLength={30}
+                      style={{ flex: 1, padding: '7px 10px', fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', boxSizing: 'border-box' }} />
+                    <button onClick={() => handleRename(dev.device_id)} disabled={renaming || editName.trim() === (dev.device_name || 'Roger Device')}
+                      style={{ padding: '7px 14px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: editName.trim() !== (dev.device_name || 'Roger Device') ? 'rgba(212,160,68,0.1)' : 'transparent', border: '1px solid rgba(212,160,68,0.2)', color: 'var(--amber)', cursor: editName.trim() !== (dev.device_name || 'Roger Device') ? 'pointer' : 'default', opacity: editName.trim() === (dev.device_name || 'Roger Device') ? 0.4 : 1 }}>
+                      {renaming ? '...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Revoke / Lost-Stolen */}
+                {revokeConfirm === dev.device_id ? (
+                  <div style={{ padding: '12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)', marginBottom: 6 }}>
+                    <p style={{ fontFamily: 'monospace', fontSize: 10, color: `rgb(${RED})`, margin: '0 0 8px', lineHeight: 1.5 }}>
+                      ⚠ This will permanently revoke this device's access. It cannot be undone — the device will need to be re-paired. Use this if the device was lost or stolen.
+                    </p>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => handleUnpair(dev.device_id)} disabled={unpairingId === dev.device_id}
+                        style={{ ...btn(RED), flex: 1 }}>
+                        {unpairingId === dev.device_id ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : '🔴 Confirm Revoke'}
+                      </button>
+                      <button onClick={() => setRevokeConfirm(null)}
+                        style={{ flex: 1, padding: '8px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setRevokeConfirm(dev.device_id)}
+                    style={{ ...btn(RED), opacity: 0.8 }}
+                    onMouseEnter={e => { e.currentTarget.style.background = `rgba(${RED},0.15)`; e.currentTarget.style.opacity = '1'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = `rgba(${RED},0.1)`; e.currentTarget.style.opacity = '0.8'; }}>
+                    <Trash2 size={12} /> Revoke Access (Lost / Stolen)
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
     </div>
   );
 }
+

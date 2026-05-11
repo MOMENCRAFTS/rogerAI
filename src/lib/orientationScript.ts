@@ -12,11 +12,11 @@
 
 import {
   Radio, Brain,
-  Calendar, Users, Zap, Moon,
+  Calendar, Users, Zap, Moon, Satellite,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export const ORIENTATION_VERSION = 4;
+export const ORIENTATION_VERSION = 5;
 
 export interface OrientationChapter {
   id: string;
@@ -150,4 +150,23 @@ export const ISLAMIC_CHAPTER: OrientationChapter = {
     '"Roger, hadith of the day"',
   ],
   tip: 'Prayer times update automatically as you travel. The compass works best on a flat surface away from metal.',
+};
+
+// ── Hardware Chapter (shown to all users) ───────────────────────────────────
+export const HARDWARE_CHAPTER: OrientationChapter = {
+  id: 'hardware',
+  icon: Satellite,
+  iconColor: '#d4a044',
+  chapterLabel: 'Chapter 06 · Hardware',
+  headline: 'Roger Lives On A Device.',
+  body: 'Roger isn\'t just an app — connect a dedicated hardware device with a physical push-to-talk button, speaker, and round display. Set it up in Settings → Roger Hardware. If your device is lost or stolen, revoke access instantly from the app.',
+  rogerSpeech: (name) =>
+    `${name ? `${name}, ` : ''}I can also live on dedicated hardware. The Roger Device has a physical PTT button, a speaker for my voice, and a round display that shows the time, prayer alerts, and your notifications — even when your phone is across the room. Go to Settings, find Roger Hardware, and follow the 3-step setup. If your device is ever lost or stolen, open the app and revoke access immediately — I'll lock it remotely. Say "understood" to continue. Over.`,
+  confirmPrompt: 'Say "understood" or tap Continue.',
+  keyExamples: [
+    'Physical push-to-talk button',
+    'Round LCD shows time + alerts',
+    'Revoke access if lost or stolen',
+  ],
+  tip: 'The device connects to your home WiFi and pairs via QR code. No passwords are ever stored on it.',
 };

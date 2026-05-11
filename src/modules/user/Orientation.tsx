@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, Volume2, VolumeX, Mic } from 'lucide-react';
 import { useI18n } from '../../context/I18nContext';
-import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION, ISLAMIC_CHAPTER } from '../../lib/orientationScript';
+import { ORIENTATION_CHAPTERS, ORIENTATION_VERSION, ISLAMIC_CHAPTER, HARDWARE_CHAPTER } from '../../lib/orientationScript';
 import { speakResponse, stopSpeaking } from '../../lib/tts';
 import { createAudioRecorder } from '../../lib/audioRecorder';
 import { transcribeAudio } from '../../lib/whisper';
@@ -51,10 +51,10 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   const [voiceFailed, setVoiceFailed] = useState(false);
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
 
-  // Build chapter list: add Islamic chapter at the end if user opted in
+  // Build chapter list: add Hardware for all users, Islamic chapter if opted in
   const CHAPTERS = islamicMode
-    ? [...ORIENTATION_CHAPTERS, ISLAMIC_CHAPTER]
-    : ORIENTATION_CHAPTERS;
+    ? [...ORIENTATION_CHAPTERS, HARDWARE_CHAPTER, ISLAMIC_CHAPTER]
+    : [...ORIENTATION_CHAPTERS, HARDWARE_CHAPTER];
 
   const spokenRef     = useRef<Set<number>>(new Set());
   const recorderRef   = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);

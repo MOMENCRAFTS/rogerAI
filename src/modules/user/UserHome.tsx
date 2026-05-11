@@ -65,6 +65,7 @@ import { buildIntentContext } from '../../lib/intentRegistry';
 import { getConversationDigester } from '../../lib/conversationDigester';
 import type { DigestResult } from '../../lib/conversationDigester';
 import { useIntentStore } from '../../lib/intentStore';
+import { fetchPairedDevices } from '../../lib/api';
 
 const MEDIA_RECORDER_SUPPORTED = typeof MediaRecorder !== 'undefined';
 
@@ -173,6 +174,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
   const [pendingContactSave, setPendingContactSave] = useState<{ callsign: string; contactName: string } | null>(null);
   const [contactSaveInput, setContactSaveInput] = useState('');
   const [myCallsign, setMyCallsign] = useState<string | null>(null);
+  const [hwStatus, setHwStatus] = useState<'online' | 'offline' | null>(null);
   const [tuneInCallSeconds, setTuneInCallSeconds] = useState(0);
   const tuneInTranscriptRef = useRef<{ speaker: 'me' | 'them'; text: string }[]>([]);
   // ── Confirmation gate ─────────────────────────────────────────────────────
@@ -292,7 +294,7 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     });
   });
 
-  // Load own callsign
+  // Load own callsign + hardware status
   useEffect(() => {
     (async () => {
       try {
@@ -302,6 +304,12 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     })();
     // Build Whisper vocabulary hint (contacts + memory + static vocab)
     buildWhisperHint(userId).then(h => { whisperHintRef.current = h; }).catch(() => {});
+    // Check paired device status
+    fetchPairedDevices().then(devs => {
+      if (devs.length === 0) { setHwStatus(null); return; }
+      const anyOnline = devs.some(d => d.last_used_at && Date.now() - new Date(d.last_used_at).getTime() < 300_000);
+      setHwStatus(anyOnline ? 'online' : 'offline');
+    }).catch(() => {});
   }, [userId]);
 
   // ── Silent AI Node — lifecycle ─────────────────────────────────────────────
@@ -3064,6 +3072,11 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
           {profileContext && (
             <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: '1px solid rgba(74,222,128,0.2)', background: 'rgba(74,222,128,0.06)', color: 'rgba(74,222,128,0.7)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
               {profileContext}
+            </span>
+          )}
+          {hwStatus && (
+            <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', border: `1px solid ${hwStatus === 'online' ? 'rgba(212,160,68,0.3)' : 'rgba(107,114,128,0.2)'}`, background: hwStatus === 'online' ? 'rgba(212,160,68,0.06)' : 'transparent', color: hwStatus === 'online' ? 'var(--amber)' : 'rgba(107,114,128,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+              📡 {hwStatus === 'online' ? 'DEVICE' : 'OFFLINE'}
             </span>
           )}
         </div>
