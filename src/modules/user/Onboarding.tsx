@@ -481,8 +481,8 @@ export default function Onboarding({ userId, onComplete }: Props) {
         </div>
       )}
 
-      {/* ── Type-your-name input — visible during name_confirm ── */}
-      {flowPhase === 'name_confirm' && showTypeInput && (
+      {/* ── Type-your-name input — visible during welcome or name_confirm ── */}
+      {(flowPhase === 'name_confirm' || flowPhase === 'welcome') && showTypeInput && (
         <div style={{
           width: '100%', maxWidth: 360, marginBottom: 12, zIndex: 1,
           display: 'flex', gap: 8, alignItems: 'center',
@@ -495,7 +495,14 @@ export default function Onboarding({ userId, onComplete }: Props) {
               if (e.key === 'Enter' && typedName.trim()) {
                 stopSpeaking();
                 setShowTypeInput(false);
-                advanceTurn(typedName.trim(), answers);
+                if (flowPhase === 'welcome') {
+                  const merged = { ...answers, name: typedName.trim() };
+                  setAnswers(merged);
+                  setFlowPhase('name_confirm');
+                  generateNameConfirm(typedName.trim()).then(nc => speakNode(nc.script));
+                } else {
+                  advanceTurn(typedName.trim(), answers);
+                }
                 setTypedName('');
               }
             }}
@@ -519,7 +526,14 @@ export default function Onboarding({ userId, onComplete }: Props) {
               if (!typedName.trim()) return;
               stopSpeaking();
               setShowTypeInput(false);
-              advanceTurn(typedName.trim(), answers);
+              if (flowPhase === 'welcome') {
+                const merged = { ...answers, name: typedName.trim() };
+                setAnswers(merged);
+                setFlowPhase('name_confirm');
+                generateNameConfirm(typedName.trim()).then(nc => speakNode(nc.script));
+              } else {
+                advanceTurn(typedName.trim(), answers);
+              }
               setTypedName('');
             }}
             disabled={!typedName.trim()}
@@ -615,8 +629,8 @@ export default function Onboarding({ userId, onComplete }: Props) {
           </button>
         )}
 
-        {/* Type-instead toggle — shown during name_confirm when input is hidden */}
-        {flowPhase === 'name_confirm' && !showTypeInput && (phase === 'waiting' || phase === 'speaking') && (
+        {/* Type-instead toggle — shown during welcome or name_confirm when input is hidden */}
+        {(flowPhase === 'name_confirm' || flowPhase === 'welcome') && !showTypeInput && (phase === 'waiting' || phase === 'speaking') && (
           <button
             onClick={() => { stopSpeaking(); setShowTypeInput(true); }}
             style={{
