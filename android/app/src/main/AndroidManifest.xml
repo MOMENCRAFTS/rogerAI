@@ -114,4 +114,11 @@
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
     <!-- Android 12+: required for high-frequency sensor events (DeviceOrientationEvent) -->
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+
+    <!-- ─── Bluetooth LE (Device Provisioning) ──────────── -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 </manifest>

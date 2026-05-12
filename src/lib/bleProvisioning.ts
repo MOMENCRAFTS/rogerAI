@@ -59,9 +59,23 @@ const ROGER_INFO_CHAR_UUID   = '0000ff54-0000-1000-8000-00805f9b34fb';
 const isNative = () => typeof (window as any).Capacitor !== 'undefined';
 const isWebBluetoothAvailable = () => typeof navigator !== 'undefined' && 'bluetooth' in navigator;
 
+// ── Capacitor BLE plugin (lazy-loaded on native only) ─────────────────
+let BleClient: any = null;
+async function getBleClient() {
+  if (BleClient) return BleClient;
+  try {
+    const mod = await import('@capacitor-community/bluetooth-le');
+    BleClient = mod.BleClient;
+    return BleClient;
+  } catch {
+    return null;
+  }
+}
+
 // ── State ─────────────────────────────────────────────────────────────
 let currentDevice: BluetoothDevice | null = null;
 let currentServer: BluetoothRemoteGATTServer | null = null;
+let nativeDeviceId: string | null = null;        // Capacitor BLE device ID
 let listeners: Set<(state: ProvisioningState) => void> = new Set();
 let state: ProvisioningState = {
   status: 'idle',
@@ -74,6 +88,18 @@ let state: ProvisioningState = {
 function emit(partial: Partial<ProvisioningState>) {
   state = { ...state, ...partial };
   listeners.forEach(fn => fn(state));
+}
+
+// ── Text encode/decode helpers for Capacitor BLE ──────────────────────
+function textToDataView(text: string): DataView {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(text);
+  return new DataView(bytes.buffer);
+}
+
+function dataViewToText(dv: DataView): string {
+  const decoder = new TextDecoder();
+  return decoder.decode(dv.buffer);
 }
 
 // ── Public API ────────────────────────────────────────────────────────
@@ -95,15 +121,44 @@ export function getProvisioningState(): ProvisioningState {
 
 /**
  * Step 1: Scan for Roger devices via BLE.
- * On Web Bluetooth, this opens the browser's device picker.
- * Returns the selected/found device.
+ * Native (Capacitor): uses BleClient.requestDevice() with name prefix filter
+ * Web: uses navigator.bluetooth.requestDevice() (Chrome device picker)
  */
 export async function scanForDevices(): Promise<BleDevice | null> {
   emit({ status: 'scanning', error: null, progress: 10 });
 
   try {
-    if (isWebBluetoothAvailable() && !isNative()) {
-      // Web Bluetooth — browser shows native picker
+    // ── Native path: Capacitor BLE plugin ──────────────────────────
+    if (isNative()) {
+      const client = await getBleClient();
+      if (!client) {
+        emit({ status: 'error', error: 'BLE plugin not available' });
+        return null;
+      }
+
+      await client.initialize({ androidNeverForLocation: true });
+
+      const device = await client.requestDevice({
+        namePrefix: 'ROGER',
+        optionalServices: [PROV_SERVICE_UUID],
+      });
+
+      if (!device) {
+        emit({ status: 'idle', error: 'No device selected' });
+        return null;
+      }
+
+      nativeDeviceId = device.deviceId;
+      const bleDevice: BleDevice = {
+        id: device.deviceId,
+        name: device.name || 'Unknown Roger Device',
+      };
+      emit({ status: 'idle', device: bleDevice, progress: 20 });
+      return bleDevice;
+    }
+
+    // ── Web path: Web Bluetooth API ───────────────────────────────
+    if (isWebBluetoothAvailable()) {
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: 'ROGER' }],
         optionalServices: [PROV_SERVICE_UUID],
