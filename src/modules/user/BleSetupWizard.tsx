@@ -14,11 +14,6 @@ const GREEN = '34,197,94';
 const RED   = '239,68,68';
 const CYAN  = '6,182,212';
 
-const label = (sz = 9): React.CSSProperties => ({
-  fontFamily: 'monospace', fontSize: sz, textTransform: 'uppercase',
-  letterSpacing: '0.15em', color: 'var(--text-muted)', margin: 0,
-});
-
 const btn = (c: string): React.CSSProperties => ({
   width: '100%', padding: '12px 14px', fontFamily: 'monospace', fontSize: 10,
   textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
@@ -42,7 +37,7 @@ export default function BleSetupWizard({ onDone, onCancel }: { onDone: () => voi
   const [showPass, setShowPass] = useState(false);
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState('');
-  const [status, setStatus]     = useState<ProvisioningStatus>('idle');
+  const [, setStatus]     = useState<ProvisioningStatus>('idle');
 
   // Cleanup on unmount
   useEffect(() => () => { reset(); }, []);

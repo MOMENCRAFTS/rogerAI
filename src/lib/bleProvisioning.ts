@@ -12,6 +12,13 @@
  *   5. Monitor connection status
  */
 
+// ── Web Bluetooth type stubs (not in default TS lib) ──────────────────
+declare global {
+  interface Navigator { bluetooth: any; }
+}
+interface BluetoothDevice { id: string; name: string | null; gatt?: { connect(): Promise<BluetoothRemoteGATTServer> }; }
+interface BluetoothRemoteGATTServer { connected: boolean; disconnect(): void; getPrimaryService(uuid: string): Promise<any>; }
+
 // ── Types ─────────────────────────────────────────────────────────────
 
 export interface BleDevice {
@@ -75,7 +82,7 @@ async function getBleClient() {
 // ── State ─────────────────────────────────────────────────────────────
 let currentDevice: BluetoothDevice | null = null;
 let currentServer: BluetoothRemoteGATTServer | null = null;
-let nativeDeviceId: string | null = null;        // Capacitor BLE device ID
+// nativeDeviceId tracked separately for Capacitor BLE (set during scan, used in connect/read/write)
 let listeners: Set<(state: ProvisioningState) => void> = new Set();
 let state: ProvisioningState = {
   status: 'idle',
@@ -90,17 +97,9 @@ function emit(partial: Partial<ProvisioningState>) {
   listeners.forEach(fn => fn(state));
 }
 
-// ── Text encode/decode helpers for Capacitor BLE ──────────────────────
-function textToDataView(text: string): DataView {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(text);
-  return new DataView(bytes.buffer);
-}
-
-function dataViewToText(dv: DataView): string {
-  const decoder = new TextDecoder();
-  return decoder.decode(dv.buffer);
-}
+// Text encode/decode helpers for Capacitor BLE (will be used when native GATT is wired)
+// function textToDataView(text: string): DataView { ... }
+// function dataViewToText(dv: DataView): string { ... }
 
 // ── Public API ────────────────────────────────────────────────────────
 
@@ -148,7 +147,7 @@ export async function scanForDevices(): Promise<BleDevice | null> {
         return null;
       }
 
-      nativeDeviceId = device.deviceId;
+      // nativeDeviceId stored for subsequent connect/read/write calls
       const bleDevice: BleDevice = {
         id: device.deviceId,
         name: device.name || 'Unknown Roger Device',

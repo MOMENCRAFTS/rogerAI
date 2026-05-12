@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Radio, Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, CheckCircle, Bluetooth } from 'lucide-react';
+import { Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, CheckCircle, Bluetooth } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { fetchPairedDevices, pairDevice, unpairDevice, renameDevice, type DbPairedDevice } from '../../lib/api';
 import BleSetupWizard from './BleSetupWizard';
