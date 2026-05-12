@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw, Contact, Brain, ShieldAlert } from 'lucide-react';
+import { Settings, Bell, BellOff, MapPin, Loader, Volume2, Zap, Radio, Copy, Check, LogOut, Moon, AlertTriangle, RotateCcw, Contact, Brain, ShieldAlert, ChevronDown, Plug, Smartphone } from 'lucide-react';
 import { RogerIcon } from '../../components/icons';
 import { fetchUserPreferences, upsertUserPreferences, savePushSubscription, deletePushSubscription, fetchPushSubscription, flushTourSeen, resetOrientationSeen, fullUserReset, type DbUserPreferences } from '../../lib/api';
 import { useLocation } from '../../lib/useLocation';
@@ -13,6 +13,31 @@ import { getDeferredPermissions, removeDeferredPermission, type DeferrablePermis
 import PairedDevicesSection from './PairedDevicesSection';
 
 type Mode = 'quiet' | 'active' | 'briefing';
+
+// ── Collapsible settings section ──────────────────────────────────────
+function SettingsSection({ id, title, icon, defaultOpen = false, accentColor = 'var(--amber)', children }: {
+  id: string; title: string; icon: React.ReactNode; defaultOpen?: boolean; accentColor?: string; children: React.ReactNode;
+}) {
+  const storageKey = `roger:settings:${id}`;
+  const [open, setOpen] = useState(() => {
+    const stored = localStorage.getItem(storageKey);
+    return stored !== null ? stored === '1' : defaultOpen;
+  });
+  const toggle = () => { const next = !open; setOpen(next); localStorage.setItem(storageKey, next ? '1' : '0'); };
+  return (
+    <div style={{ marginBottom: 8, border: `1px solid ${open ? accentColor + '33' : 'var(--border-subtle)'}`, transition: 'border-color 200ms' }}>
+      <button onClick={toggle} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
+        background: open ? accentColor + '08' : 'var(--bg-elevated)', border: 'none', cursor: 'pointer', transition: 'background 200ms',
+      }}>
+        {icon}
+        <span style={{ flex: 1, fontFamily: 'monospace', fontSize: 12, color: open ? accentColor : 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, textAlign: 'left' }}>{title}</span>
+        <ChevronDown size={16} style={{ color: 'var(--text-muted)', transition: 'transform 200ms', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+      </button>
+      {open && <div style={{ padding: '4px 16px 16px' }}>{children}</div>}
+    </div>
+  );
+}
 
 const MODE_INFO: Record<Mode, { iconName: string; desc: string }> = {
   quiet:    { iconName: 'mode-quiet', desc: 'Only respond when you press PTT. Never speaks first.' },
@@ -239,6 +264,14 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
   return (
     <div style={{ padding: '16px' }}>
 
+      {/* ── Page Header ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <Settings size={18} style={{ color: 'var(--amber)' }} />
+        <span style={{ fontFamily: 'monospace', fontSize: 14, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>Settings</span>
+        {saving && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>Saving...</span>}
+        {saved  && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--green)' }}>Saved</span>}
+      </div>
+
       {/* ── Complete Your Setup Banner ── */}
       {deferredPerms.length > 0 && (
         <div style={{
@@ -349,7 +382,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </div>
       )}
 
-      {/* ── Account Card ── */}
+      <SettingsSection id="account" title="Account" icon={<Settings size={16} style={{ color: 'var(--amber)' }} />} defaultOpen={true}>
       <div style={{ marginBottom: 24, padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
           {/* Avatar */}
@@ -397,8 +430,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           <LogOut size={12} /> {t('settings.sign_out')}
         </button>
       </div>
+      </SettingsSection>
 
-      {/* ── Roger Hardware — prominent banner ── */}
+      <SettingsSection id="hardware" title="Roger Hardware" icon={<Smartphone size={16} style={{ color: 'var(--amber)' }} />} accentColor="var(--amber)">
       <div style={{
         marginBottom: 20, padding: '18px',
         background: 'linear-gradient(135deg, rgba(212,160,68,0.08) 0%, rgba(139,92,246,0.05) 100%)',
@@ -416,18 +450,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </div>
         <PairedDevicesSection userId={userId} />
       </div>
+      </SettingsSection>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
-        <Settings size={16} style={{ color: 'var(--amber)' }} />
-        <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 600 }}>
-          {t('settings.title')}
-        </span>
-
-        {saving && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>Saving...</span>}
-        {saved  && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--green)' }}>Saved</span>}
-      </div>
-
-      {/* ── Language ── */}
+      <SettingsSection id="language" title="Language & Location" icon={<MapPin size={16} style={{ color: '#38bdf8' }} />} defaultOpen={true} accentColor="#38bdf8">
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Response Language</p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -570,7 +595,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </div>
       </div>
 
-      {/* ── Feedback & Sound ── */}
+      </SettingsSection>
+
+      <SettingsSection id="sound" title="Sound & Feedback" icon={<Volume2 size={16} style={{ color: '#a78bfa' }} />} accentColor="#a78bfa">
       <div style={{ marginBottom: 28 }}>
         <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Feedback &amp; Sound</p>
 
@@ -648,6 +675,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         </div>
       </div>
 
+      </SettingsSection>
+
+      <SettingsSection id="intelligence" title="Intelligence" icon={<Brain size={16} style={{ color: '#efa133' }} />} defaultOpen={true} accentColor="#efa133">
       {/* Mode selector */}
       <div style={{ marginBottom: 28 }}>
         <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Operating Mode</p>
@@ -922,7 +952,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
       </div>
 
 
-      {/* ── Islamic Mode ── */}
+      </SettingsSection>
+
+      <SettingsSection id="faith" title="Islamic Mode" icon={<Moon size={16} style={{ color: '#10b981' }} />} accentColor="#10b981">
       <div style={{ marginBottom: 28 }}>
         <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Islamic Mode</p>
 
@@ -1015,7 +1047,9 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         )}
       </div>
 
-      {/* ── Integrations ── */}
+      </SettingsSection>
+
+      <SettingsSection id="integrations" title="Integrations" icon={<Plug size={16} style={{ color: '#60a5fa' }} />} accentColor="#60a5fa">
       <div style={{ marginBottom: 28 }}>
         <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Integrations</p>
 
@@ -1240,6 +1274,8 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           <span style={{ color: 'var(--amber)' }}>"Go quiet"</span> · <span style={{ color: 'var(--amber)' }}>"Stay active"</span> · <span style={{ color: 'var(--amber)' }}>"Brief me at 8am"</span> · <span style={{ color: 'var(--amber)' }}>"How long to [place]?"</span>
         </p>
       </div>
+
+      </SettingsSection>
 
       {/* ── Danger Zone — Factory Reset ── */}
       <div style={{ marginTop: 40, padding: '16px', border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.03)' }}>
