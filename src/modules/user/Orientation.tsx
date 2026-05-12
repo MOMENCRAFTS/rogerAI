@@ -8,7 +8,7 @@
  * Slot: renders after Onboarding, before the main app.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, Volume2, VolumeX, Mic } from 'lucide-react';
 import { useI18n } from '../../context/I18nContext';
@@ -52,9 +52,13 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
 
   // Build chapter list: add Hardware for all users, Islamic chapter if opted in
-  const CHAPTERS = islamicMode
-    ? [...ORIENTATION_CHAPTERS, HARDWARE_CHAPTER, ISLAMIC_CHAPTER]
-    : [...ORIENTATION_CHAPTERS, HARDWARE_CHAPTER];
+  // Memoised to prevent stale-closure issues in goNext/speakChapter callbacks
+  const CHAPTERS = useMemo(() =>
+    islamicMode
+      ? [...ORIENTATION_CHAPTERS, HARDWARE_CHAPTER, ISLAMIC_CHAPTER]
+      : [...ORIENTATION_CHAPTERS, HARDWARE_CHAPTER],
+    [islamicMode]
+  );
 
   const spokenRef     = useRef<Set<number>>(new Set());
   const recorderRef   = useRef<Awaited<ReturnType<typeof createAudioRecorder>> | null>(null);
@@ -75,7 +79,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     if (muted || spokenRef.current.has(idx)) return;
     spokenRef.current.add(idx);
     setSpeaking(true);
-    const text = CHAPTERS[idx].rogerSpeech(displayName);
+    const text = CHAPTERS[idx]?.rogerSpeech(displayName) ?? '';
     speakResponse(text)
       .catch(() => {
         try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch { /* silent */ }
@@ -83,11 +87,15 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
       .finally(() => {
         setSpeaking(false);
       });
-  }, [muted, displayName]);
+  }, [muted, displayName, CHAPTERS]);
 
   useEffect(() => {
     speakChapter(chapter);
   }, [chapter, speakChapter]);
+
+  // Stable ref for onComplete to avoid stale closure in goNext
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   // ── Navigation ────────────────────────────────────────────────────────────
   const goNext = useCallback(() => {
@@ -95,7 +103,8 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
     setChapter(c => {
       if (c >= total - 1) {
         // Already at or past last chapter — complete orientation
-        handleComplete();
+        setExiting(true);
+        setTimeout(() => onCompleteRef.current(), 500);
         return c;
       }
       setDirection(1);
@@ -103,7 +112,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
       setVoiceFailed(false);
       return c + 1;
     });
-  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [total]);
 
   const goPrev = useCallback(() => {
     if (chapter === 0) return;
@@ -127,7 +136,7 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
 
   const handleComplete = () => {
     setExiting(true);
-    setTimeout(() => onComplete(), 500);
+    setTimeout(() => onCompleteRef.current(), 500);
   };
 
   // ── Mute toggle ────────────────────────────────────────────────────────────
@@ -506,21 +515,22 @@ export default function Orientation({ displayName, islamicMode, onComplete }: Pr
                     {current.confirmPrompt}
                   </p>
 
-                  {/* Fallback Continue button — appears after a failed voice attempt */}
-                  {voiceFailed && (
-                    <button
-                      onClick={goNext}
-                      style={{
-                        width: '100%', padding: '12px', fontFamily: 'monospace', fontSize: 10,
-                        textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer',
-                        background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.35)',
-                        color: '#4ade80', marginBottom: 6,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      }}
-                    >
-                      Continue →
-                    </button>
-                  )}
+                  {/* Continue button — always visible as fallback, stronger after voice fail */}
+                  <button
+                    onClick={goNext}
+                    style={{
+                      width: '100%', padding: '12px', fontFamily: 'monospace', fontSize: 10,
+                      textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer',
+                      background: voiceFailed ? 'rgba(74,222,128,0.08)' : 'rgba(107,106,94,0.04)',
+                      border: `1px solid ${voiceFailed ? 'rgba(74,222,128,0.35)' : 'rgba(107,106,94,0.2)'}`,
+                      color: voiceFailed ? '#4ade80' : 'rgba(107,106,94,0.5)',
+                      marginBottom: 6,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      transition: 'all 200ms',
+                    }}
+                  >
+                    {isLast ? 'Finish →' : 'Continue →'}
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
