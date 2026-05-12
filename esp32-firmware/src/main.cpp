@@ -287,7 +287,7 @@ static void pollDisplayState() {
 
   // Map backend display_state string to enum
   DisplayPayload dp = {"", "", "", 0};
-  strncpy(dp.line1, doc["display_line1"] | "", 31);
+  strncpy(dp.line1, doc["display_line1"] | "", 63);
   strncpy(dp.line2, doc["display_line2"] | "", 31);
   strncpy(dp.line3, doc["display_line3"] | "", 31);
   dp.value = doc["display_value"] | 0;
@@ -296,6 +296,7 @@ static void pollDisplayState() {
   else if (strcmp(dState, "reminder") == 0)  { tftSetStateWithData(STATE_REMINDER, dp); currentState = STATE_REMINDER; }
   else if (strcmp(dState, "briefing") == 0)  { tftSetStateWithData(STATE_BRIEFING, dp); currentState = STATE_BRIEFING; }
   else if (strcmp(dState, "relay") == 0)     { tftSetStateWithData(STATE_RELAY, dp); currentState = STATE_RELAY; }
+  else if (strcmp(dState, "proactive") == 0) { tftSetStateWithData(STATE_PROACTIVE, dp); currentState = STATE_PROACTIVE; }
   else if (strcmp(dState, "idle") == 0)      { currentState = STATE_IDLE; tftSetState(STATE_IDLE); }
 }
 
