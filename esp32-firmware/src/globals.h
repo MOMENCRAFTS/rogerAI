@@ -23,11 +23,12 @@ enum DeviceState {
   STATE_LOCKED,           // 13 red lock, "DEVICE REVOKED"
   STATE_RELAY,            // 14 cyan satellite, C2C relay active
   STATE_BRIEFING,         // 15 purple radar sweep, morning brief
+  STATE_PROACTIVE,        // 16 amber glow, Roger wants to say something
 };
 
 // ── Display payload (optional data from backend poll) ─────────────────
 struct DisplayPayload {
-  char line1[32];         // primary text (e.g. prayer name, reminder)
+  char line1[64];         // primary text (e.g. prayer name, thought message)
   char line2[32];         // secondary text (e.g. time, detail)
   char line3[32];         // tertiary text
   int  value;             // numeric (e.g. minutes until prayer)

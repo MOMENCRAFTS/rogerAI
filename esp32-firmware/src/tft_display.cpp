@@ -384,6 +384,55 @@ static void renderBriefing() {
   spr.drawString("Morning Intel", CENTER_X, CENTER_Y + 80, 2);
 }
 
+// ── Proactive — Roger wants to say something ──────────────────────────
+static void renderProactive() {
+  clearScreen(COL_BG_DARK, COL_AMBER_DIM);
+
+  // Radiating circles (expanding outward like a ping)
+  unsigned long t = millis();
+  for (int i = 0; i < 3; i++) {
+    float phase = (float)((t + i * 700) % 2100) / 2100.0f;
+    int r = 30 + (int)(75.0f * phase);
+    uint8_t alpha = (uint8_t)(255.0f * (1.0f - phase));
+    uint16_t col = (alpha > 128) ? COL_AMBER : COL_AMBER_DIM;
+    spr.drawCircle(CENTER_X, CENTER_Y - 10, r, col);
+  }
+
+  // Brain/thought icon — small amber dot cluster
+  spr.fillCircle(CENTER_X, CENTER_Y - 50, 8, COL_AMBER);
+  spr.fillCircle(CENTER_X - 10, CENTER_Y - 42, 5, COL_AMBER);
+  spr.fillCircle(CENTER_X + 8, CENTER_Y - 40, 4, COL_AMBER);
+
+  // "ROGER" brand
+  spr.setTextColor(COL_AMBER);
+  spr.setTextDatum(MC_DATUM);
+  spr.drawString("ROGER", CENTER_X, CENTER_Y + 10, 4);
+
+  // Subtitle
+  spr.setTextColor(COL_WHITE);
+  spr.drawString("has something", CENTER_X, CENTER_Y + 40, 2);
+  spr.drawString("to tell you", CENTER_X, CENTER_Y + 58, 2);
+
+  // Message preview (first line from displayData)
+  if (displayData.line1[0]) {
+    spr.setTextColor(COL_GREY);
+    // Truncate for display
+    char preview[24];
+    strncpy(preview, displayData.line1, 23);
+    preview[23] = '\0';
+    if (strlen(displayData.line1) > 23) {
+      preview[20] = '.'; preview[21] = '.'; preview[22] = '.';
+    }
+    spr.drawString(preview, CENTER_X, CENTER_Y + 82, 2);
+  }
+
+  // Blinking "press PTT" indicator
+  if ((t / 600) % 2 == 0) {
+    spr.setTextColor(COL_AMBER_DIM);
+    spr.drawString("Press PTT", CENTER_X, CENTER_Y + 102, 1);
+  }
+}
+
 // ── Boot splash (animated) ────────────────────────────────────────────
 static void renderBootSplash() {
   // Phase 1: Ring sweep animation (1 second)
@@ -551,6 +600,7 @@ void tftLoop() {
     case STATE_LOCKED:     renderLocked();     break;
     case STATE_RELAY:      renderRelay();      break;
     case STATE_BRIEFING:   renderBriefing();   break;
+    case STATE_PROACTIVE:  renderProactive();  break;
   }
 
   spr.pushSprite(0, 0);
