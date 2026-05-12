@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { FileText, CheckSquare, Zap, Users, Clock, ChevronDown, ChevronUp, Trash2, Mic } from 'lucide-react';
+import { FileText, CheckSquare, Zap, Users, Clock, ChevronDown, ChevronUp, Trash2, Mic, Download } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useI18n } from '../../context/I18nContext';
 
@@ -69,6 +69,42 @@ export default function MeetingRecorderView({ userId }: Props) {
   const deleteMeeting = async (id: string) => {
     await supabase.from('meeting_recordings').delete().eq('id', id);
     setMeetings(prev => prev.filter(m => m.id !== id));
+  };
+
+  const exportMeeting = (m: MeetingRecord) => {
+    const lines: string[] = [];
+    lines.push(`# ${m.title || 'Untitled Meeting'}`);
+    lines.push(`**Date:** ${formatDate(m.started_at)}  `);
+    lines.push(`**Duration:** ${formatDuration(m.duration_s)}  `);
+    if (m.summary) { lines.push('', '## Summary', m.summary); }
+    const ai = Array.isArray(m.action_items) ? m.action_items : [];
+    if (ai.length > 0) {
+      lines.push('', '## Action Items');
+      ai.forEach(a => {
+        let line = `- [ ] ${a.text}`;
+        if (a.owner) line += ` *(${a.owner})*`;
+        if (a.due_date) line += ` — due ${a.due_date}`;
+        lines.push(line);
+      });
+    }
+    const dec = Array.isArray(m.decisions) ? m.decisions : [];
+    if (dec.length > 0) {
+      lines.push('', '## Decisions');
+      dec.forEach(d => lines.push(`- ${d.text}`));
+    }
+    const parts = Array.isArray(m.participants) ? m.participants : [];
+    if (parts.length > 0) {
+      lines.push('', '## Participants');
+      parts.forEach(p => lines.push(`- ${p.name}${p.role ? ` (${p.role})` : ''}`));
+    }
+    if (m.transcript) { lines.push('', '## Transcript', '', m.transcript); }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meeting-${(m.title || 'untitled').replace(/\s+/g, '-').toLowerCase()}-${new Date(m.started_at).toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -171,6 +207,13 @@ export default function MeetingRecorderView({ userId }: Props) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); exportMeeting(m); }}
+                  title="Export meeting notes"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--amber)' }}
+                >
+                  <Download size={12} />
+                </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id); }}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'rgba(239,68,68,0.5)' }}
