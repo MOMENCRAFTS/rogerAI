@@ -24,6 +24,8 @@ enum DeviceState {
   STATE_RELAY,            // 14 cyan satellite, C2C relay active
   STATE_BRIEFING,         // 15 purple radar sweep, morning brief
   STATE_PROACTIVE,        // 16 amber glow, Roger wants to say something
+  STATE_OTA_UPDATE,       // 17 blue progress arc, firmware updating
+  STATE_MEETING,          // 18 red dot, do not disturb
 };
 
 // ── Display payload (optional data from backend poll) ─────────────────

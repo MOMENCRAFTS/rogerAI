@@ -297,6 +297,8 @@ static void pollDisplayState() {
   else if (strcmp(dState, "briefing") == 0)  { tftSetStateWithData(STATE_BRIEFING, dp); currentState = STATE_BRIEFING; }
   else if (strcmp(dState, "relay") == 0)     { tftSetStateWithData(STATE_RELAY, dp); currentState = STATE_RELAY; }
   else if (strcmp(dState, "proactive") == 0) { tftSetStateWithData(STATE_PROACTIVE, dp); currentState = STATE_PROACTIVE; }
+  else if (strcmp(dState, "ota") == 0)       { tftSetStateWithData(STATE_OTA_UPDATE, dp); currentState = STATE_OTA_UPDATE; }
+  else if (strcmp(dState, "meeting") == 0)   { tftSetStateWithData(STATE_MEETING, dp); currentState = STATE_MEETING; }
   else if (strcmp(dState, "idle") == 0)      { currentState = STATE_IDLE; tftSetState(STATE_IDLE); }
 }
 

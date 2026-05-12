@@ -262,6 +262,17 @@ static void renderClock() {
   snprintf(digital, 8, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
   spr.setTextColor(COL_GREY); spr.setTextDatum(MC_DATUM);
   spr.drawString(digital, CENTER_X, CENTER_Y + 40, 2);
+  // Date string
+  char dateStr[16];
+  const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+  snprintf(dateStr, 16, "%s %d", months[timeinfo.tm_mon], timeinfo.tm_mday);
+  spr.setTextColor(COL_AMBER_DIM);
+  spr.drawString(dateStr, CENTER_X, CENTER_Y + 58, 2);
+  // Next info from payload (prayer time / weather)
+  if (displayData.line2[0]) {
+    spr.setTextColor(COL_EMERALD);
+    spr.drawString(displayData.line2, CENTER_X, CENTER_Y + 78, 1);
+  }
 }
 
 static void renderListening() {
@@ -433,6 +444,64 @@ static void renderProactive() {
   }
 }
 
+// ── OTA Update — firmware progress ───────────────────────────────────
+static void renderOtaUpdate() {
+  clearScreen(COL_BLUE_DARK, COL_BLUE);
+
+  // Progress arc
+  int pct = displayData.value;  // 0-100
+  if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+  float endAngle = -90.0f + (360.0f * pct / 100.0f);
+  for (float a = -90.0f; a < endAngle; a += 1.0f) {
+    float rad = a * PI / 180.0f;
+    for (int r = 95; r <= 105; r++) {
+      int x = CENTER_X + (int)(r * cos(rad));
+      int y = CENTER_Y + (int)(r * sin(rad));
+      spr.drawPixel(x, y, COL_BLUE);
+    }
+  }
+
+  // Percentage text
+  char pctStr[8];
+  snprintf(pctStr, 8, "%d%%", pct);
+  spr.setTextColor(COL_WHITE); spr.setTextDatum(MC_DATUM);
+  spr.drawString(pctStr, CENTER_X, CENTER_Y - 10, 6);
+
+  spr.setTextColor(COL_BLUE);
+  spr.drawString("UPDATING", CENTER_X, CENTER_Y + 35, 2);
+  spr.setTextColor(COL_GREY);
+  spr.drawString("Do not unplug", CENTER_X, CENTER_Y + 60, 2);
+}
+
+// ── Meeting Mode — Do Not Disturb ─────────────────────────────────
+static void renderMeeting() {
+  clearScreen(COL_RED_DARK, COL_RED);
+
+  // Blinking recording dot
+  unsigned long t = millis();
+  if ((t / 700) % 2 == 0) {
+    spr.fillCircle(CENTER_X, CENTER_Y - 40, 12, COL_RED);
+  }
+
+  spr.setTextColor(COL_WHITE); spr.setTextDatum(MC_DATUM);
+  spr.drawString("MEETING", CENTER_X, CENTER_Y, 4);
+  spr.setTextColor(COL_RED);
+  spr.drawString("DO NOT DISTURB", CENTER_X, CENTER_Y + 35, 2);
+
+  // Duration from payload
+  if (displayData.value > 0) {
+    char dur[16];
+    int mins = displayData.value;
+    snprintf(dur, 16, "%d:%02d", mins / 60, mins % 60);
+    spr.setTextColor(COL_GREY);
+    spr.drawString(dur, CENTER_X, CENTER_Y + 65, 2);
+  }
+  if (displayData.line1[0]) {
+    spr.setTextColor(COL_GREY);
+    spr.drawString(displayData.line1, CENTER_X, CENTER_Y + 85, 1);
+  }
+}
+
 // ── Boot splash (animated) ────────────────────────────────────────────
 static void renderBootSplash() {
   // Phase 1: Ring sweep animation (1 second)
@@ -601,6 +670,8 @@ void tftLoop() {
     case STATE_RELAY:      renderRelay();      break;
     case STATE_BRIEFING:   renderBriefing();   break;
     case STATE_PROACTIVE:  renderProactive();  break;
+    case STATE_OTA_UPDATE:  renderOtaUpdate();  break;
+    case STATE_MEETING:     renderMeeting();    break;
   }
 
   spr.pushSprite(0, 0);
