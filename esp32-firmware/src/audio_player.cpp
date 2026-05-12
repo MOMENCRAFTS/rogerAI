@@ -9,10 +9,31 @@
 // ── AudioKit HAL instance (shared with audio_recorder) ────────────────
 extern AudioKit audioKit;
 
+// ── Playback state ────────────────────────────────────────────────────
 static bool     playing     = false;
-static uint8_t* mp3Buf      = nullptr;
-static size_t   mp3Size     = 0;
-static size_t   mp3Pos      = 0;
+static uint8_t* audioBuf    = nullptr;
+static size_t   audioSize   = 0;
+static size_t   audioPos    = 0;
+static bool     isWavFormat = false;
+
+// ── Minimp3 single-header decoder ─────────────────────────────────────
+// We use a minimal approach: download full MP3, decode frame-by-frame
+// to PCM, and write PCM to AudioKit.
+//
+// libhelix via arduino-libhelix:
+#define HELIX_PRINT
+#include "MP3DecoderHelix.h"
+
+static libhelix::MP3DecoderHelix* mp3Decoder = nullptr;
+static bool decoderDone = false;
+
+// Callback: receives decoded PCM from libhelix
+static void mp3DataCallback(MP3FrameInfo &info, short *pcm_buffer, size_t len, void* ref) {
+  if (len > 0 && playing) {
+    // Write decoded PCM to AudioKit (ES8388)
+    audioKit.write((uint8_t*)pcm_buffer, len * sizeof(int16_t));
+  }
+}
 
 void audioPlayerInit() {
   // Enable speaker amplifier
@@ -24,8 +45,9 @@ void audioPlayerInit() {
 void audioPlayerPlay(const String& url) {
   Serial.printf("[PLAYER] Downloading: %s\n", url.c_str());
   playing = true;
+  decoderDone = false;
 
-  // Download MP3 into memory
+  // Download audio into memory
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
@@ -40,72 +62,133 @@ void audioPlayerPlay(const String& url) {
     return;
   }
 
-  // Read MP3 data
+  // Read audio data
   int contentLen = http.getSize();
-  if (contentLen <= 0) contentLen = 64000;   // fallback max
+  if (contentLen <= 0) contentLen = 128000;   // fallback max for TTS
 
-  mp3Buf = (uint8_t*)ps_malloc(contentLen);
-  if (!mp3Buf) mp3Buf = (uint8_t*)malloc(contentLen);
-  if (!mp3Buf) {
-    Serial.println("[PLAYER] OOM for MP3 buffer");
+  audioBuf = (uint8_t*)ps_malloc(contentLen);
+  if (!audioBuf) audioBuf = (uint8_t*)malloc(contentLen);
+  if (!audioBuf) {
+    Serial.println("[PLAYER] OOM for audio buffer");
     http.end();
     playing = false;
     return;
   }
 
   WiFiClient* stream = http.getStreamPtr();
-  mp3Size = 0;
-  while (http.connected() && mp3Size < (size_t)contentLen) {
+  audioSize = 0;
+  while (http.connected() && audioSize < (size_t)contentLen) {
     size_t avail = stream->available();
     if (avail > 0) {
-      size_t toRead = min(avail, (size_t)(contentLen - mp3Size));
-      stream->readBytes(mp3Buf + mp3Size, toRead);
-      mp3Size += toRead;
+      size_t toRead = min(avail, (size_t)(contentLen - audioSize));
+      stream->readBytes(audioBuf + audioSize, toRead);
+      audioSize += toRead;
     }
   }
   http.end();
-  mp3Pos = 0;
+  audioPos = 0;
 
-  Serial.printf("[PLAYER] Downloaded %u bytes, starting playback\n", mp3Size);
+  Serial.printf("[PLAYER] Downloaded %u bytes\n", audioSize);
 
-  // Switch AudioKit to output mode for playback
+  // ── Detect format: WAV or MP3? ──────────────────────────────────
+  isWavFormat = (audioSize > 44 &&
+                 audioBuf[0] == 'R' && audioBuf[1] == 'I' &&
+                 audioBuf[2] == 'F' && audioBuf[3] == 'F');
+
+  // Configure AudioKit for output
   auto cfg = audioKit.defaultConfig(KitOutput);
   cfg.dac_output      = AUDIO_HAL_DAC_OUTPUT_ALL;   // speaker + headphone
-  cfg.sample_rate     = AUDIO_HAL_16K_SAMPLES;
   cfg.bits_per_sample = AUDIO_HAL_BIT_LENGTH_16BITS;
-  cfg.sd_active       = false;   // we don't use SD card
-  audioKit.begin(cfg);
-  audioKit.setVolume(80);   // 0-100
+  cfg.sd_active       = false;
+
+  if (isWavFormat) {
+    // ── WAV: parse header, feed raw PCM ────────────────────────────
+    uint32_t wavSampleRate = *(uint32_t*)(audioBuf + 24);
+    if (wavSampleRate == 22050)      cfg.sample_rate = AUDIO_HAL_22K_SAMPLES;
+    else if (wavSampleRate == 44100) cfg.sample_rate = AUDIO_HAL_44K_SAMPLES;
+    else if (wavSampleRate == 24000) cfg.sample_rate = AUDIO_HAL_24K_SAMPLES;
+    else                             cfg.sample_rate = AUDIO_HAL_16K_SAMPLES;
+
+    audioPos = 44;  // skip WAV header
+    Serial.printf("[PLAYER] WAV: %dHz — raw PCM playback\n", wavSampleRate);
+
+    audioKit.begin(cfg);
+    audioKit.setVolume(80);
+
+  } else {
+    // ── MP3: decode via libhelix ───────────────────────────────────
+    // Default to 24kHz (OpenAI TTS default), decoder will auto-adjust
+    cfg.sample_rate = AUDIO_HAL_24K_SAMPLES;
+    audioKit.begin(cfg);
+    audioKit.setVolume(80);
+
+    // Init decoder
+    if (mp3Decoder) { delete mp3Decoder; mp3Decoder = nullptr; }
+    mp3Decoder = new libhelix::MP3DecoderHelix();
+    mp3Decoder->setDataCallback(mp3DataCallback);
+    mp3Decoder->begin();
+
+    Serial.println("[PLAYER] MP3 decoder initialized — starting decode");
+  }
 }
 
 void audioPlayerStop() {
   if (playing) {
     audioKit.end();
     playing = false;
-    if (mp3Buf) { free(mp3Buf); mp3Buf = nullptr; }
-    mp3Size = 0;
-    mp3Pos  = 0;
+    if (audioBuf)    { free(audioBuf); audioBuf = nullptr; }
+    if (mp3Decoder)  { mp3Decoder->end(); delete mp3Decoder; mp3Decoder = nullptr; }
+    audioSize   = 0;
+    audioPos    = 0;
+    decoderDone = false;
     Serial.println("[PLAYER] Playback stopped");
   }
 }
 
 void audioPlayerLoop() {
-  if (!playing || !mp3Buf) return;
+  if (!playing || !audioBuf) return;
 
-  // Feed audio data to codec in chunks
-  size_t remaining = mp3Size - mp3Pos;
-  if (remaining == 0) {
-    // Playback finished
-    Serial.println("[PLAYER] Playback finished");
+  if (isWavFormat) {
+    // ── WAV / raw PCM path ─────────────────────────────────────────
+    size_t remaining = audioSize - audioPos;
+    if (remaining == 0) {
+      Serial.println("[PLAYER] WAV playback finished");
+      audioPlayerStop();
+      currentState = STATE_IDLE;
+      tftSetState(STATE_IDLE);
+      return;
+    }
+    size_t chunkSize = min(remaining, (size_t)512);
+    size_t written = audioKit.write(audioBuf + audioPos, chunkSize);
+    audioPos += written;
+
+  } else if (mp3Decoder && !decoderDone) {
+    // ── MP3 decode path — feed chunks to libhelix ──────────────────
+    size_t remaining = audioSize - audioPos;
+    if (remaining == 0) {
+      // All data fed — flush decoder
+      decoderDone = true;
+      Serial.println("[PLAYER] MP3 data fully fed to decoder");
+      // Give a small delay for last frame to process
+      delay(50);
+      Serial.println("[PLAYER] MP3 playback finished");
+      audioPlayerStop();
+      currentState = STATE_IDLE;
+      tftSetState(STATE_IDLE);
+      return;
+    }
+
+    // Feed MP3 data in chunks (decoder calls mp3DataCallback with PCM)
+    size_t chunkSize = min(remaining, (size_t)1024);
+    size_t consumed = mp3Decoder->write(audioBuf + audioPos, chunkSize);
+    audioPos += consumed > 0 ? consumed : chunkSize;
+
+  } else {
+    // Decoder done or unknown state
     audioPlayerStop();
     currentState = STATE_IDLE;
     tftSetState(STATE_IDLE);
-    return;
   }
-
-  size_t chunkSize = min(remaining, (size_t)512);
-  size_t written = audioKit.write(mp3Buf + mp3Pos, chunkSize);
-  mp3Pos += written;
 }
 
 bool audioPlayerBusy() { return playing; }

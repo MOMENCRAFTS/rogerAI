@@ -430,17 +430,18 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
       {/* ── Language ── */}
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Response Language</p>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {([
             { code: 'en', label: '🇬🇧  English' },
             { code: 'ar', label: '🇸🇦  العربية' },
             { code: 'fr', label: '🇫🇷  Français' },
+            { code: 'es', label: '🇪🇸  Español' },
           ] as { code: string; label: string }[]).map(({ code, label }) => {
             const active = (prefs.language ?? 'en') === code;
             return (
               <button key={code}
-                onClick={() => setPrefs(p => ({ ...p, language: code }))}
-                style={{ flex: 1, padding: '10px 6px', fontFamily: 'monospace', fontSize: 11, cursor: 'pointer', transition: 'all 150ms',
+                onClick={() => { setPrefs(p => ({ ...p, language: code })); upsertUserPreferences(userId, { language: code }).catch(() => {}); setSaved(true); setTimeout(() => setSaved(false), 1500); }}
+                style={{ flex: 1, minWidth: 80, padding: '10px 6px', fontFamily: 'monospace', fontSize: 11, cursor: 'pointer', transition: 'all 150ms',
                   border: `1px solid ${active ? 'var(--amber)' : 'var(--border-subtle)'}`,
                   background: active ? 'rgba(212,160,68,0.1)' : 'var(--bg-elevated)',
                   color: active ? 'var(--amber)' : 'var(--text-muted)',
@@ -452,7 +453,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           })}
         </div>
         <p style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', margin: '6px 0 0', letterSpacing: '0.1em' }}>
-          Roger will reply in this language — save to apply.
+          Roger will reply in this language. Changes apply immediately.
         </p>
       </div>
 
@@ -918,19 +919,6 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             </div>
           </div>
         )}
-      </div>
-
-      {/* Language */}
-      <div style={{ marginBottom: 28 }}>
-        <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>Language</p>
-        <select value={prefs.language ?? 'en'}
-          onChange={e => { setPrefs(p => ({ ...p, language: e.target.value })); upsertUserPreferences(userId, { language: e.target.value }).catch(() => {}); }}
-          style={{ width: '100%', padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, background: 'var(--bg-recessed)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', outline: 'none' }}>
-          <option value="en">English (Auto-detect)</option>
-          <option value="ar">Arabic</option>
-          <option value="fr">French</option>
-          <option value="es">Spanish</option>
-        </select>
       </div>
 
 
