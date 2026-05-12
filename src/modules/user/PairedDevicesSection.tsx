@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Radio, Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, CheckCircle } from 'lucide-react';
+import { Radio, Loader, Trash2, Wifi, WifiOff, Camera, X, ChevronRight, CheckCircle, Bluetooth } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { fetchPairedDevices, pairDevice, unpairDevice, renameDevice, type DbPairedDevice } from '../../lib/api';
+import BleSetupWizard from './BleSetupWizard';
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
 function timeAgo(d: string | null) {
@@ -162,6 +163,7 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
   const [devices, setDevices] = useState<DbPairedDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [wizard, setWizard] = useState(false);
+  const [bleWizard, setBleWizard] = useState(false);
   const [unpairingId, setUnpairingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -196,17 +198,26 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <p style={label(10)}>Paired Devices</p>
-        {!wizard && (
-          <button onClick={() => setWizard(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(212,160,68,0.1)', border: '1px solid rgba(212,160,68,0.3)', color: 'var(--amber)', cursor: 'pointer', transition: 'background 150ms' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.2)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.1)')}>
-            <Radio size={10} /> Setup Device
-          </button>
+        {!wizard && !bleWizard && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => setBleWizard(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', fontFamily: 'monospace', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', color: 'rgb(6,182,212)', cursor: 'pointer', transition: 'background 150ms' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(6,182,212,0.2)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(6,182,212,0.1)')}>
+              <Bluetooth size={10} /> Setup Device
+            </button>
+            <button onClick={() => setWizard(true)} title="QR code fallback"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, background: 'rgba(212,160,68,0.06)', border: '1px solid rgba(212,160,68,0.2)', color: 'var(--amber)', cursor: 'pointer' }}>
+              <Camera size={10} />
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Wizard */}
+      {/* BLE Wizard (primary) */}
+      {bleWizard && <BleSetupWizard onDone={() => { setBleWizard(false); load(); }} onCancel={() => setBleWizard(false)} />}
+
+      {/* QR Wizard (fallback) */}
       {wizard && <SetupWizard onDone={() => { setWizard(false); load(); }} onCancel={() => setWizard(false)} />}
 
       {/* List */}
@@ -214,15 +225,19 @@ export default function PairedDevicesSection({ userId: _userId }: { userId: stri
         <div style={{ padding: 20, textAlign: 'center' }}>
           <Loader size={16} style={{ color: 'var(--text-muted)', animation: 'spin 1s linear infinite' }} />
         </div>
-      ) : devices.length === 0 && !wizard ? (
+      ) : devices.length === 0 && !wizard && !bleWizard ? (
         <div style={{ padding: '24px 16px', textAlign: 'center', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)' }}>
-          <Radio size={28} style={{ color: 'var(--text-muted)', opacity: 0.3, marginBottom: 10 }} />
+          <Bluetooth size={28} style={{ color: 'rgb(6,182,212)', opacity: 0.4, marginBottom: 10 }} />
           <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: '0 0 12px' }}>No devices paired yet.</p>
-          <button onClick={() => setWizard(true)}
-            style={{ padding: '9px 18px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(212,160,68,0.1)', border: '1px solid rgba(212,160,68,0.3)', color: 'var(--amber)', cursor: 'pointer', transition: 'background 150ms' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.2)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(212,160,68,0.1)')}>
+          <button onClick={() => setBleWizard(true)}
+            style={{ padding: '9px 18px', fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', color: 'rgb(6,182,212)', cursor: 'pointer', transition: 'background 150ms' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(6,182,212,0.2)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(6,182,212,0.1)')}>
+            <Bluetooth size={12} style={{ marginRight: 6, verticalAlign: -2 }} />
             Setup Roger Device
+          </button>
+          <button onClick={() => setWizard(true)} style={{ display: 'block', margin: '8px auto 0', background: 'none', border: 'none', fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>
+            No Bluetooth? Use QR code
           </button>
         </div>
       ) : devices.map(dev => {

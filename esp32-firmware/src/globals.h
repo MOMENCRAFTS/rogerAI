@@ -13,9 +13,10 @@ enum DeviceState {
   STATE_ERROR,            // 5  red X, "ERROR"
   STATE_OFFLINE,          // 6  grey, "NO WIFI"
   STATE_WIFI_SETUP,       // 7  cyan portal instructions
-  STATE_PAIRING,          // 8  QR code for app scan
+  STATE_PAIRING,          // 8  QR code for app scan (legacy fallback)
+  STATE_PROVISIONING,     // 9  spinning ring + "Open Roger App" (BLE prov)
   // ── Extended LCD states (pushed from backend) ───────────────────────
-  STATE_CLOCK,            // 9  analog/digital clock face (idle timeout)
+  STATE_CLOCK,            // 10 analog/digital clock face (idle timeout)
   STATE_LISTENING,        // 10 ambient listen mode (Roger TTS playing)
   STATE_PRAYER,           // 11 green crescent, prayer name + countdown
   STATE_REMINDER,         // 12 amber bell, reminder text

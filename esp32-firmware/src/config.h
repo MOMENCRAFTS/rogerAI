@@ -1,10 +1,20 @@
 #pragma once
 #include <Arduino.h>
 
-// ── WiFi ──────────────────────────────────────────────────────────────
-#define WIFI_AP_NAME        "RogerDevice-Setup"
-#define WIFI_AP_PASSWORD    ""                    // open hotspot
-#define WIFI_TIMEOUT_MS     30000
+// ── BLE Provisioning ──────────────────────────────────────────────────
+//    Replaces WiFiManager captive portal (192.168.4.1) with production
+//    BLE provisioning via ESP-IDF's wifi_prov_mgr (Arduino WiFiProv wrapper).
+#define PROV_SERVICE_PREFIX "ROGER"                // BLE device name prefix → "ROGER_XXXX"
+#define PROV_TIMEOUT_MS     300000                 // 5 min timeout → restart provisioning
+#define PROV_RESET_ON_BOOT  false                  // set true during development to force re-provision
+
+// Master secret for per-device PoP derivation (HMAC-SHA256 of this + MAC)
+// In production, this should be burned into eFuse or read from secure storage.
+#define POP_MASTER_SECRET   "roger-ai-pop-2026"
+
+// Custom 128-bit UUID for the provisioning BLE service
+#define PROV_SERVICE_UUID   { 0xb4, 0xdf, 0x5a, 0x1c, 0x3f, 0x6b, 0xf4, 0xbf, \
+                              0xea, 0x4a, 0x82, 0x03, 0x04, 0x90, 0x1a, 0x02 }
 
 // ── Supabase / Server ─────────────────────────────────────────────────
 #define SUPABASE_URL        "https://krbfhiupcquddguorowe.supabase.co"
@@ -43,6 +53,8 @@
 #define NVS_KEY_USER_ID     "user_id"
 #define NVS_KEY_TOKEN       "device_token"
 #define NVS_KEY_PAIRED      "is_paired"
+#define NVS_KEY_WIFI_SSID   "wifi_ssid"
+#define NVS_KEY_WIFI_PASS   "wifi_pass"
 
 // ── Firmware ──────────────────────────────────────────────────────────
-#define FIRMWARE_VERSION    "2.0.0"
+#define FIRMWARE_VERSION    "3.0.0"

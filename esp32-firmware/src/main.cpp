@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiManager.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -13,12 +12,13 @@
 #include "audio_recorder.h"
 #include "audio_player.h"
 #include "http_client.h"
+#include "ble_provisioning.h"
 
 // ── AudioKit HAL instance (shared by recorder + player) ───────────────
 AudioKit audioKit;
 
 // ── Global definitions ────────────────────────────────────────────────
-DeviceState currentState = STATE_WIFI_SETUP;
+DeviceState currentState = STATE_PROVISIONING;
 String deviceId;
 String userId;
 String deviceToken;
@@ -59,27 +59,6 @@ static void buildDeviceId() {
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   deviceId = String(buf);
   Serial.printf("[BOOT] Device ID: %s\n", deviceId.c_str());
-}
-
-// ── WiFiManager setup with captive portal ─────────────────────────────
-static void setupWiFi() {
-  currentState = STATE_WIFI_SETUP;
-  tftSetState(STATE_WIFI_SETUP);
-
-  WiFiManager wm;
-  wm.setConfigPortalTimeout(300);          // 5 min portal timeout
-  wm.setConnectTimeout(20);
-
-  bool connected = wm.autoConnect(WIFI_AP_NAME, WIFI_AP_PASSWORD);
-
-  if (!connected) {
-    Serial.println("[WIFI] Failed to connect — entering offline mode");
-    currentState = STATE_OFFLINE;
-    tftSetState(STATE_OFFLINE);
-    return;
-  }
-
-  Serial.printf("[WIFI] Connected. IP: %s\n", WiFi.localIP().toString().c_str());
 }
 
 // ── Generate 6-char pairing code ──────────────────────────────────────
@@ -205,11 +184,13 @@ static void pollPairingStatus() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// SETUP — Boot sequence
+// ══════════════════════════════════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println("\n=== ROGER AI DEVICE v" FIRMWARE_VERSION " ===");
-  Serial.println("=== ESP32-A1S Audio Kit + GC9A01 Display ===\n");
+  Serial.println("=== ESP32-A1S + GC9A01 + BLE Provisioning ===\n");
 
   // ── Step 1: Display (first, for visual boot feedback) ──────────────
   tftInit();
@@ -229,10 +210,20 @@ void setup() {
   // ── Step 6: Device ID from MAC ─────────────────────────────────────
   buildDeviceId();
 
-  // ── Step 7: WiFi + portal ──────────────────────────────────────────
-  setupWiFi();
+  // ── Step 7: WiFi via BLE Provisioning (replaces WiFiManager) ───────
+  //    If stored WiFi creds exist → fast connect (2-3 seconds)
+  //    If first boot → enter BLE provisioning mode (user sets up via app)
+  bool alreadyConnected = bleProvStart(PROV_RESET_ON_BOOT);
 
-  if (currentState == STATE_OFFLINE) return;   // no WiFi — stop here
+  if (!alreadyConnected) {
+    // BLE provisioning active — display shows spinning ring + PoP
+    // loop() will handle waiting for provisioning to complete
+    Serial.println("[BOOT] Waiting for BLE provisioning...");
+    return;
+  }
+
+  // ── Fast boot path: WiFi already connected ─────────────────────────
+  Serial.println("[BOOT] WiFi connected via stored credentials");
 
   // ── Step 8: Check pairing status ───────────────────────────────────
   if (!isPaired) {
@@ -246,6 +237,7 @@ void setup() {
   // ── Ready ──────────────────────────────────────────────────────────
   currentState = STATE_IDLE;
   tftSetState(STATE_IDLE);
+  lastActivityMs = millis();
   Serial.println("[BOOT] Device ready — hold KEY1 to talk to Roger");
 }
 
@@ -307,7 +299,40 @@ static void pollDisplayState() {
   else if (strcmp(dState, "idle") == 0)      { currentState = STATE_IDLE; tftSetState(STATE_IDLE); }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// LOOP — Main run loop
+// ══════════════════════════════════════════════════════════════════════
+
+// Track whether we've completed post-provisioning setup
+static bool postProvDone = false;
+
 void loop() {
+  // ── BLE provisioning phase ──────────────────────────────────────────
+  if (currentState == STATE_PROVISIONING) {
+    bleProvLoop();       // handles timeout + restart
+    tftLoop();           // animate spinning ring
+
+    // Check if provisioning just completed and WiFi is now connected
+    if (bleProvIsConnected()) {
+      Serial.println("[BOOT] BLE provisioning complete — WiFi connected!");
+      tftShowText("WiFi Connected!", WiFi.SSID().c_str(), "", "");
+      delay(1500);
+
+      // Now enter pairing mode (link device to user account)
+      if (!isPaired) {
+        enterPairingMode();
+      } else {
+        httpRegisterDevice(deviceId, userId);
+        currentState = STATE_IDLE;
+        tftSetState(STATE_IDLE);
+        lastActivityMs = millis();
+        Serial.println("[BOOT] Device ready — hold KEY1 to talk to Roger");
+      }
+    }
+    return;   // Don't run PTT/audio/polling during provisioning
+  }
+
+  // ── Normal operation ────────────────────────────────────────────────
   pollPairingStatus();     // non-blocking — returns immediately if not pairing
   pttLoop();               // PTT state machine
   tftLoop();               // display animations (30fps)

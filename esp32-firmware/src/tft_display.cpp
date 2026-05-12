@@ -1,5 +1,6 @@
 #include "tft_display.h"
 #include "config.h"
+#include "ble_provisioning.h"
 #include <TFT_eSPI.h>
 #include <qrcode.h>
 #include <time.h>
@@ -173,6 +174,49 @@ static void renderPairing() {
   spr.drawString("Roger App", CENTER_X, CENTER_Y + 25, 2);
 }
 
+// ── BLE Provisioning — spinning ring + PoP + "Open Roger App" ────────
+static void renderProvisioning() {
+  clearScreen(COL_BG_DARK, COL_AMBER_DIM);
+
+  // Outer sweeping arc — spinning gold "comet tail"
+  float sweepAngle = (float)(millis() % 2000) / 2000.0f * 360.0f;
+  for (int i = 0; i < 60; i++) {
+    float a = (sweepAngle - i * 1.5f) * PI / 180.0f - PI / 2.0f;
+    // Fade tail from bright to dim
+    uint16_t col = (i < 15) ? COL_AMBER : COL_AMBER_DIM;
+    int r = 108;
+    int x = CENTER_X + (int)(r * cos(a));
+    int y = CENTER_Y + (int)(r * sin(a));
+    spr.fillCircle(x, y, 2, col);
+  }
+
+  // Inner pulse ring
+  drawPulseRing(COL_AMBER, 90);
+
+  // "ROGER AI" brand
+  spr.setTextColor(COL_AMBER);
+  spr.setTextDatum(MC_DATUM);
+  spr.drawString("ROGER", CENTER_X, CENTER_Y - 40, 4);
+  spr.setTextColor(COL_WHITE);
+  spr.drawString("AI", CENTER_X, CENTER_Y - 10, 4);
+
+  // PoP code — large and prominent
+  const char* pop = bleProvGetPoP();
+  if (pop && pop[0]) {
+    spr.setTextColor(COL_CYAN);
+    spr.drawString(pop, CENTER_X, CENTER_Y + 25, 4);
+  }
+
+  // Instructions
+  spr.setTextColor(COL_GREY);
+  spr.drawString("Open Roger App", CENTER_X, CENTER_Y + 60, 2);
+
+  // Blinking "searching" dot
+  if ((millis() / 500) % 2 == 0) {
+    spr.fillCircle(CENTER_X, CENTER_Y + 80, 3, COL_AMBER);
+  }
+}
+
 // ── NEW: Extended LCD state renderers ─────────────────────────────────
 
 static void renderClock() {
@@ -337,8 +381,44 @@ static void renderBriefing() {
   spr.drawString("Morning Intel", CENTER_X, CENTER_Y + 80, 2);
 }
 
-// ── Boot splash ───────────────────────────────────────────────────────
+// ── Boot splash (animated) ────────────────────────────────────────────
 static void renderBootSplash() {
+  // Phase 1: Ring sweep animation (1 second)
+  unsigned long start = millis();
+  while (millis() - start < 1000) {
+    spr.fillSprite(COL_BLACK);
+    float progress = (float)(millis() - start) / 1000.0f;
+    float endAngle = progress * 360.0f;
+
+    // Draw sweeping ring
+    for (float a = 0; a < endAngle; a += 1.5f) {
+      float rad = a * PI / 180.0f - PI / 2.0f;
+      for (int r = 106; r <= 115; r++) {
+        int x = CENTER_X + (int)(r * cos(rad));
+        int y = CENTER_Y + (int)(r * sin(rad));
+        spr.drawPixel(x, y, COL_AMBER);
+      }
+    }
+
+    // Fade in text based on progress
+    if (progress > 0.3f) {
+      spr.setTextColor(COL_AMBER); spr.setTextDatum(MC_DATUM);
+      spr.drawString("ROGER", CENTER_X, CENTER_Y - 20, 4);
+    }
+    if (progress > 0.5f) {
+      spr.setTextColor(COL_WHITE);
+      spr.drawString("AI", CENTER_X, CENTER_Y + 15, 4);
+    }
+    if (progress > 0.7f) {
+      spr.setTextColor(COL_GREY);
+      spr.drawString("v" FIRMWARE_VERSION, CENTER_X, CENTER_Y + 50, 2);
+    }
+
+    spr.pushSprite(0, 0);
+    delay(16);  // ~60fps
+  }
+
+  // Phase 2: Hold complete splash (1 second)
   spr.fillSprite(COL_BLACK);
   for (int r = 115; r > 105; r--) {
     spr.drawCircle(CENTER_X, CENTER_Y, r, COL_AMBER);
@@ -350,7 +430,7 @@ static void renderBootSplash() {
   spr.setTextColor(COL_GREY);
   spr.drawString("v" FIRMWARE_VERSION, CENTER_X, CENTER_Y + 50, 2);
   spr.pushSprite(0, 0);
-  delay(1500);
+  delay(1000);
 }
 
 // ── Public API ────────────────────────────────────────────────────────
@@ -458,6 +538,7 @@ void tftLoop() {
     case STATE_OFFLINE:    renderOffline();    break;
     case STATE_WIFI_SETUP: renderWiFiSetup();  break;
     case STATE_PAIRING:    renderPairing();    break;
+    case STATE_PROVISIONING: renderProvisioning(); break;
     case STATE_CLOCK:      renderClock();      break;
     case STATE_LISTENING:  renderListening();  break;
     case STATE_PRAYER:     renderPrayer();     break;
