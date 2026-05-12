@@ -308,6 +308,55 @@ async function handleHeartbeat(url: URL, req: Request): Promise<Response> {
         .update({ display_state: null, display_line1: null, display_line2: null, display_line3: null, display_value: 0 })
         .eq('device_id', deviceId)
         .eq('token', deviceToken);
+    } else {
+      // ── Check for pending proactive thoughts ────────────────────────
+      const { data: thought } = await supabase
+        .from('roger_thoughts')
+        .select('id, thought')
+        .eq('user_id', userId)
+        .eq('delivered', false)
+        .eq('snoozed', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (thought) {
+        resp.display_state = 'proactive';
+        resp.display_line1 = (thought.thought ?? '').substring(0, 63);
+
+        // Check if user wants auto-speak
+        const { data: userPrefs } = await supabase
+          .from('user_preferences')
+          .select('talkative_delivery')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (userPrefs?.talkative_delivery === 'auto_speak') {
+          // Generate TTS for the thought
+          try {
+            const ttsResp = await openai.audio.speech.create({
+              model: 'tts-1', voice: 'onyx',
+              input: thought.thought, response_format: 'mp3',
+            });
+            const audioBytes = new Uint8Array(await ttsResp.arrayBuffer());
+            const fileName = `tts/${userId}/thought_${Date.now()}.mp3`;
+            const { data: upload } = await supabase.storage
+              .from('roger-audio')
+              .upload(fileName, audioBytes, { contentType: 'audio/mpeg', upsert: true });
+            if (upload) {
+              const { data: urlData } = supabase.storage.from('roger-audio').getPublicUrl(fileName);
+              resp.tts_url = urlData?.publicUrl ?? '';
+            }
+          } catch (e) {
+            console.error('[heartbeat] TTS for proactive thought failed:', e);
+          }
+        }
+
+        // Mark as delivered
+        supabase.from('roger_thoughts')
+          .update({ delivered: true, delivered_at: new Date().toISOString() })
+          .eq('id', thought.id);
+      }
     }
 
     return new Response(JSON.stringify(resp), {

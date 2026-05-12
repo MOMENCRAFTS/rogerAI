@@ -39,6 +39,64 @@ function SettingsSection({ id, title, icon, defaultOpen = false, accentColor = '
   );
 }
 
+// ── Thought History (recent Roger thoughts) ────────────────────────────
+function ThoughtHistory({ userId }: { userId: string }) {
+  const [thoughts, setThoughts] = useState<{ id: string; thought: string; created_at: string; delivered: boolean; snoozed: boolean }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('roger_thoughts')
+        .select('id, thought, created_at, delivered, snoozed')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      setThoughts((data as typeof thoughts) ?? []);
+      setLoading(false);
+    })();
+  }, [userId]);
+
+  const ago = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
+  if (loading) return null;
+  if (thoughts.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 16, marginBottom: 8 }}>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>
+        Thought History
+        <span style={{ marginLeft: 8, fontSize: 9, color: '#efa133', fontWeight: 400 }}>{thoughts.length} recent</span>
+      </p>
+      {thoughts.map(t => (
+        <div key={t.id} style={{
+          display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', marginBottom: 4,
+          background: 'rgba(239,161,51,0.04)', border: '1px solid rgba(239,161,51,0.1)',
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', margin: 0, lineHeight: 1.5,
+              overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
+            }}>{t.thought}</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4, fontSize: 9, fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+              <span>{ago(t.created_at)}</span>
+              {t.delivered && <span style={{ color: '#22c55e' }}>Delivered</span>}
+              {t.snoozed && <span style={{ color: '#f59e0b' }}>Snoozed</span>}
+              {!t.delivered && !t.snoozed && <span style={{ color: '#60a5fa' }}>Pending</span>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const MODE_INFO: Record<Mode, { iconName: string; desc: string }> = {
   quiet:    { iconName: 'mode-quiet', desc: 'Only respond when you press PTT. Never speaks first.' },
   active:   { iconName: 'mode-active', desc: 'Responds to PTT + proactively surfaces items when idle.' },
@@ -951,6 +1009,10 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         )}
       </div>
 
+      {/* ── Thought History ── */}
+      {(prefs as Record<string, unknown>).talkative_enabled && (
+        <ThoughtHistory userId={userId} />
+      )}
 
       </SettingsSection>
 
