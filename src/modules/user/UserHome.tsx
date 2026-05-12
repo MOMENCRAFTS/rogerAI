@@ -871,6 +871,45 @@ export default function UserHome({ userId, sessionId, onTabChange, location: loc
     };
   }, [userId]);
 
+  // ── Poll for undelivered thinking messages (fallback when push fails) ──────
+  useEffect(() => {
+    if (!talkativeEnabled) return;
+    let cancelled = false;
+
+    const pollThoughts = async () => {
+      try {
+        const { data } = await supabase
+          .from('roger_thoughts')
+          .select('id, thought')
+          .eq('user_id', userId)
+          .eq('delivered', false)
+          .eq('snoozed', false)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (cancelled || !data || data.length === 0) return;
+        const t = data[0] as { id: string; thought: string };
+
+        // Trigger through proactive engine
+        triggerThinkingMessage(t.thought, t.id);
+        setThinkingPulse(true);
+
+        // Mark as delivered
+        await supabase.from('roger_thoughts').update({ delivered: true }).eq('id', t.id);
+      } catch { /* silent */ }
+    };
+
+    // Initial check after 30s settle, then every 5 minutes
+    const initTimer = setTimeout(pollThoughts, 30_000);
+    const pollTimer = setInterval(pollThoughts, 5 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(initTimer);
+      clearInterval(pollTimer);
+    };
+  }, [userId, talkativeEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Replay last Roger message ─────────────────────────────────────────────
   const replayLastMessage = useCallback(() => {
     const msg = lastRogerMsgRef.current;

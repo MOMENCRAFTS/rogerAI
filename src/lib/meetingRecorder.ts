@@ -19,6 +19,8 @@
 
 const CHUNK_INTERVAL_MS   = 60_000; // 60-second rolling chunks
 const WHISPER_RETRY_DELAY = 2_000;  // ms before retrying a failed chunk
+const RETRY_QUEUE_INTERVAL = 30_000; // retry failed chunks every 30s
+const MAX_RETRY_ATTEMPTS   = 4;      // total attempts before giving up on a chunk
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined')
   ? (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL ?? ''
@@ -90,13 +92,44 @@ async function transcribeBlob(blob: Blob, attempt = 1): Promise<string> {
     return data.transcript ?? '';
   } catch (err) {
     if (attempt < 2) {
-      // One retry after a short delay
-      await new Promise(r => setTimeout(r, WHISPER_RETRY_DELAY));
-      return transcribeBlob(blob, 2);
+      // One retry after a short delay (exponential backoff)
+      await new Promise(r => setTimeout(r, WHISPER_RETRY_DELAY * attempt));
+      return transcribeBlob(blob, attempt + 1);
     }
     console.warn('[MeetingRecorder] Whisper failed after retry:', err);
     return '';
   }
+}
+
+// ── Local backup via IndexedDB (survives full browser crash) ──────────────────
+const IDB_NAME = 'roger-meetings';
+const IDB_STORE = 'transcripts';
+
+async function backupToLocal(sessionId: string, transcript: string, title: string): Promise<void> {
+  try {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE, { keyPath: 'id' }); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ id: sessionId, transcript, title, ts: Date.now() });
+    db.close();
+  } catch { /* IndexedDB not available — skip */ }
+}
+
+async function clearLocalBackup(sessionId: string): Promise<void> {
+  try {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(sessionId);
+    db.close();
+  } catch { /* silent */ }
 }
 
 async function generateNotes(transcript: string, title?: string): Promise<MeetingNotes> {
@@ -188,6 +221,39 @@ export function createMeetingRecorder(
   let currentBlobs: Blob[] = [];
   const mime = getMime();
 
+  // ── Failed chunk retry queue ────────────────────────────────────────────
+  interface FailedChunk { blob: Blob; idx: number; attempts: number; startedAt: number; }
+  const failedQueue: FailedChunk[] = [];
+  let retryTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function retryFailedChunks() {
+    if (failedQueue.length === 0) return;
+    const batch = [...failedQueue];
+    failedQueue.length = 0; // clear queue, re-add failures
+
+    for (const fc of batch) {
+      try {
+        const transcript = await transcribeBlob(fc.blob);
+        if (transcript.trim()) {
+          const words = transcript.trim().split(/\s+/).length;
+          totalWords += words;
+          transcriptParts.push(transcript);
+          const chunk: MeetingChunk = { index: fc.idx, startedAt: fc.startedAt, transcript, wordCount: words };
+          chunks.push(chunk);
+          opts.onChunkTranscribed?.(chunk);
+          checkpointToDB(sessionId, userId, title, transcriptParts.join('\n\n'), chunks.length).catch(() => {});
+          backupToLocal(sessionId, transcriptParts.join('\n\n'), title).catch(() => {});
+        }
+      } catch {
+        if (fc.attempts < MAX_RETRY_ATTEMPTS) {
+          failedQueue.push({ ...fc, attempts: fc.attempts + 1 });
+        } else {
+          console.warn(`[MeetingRecorder] Chunk ${fc.idx} permanently failed after ${MAX_RETRY_ATTEMPTS} attempts`);
+        }
+      }
+    }
+  }
+
   async function flushChunk() {
     if (!currentBlobs.length) return;
     const blob = new Blob(currentBlobs, { type: mime || 'audio/webm' });
@@ -210,8 +276,12 @@ export function createMeetingRecorder(
 
       // ✅ Checkpoint: persist rolling transcript to DB so a crash loses at most 1 chunk
       checkpointToDB(sessionId, userId, title, transcriptParts.join('\n\n'), chunks.length).catch(() => {});
+      // ✅ Local backup: IndexedDB survives even full browser crash
+      backupToLocal(sessionId, transcriptParts.join('\n\n'), title).catch(() => {});
     } catch (e) {
-      opts.onError?.(`Chunk ${idx} transcription failed: ${String(e)}`);
+      // Queue for retry instead of silently discarding
+      failedQueue.push({ blob, idx, attempts: 2, startedAt: Date.now() });
+      opts.onError?.(`Chunk ${idx} transcription failed (queued for retry): ${String(e)}`);
     }
   }
 
@@ -234,6 +304,7 @@ export function createMeetingRecorder(
     checkpointToDB(sessionId, userId, title, '', 0).catch(() => {});
 
     chunkTimer = setInterval(() => { flushChunk().catch(() => {}); }, CHUNK_INTERVAL_MS);
+    retryTimer = setInterval(() => { retryFailedChunks().catch(() => {}); }, RETRY_QUEUE_INTERVAL);
     progressTimer = setInterval(() => {
       opts.onProgress?.(Math.floor((Date.now() - startedAt) / 1000), totalWords);
     }, 5_000);
@@ -244,6 +315,7 @@ export function createMeetingRecorder(
   async function stop(): Promise<MeetingResult> {
     active = false;
     if (chunkTimer)    clearInterval(chunkTimer);
+    if (retryTimer)    clearInterval(retryTimer);
     if (progressTimer) clearInterval(progressTimer);
 
     // Stop recorder gracefully
@@ -256,6 +328,9 @@ export function createMeetingRecorder(
 
     // Process final chunk
     await flushChunk();
+
+    // Drain retry queue one last time
+    await retryFailedChunks();
 
     const durationS = Math.round((Date.now() - startedAt) / 1000);
     const fullTranscript = transcriptParts.join('\n\n');
@@ -277,9 +352,10 @@ export function createMeetingRecorder(
       notes, transcript: fullTranscript, chunks, durationS,
     };
 
-    // ✅ Finalise the existing row (upsert to done) + feed memory (fire-and-forget)
+    // ✅ Finalise the existing row (upsert to done) + feed memory + clear local backup
     finaliseToDB(sessionId, userId, result).catch(() => {});
     feedParticipantsToMemory(userId, notes.participants, notes.title || title).catch(() => {});
+    clearLocalBackup(sessionId).catch(() => {});
 
     opts.onComplete?.(result);
     return result;

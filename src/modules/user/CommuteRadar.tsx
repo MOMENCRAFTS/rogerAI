@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { Car, Navigation } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Car, Navigation, MapPin, Home, Briefcase } from 'lucide-react';
 import RadarView from './RadarView';
-import { fetchCommuteProfile, fetchErrands, getCommute, type DbCommuteProfile, type DbErrandItem } from '../../lib/api';
+import { fetchCommuteProfile, fetchErrands, getCommute, fetchSavedSpots, type DbCommuteProfile, type DbErrandItem, type DbSavedSpot } from '../../lib/api';
 import { speakResponse } from '../../lib/tts';
 import type { UserLocation } from '../../lib/useLocation';
 import { useI18n } from '../../context/I18nContext';
@@ -13,6 +13,12 @@ const DRIVE_ENTRY_MS = 5.56; // 20 km/h
 const DRIVE_EXIT_MS  = 1.39; // 5 km/h
 const EXIT_DELAY_MS  = 10_000;
 
+interface SpotEta {
+  spot: DbSavedSpot;
+  duration: string;
+  distance: string;
+}
+
 export default function CommuteRadar({ userId, location = null }: Props) {
   const { t: _t } = useI18n();
 
@@ -20,17 +26,20 @@ export default function CommuteRadar({ userId, location = null }: Props) {
   const [driveMode, setDriveMode] = useState(false);
   const [profile, setProfile]   = useState<DbCommuteProfile | null>(null);
   const [errands, setErrands]   = useState<DbErrandItem[]>([]);
+  const [spots, setSpots]       = useState<DbSavedSpot[]>([]);
+  const [spotEtas, setSpotEtas] = useState<SpotEta[]>([]);
   const [eta, setEta]           = useState<{ duration: string; distance: string } | null>(null);
   const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const etaRef    = useRef(0);
 
-  // Load route data
+  // Load route data + saved spots
   useEffect(() => {
     fetchCommuteProfile(userId).then(p => { setProfile(p); }).catch(() => {});
     fetchErrands(userId, 'pending').then(setErrands).catch(() => {});
+    fetchSavedSpots(userId).then(setSpots).catch(() => {});
   }, [userId]);
 
-  // ETA — throttled 60s
+  // ETA to work (legacy) — throttled 60s
   useEffect(() => {
     if (!profile?.work_address || !location) return;
     const now = Date.now();
@@ -39,6 +48,29 @@ export default function CommuteRadar({ userId, location = null }: Props) {
     getCommute(location.latitude, location.longitude, profile.work_address, profile.commute_mode ?? 'driving')
       .then(r => { if (r) setEta(r); }).catch(() => {});
   }, [profile, location]);
+
+  // ETA to all saved spots — throttled 60s (shares etaRef)
+  const fetchSpotEtas = useCallback(async () => {
+    if (!location || spots.length === 0) return;
+    const now = Date.now();
+    if (now - etaRef.current < 60_000) return;
+    etaRef.current = now;
+
+    const results: SpotEta[] = [];
+    for (const spot of spots) {
+      try {
+        const r = await getCommute(
+          location.latitude, location.longitude,
+          `${spot.lat},${spot.lng}`,
+          profile?.commute_mode ?? 'driving'
+        );
+        if (r) results.push({ spot, ...r });
+      } catch { /* silent */ }
+    }
+    setSpotEtas(results);
+  }, [location, spots, profile]);
+
+  useEffect(() => { fetchSpotEtas(); }, [fetchSpotEtas]);
 
   // Drive mode auto-detect
   useEffect(() => {
@@ -57,9 +89,15 @@ export default function CommuteRadar({ userId, location = null }: Props) {
   const speedKmh = KMH(location?.speed ?? 0);
   const heading  = location?.heading ?? 0;
 
+  // Pick closest spot for HUD
+  const closestSpotEta = spotEtas.length > 0
+    ? spotEtas.reduce((a, b) => parseFloat(a.distance) < parseFloat(b.distance) ? a : b)
+    : null;
+
   const speakBrief = async () => {
     const parts: string[] = [];
-    if (eta)            parts.push(`ETA ${eta.duration}, ${eta.distance}`);
+    if (eta) parts.push(`ETA to work: ${eta.duration}, ${eta.distance}`);
+    if (closestSpotEta) parts.push(`${closestSpotEta.spot.label}: ${closestSpotEta.duration}`);
     if (errands.length) parts.push(`${errands.length} errand${errands.length > 1 ? 's' : ''} on route`);
     parts.push('Roger standing by.');
     await speakResponse(parts.join('. '));
@@ -72,7 +110,14 @@ export default function CommuteRadar({ userId, location = null }: Props) {
         {/* Speed HUD */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid rgba(212,160,68,0.15)' }}>
           <span style={{ fontFamily: 'monospace', fontSize: 28, fontWeight: 700, color: 'var(--amber)' }}>{speedKmh}<span style={{ fontSize: 11, marginLeft: 4 }}>km/h</span></span>
-          {eta && <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)' }}>{eta.duration}</span>}
+          <div style={{ textAlign: 'right' }}>
+            {eta && <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-primary)' }}>{eta.duration}</div>}
+            {closestSpotEta && (
+              <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>
+                {closestSpotEta.spot.icon} {closestSpotEta.spot.label}: {closestSpotEta.duration}
+              </div>
+            )}
+          </div>
           <button onClick={() => setDriveMode(false)} style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 10px', cursor: 'pointer', textTransform: 'uppercase' }}>EXIT</button>
         </div>
         {/* Radar fills rest */}
@@ -116,7 +161,7 @@ export default function CommuteRadar({ userId, location = null }: Props) {
             color: innerTab === t ? 'var(--amber)' : 'var(--text-muted)',
             borderBottom: `2px solid ${innerTab === t ? 'var(--amber)' : 'transparent'}`,
           }}>
-            {t === 'radar' ? '◎ RADAR' : 'ROUTE'}
+            {t === 'radar' ? '◎ RADAR' : '📍 ROUTE'}
           </button>
         ))}
       </div>
@@ -124,7 +169,7 @@ export default function CommuteRadar({ userId, location = null }: Props) {
       {/* Tab Content */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {innerTab === 'radar' && <RadarView userId={userId} location={location ?? null} />}
-        {innerTab === 'route' && <RouteTab profile={profile} eta={eta} errands={errands} />}
+        {innerTab === 'route' && <RouteTab profile={profile} eta={eta} errands={errands} spots={spots} spotEtas={spotEtas} />}
       </div>
     </div>
   );
@@ -135,11 +180,29 @@ function RadarViewWithHeading({ userId, location }: Props & { heading: number })
   return <RadarView userId={userId} location={location ?? null} />;
 }
 
-// ── Route Tab ─────────────────────────────────────────────────────────────────
-function RouteTab({ profile, eta, errands }: { profile: DbCommuteProfile | null; eta: { duration: string; distance: string } | null; errands: DbErrandItem[] }) {
+// ── Route Tab (now with Saved Spots ETAs) ─────────────────────────────────────
+function RouteTab({ profile, eta, errands, spots, spotEtas }: {
+  profile: DbCommuteProfile | null;
+  eta: { duration: string; distance: string } | null;
+  errands: DbErrandItem[];
+  spots: DbSavedSpot[];
+  spotEtas: SpotEta[];
+}) {
+  const spotIcon = (type: string) => {
+    if (type === 'home') return <Home size={12} style={{ color: '#4ade80' }} />;
+    if (type === 'work') return <Briefcase size={12} style={{ color: '#60a5fa' }} />;
+    return <MapPin size={12} style={{ color: '#c084fc' }} />;
+  };
+
+  const spotColor = (type: string) => {
+    if (type === 'home') return '74,222,128';
+    if (type === 'work') return '96,165,250';
+    return '192,132,252';
+  };
+
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* ETA Banner */}
+      {/* ETA Banner — work commute */}
       <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', padding: '14px 16px' }}>
         <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 8 }}>
           <Navigation size={10} style={{ display: 'inline', marginRight: 6 }} />ROUTE INTEL
@@ -151,6 +214,59 @@ function RouteTab({ profile, eta, errands }: { profile: DbCommuteProfile | null;
           : <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)' }}>{profile?.work_address ? 'Calculating ETA...' : 'No route set — say "My work is at [address]"'}</div>
         }
       </div>
+
+      {/* Saved Spots — ETA cards */}
+      {spots.length > 0 && (
+        <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', padding: '14px 16px' }}>
+          <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 10 }}>
+            <MapPin size={10} style={{ display: 'inline', marginRight: 6, verticalAlign: -1 }} />SAVED SPOTS · {spots.length}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {spots.map(spot => {
+              const etaInfo = spotEtas.find(se => se.spot.id === spot.id);
+              const c = spotColor(spot.spot_type);
+              return (
+                <div key={spot.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px',
+                  background: `rgba(${c},0.04)`,
+                  border: `1px solid rgba(${c},0.15)`,
+                  transition: 'background 150ms',
+                }}>
+                  <div style={{
+                    width: 30, height: 30, borderRadius: '50%',
+                    background: `rgba(${c},0.1)`, border: `1px solid rgba(${c},0.25)`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    {spotIcon(spot.spot_type)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
+                      {spot.icon} {spot.label}
+                    </div>
+                    {spot.address && (
+                      <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {spot.address}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    {etaInfo ? (
+                      <>
+                        <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 700, color: `rgb(${c})` }}>{etaInfo.duration}</div>
+                        <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--text-muted)' }}>{etaInfo.distance}</div>
+                      </>
+                    ) : (
+                      <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--text-muted)' }}>—</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Errands */}
       {errands.length > 0 && (
