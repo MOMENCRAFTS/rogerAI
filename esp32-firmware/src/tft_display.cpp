@@ -78,7 +78,9 @@ static void renderIdle() {
   spr.setTextColor(COL_WHITE);
   spr.drawString("AI", CENTER_X, CENTER_Y + 10, 4);
   spr.setTextColor(COL_GREY);
-  spr.drawString("Hold PTT to speak", CENTER_X, CENTER_Y + 50, 2);
+  spr.drawString("Hold PTT to speak", CENTER_X, CENTER_Y + 45, 2);
+  spr.setTextColor(COL_AMBER_DIM);
+  spr.drawString("MOMENCRAFTS", CENTER_X, CENTER_Y + 75, 1);
 }
 
 static void renderRecording() {
@@ -150,15 +152,16 @@ static void renderOffline() {
 }
 
 static void renderWiFiSetup() {
+  // Legacy WiFi setup screen — now shows BLE provisioning name
   clearScreen(COL_CYAN_DARK, COL_CYAN);
   drawPulseRing(COL_CYAN, 100);
   spr.setTextColor(COL_CYAN);
   spr.setTextDatum(MC_DATUM);
   spr.drawString("WiFi SETUP", CENTER_X, CENTER_Y - 35, 4);
   spr.setTextColor(COL_WHITE);
-  spr.drawString("Connect to:", CENTER_X, CENTER_Y + 5, 2);
+  spr.drawString("Open Roger App", CENTER_X, CENTER_Y + 5, 2);
   spr.setTextColor(COL_CYAN);
-  spr.drawString(WIFI_AP_NAME, CENTER_X, CENTER_Y + 25, 2);
+  spr.drawString(bleProvGetServiceName(), CENTER_X, CENTER_Y + 25, 2);
   spr.setTextColor(COL_GREY);
   spr.drawString("to configure WiFi", CENTER_X, CENTER_Y + 50, 2);
 }
@@ -424,11 +427,13 @@ static void renderBootSplash() {
     spr.drawCircle(CENTER_X, CENTER_Y, r, COL_AMBER);
   }
   spr.setTextColor(COL_AMBER); spr.setTextDatum(MC_DATUM);
-  spr.drawString("ROGER", CENTER_X, CENTER_Y - 20, 4);
+  spr.drawString("ROGER", CENTER_X, CENTER_Y - 25, 4);
   spr.setTextColor(COL_WHITE);
-  spr.drawString("AI", CENTER_X, CENTER_Y + 15, 4);
+  spr.drawString("AI", CENTER_X, CENTER_Y + 10, 4);
   spr.setTextColor(COL_GREY);
-  spr.drawString("v" FIRMWARE_VERSION, CENTER_X, CENTER_Y + 50, 2);
+  spr.drawString("v" FIRMWARE_VERSION, CENTER_X, CENTER_Y + 45, 2);
+  spr.setTextColor(COL_AMBER_DIM);
+  spr.drawString("MOMENCRAFTS", CENTER_X, CENTER_Y + 70, 1);
   spr.pushSprite(0, 0);
   delay(1000);
 }

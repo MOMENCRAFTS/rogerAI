@@ -184,18 +184,18 @@ bool bleProvStart(bool forceReset) {
   uint8_t uuid[16] = PROV_SERVICE_UUID;
 
   WiFiProv.beginProvision(
-    NETWORK_PROV_SCHEME_BLE,
-    NETWORK_PROV_SCHEME_HANDLER_FREE_BLE,   // frees BLE stack after success
-    NETWORK_PROV_SECURITY_1,                // X25519 + PoP
+    WIFI_PROV_SCHEME_BLE,
+    WIFI_PROV_SCHEME_HANDLER_FREE_BLE,    // frees BLE stack after success
+    WIFI_PROV_SECURITY_1,                 // X25519 + PoP
     popStr,
     serviceName,
-    NULL,                                   // no service key
+    NULL,                                 // no service key
     uuid,
     forceReset || PROV_RESET_ON_BOOT
   );
 
-  // Print QR code info for debugging
-  WiFiProv.printQR(serviceName, popStr, "ble");
+  // Note: WiFiProv.printQR() removed — depends on esp_qrcode not linked in this SDK.
+  // PoP is displayed on the TFT screen instead.
 
   Serial.printf("[BLE] Broadcasting as '%s' — PoP: %s\n", serviceName, popStr);
   Serial.println("[BLE] Waiting for app to connect and provision WiFi...");
@@ -208,15 +208,10 @@ void bleProvLoop() {
 
   // Check timeout
   if (millis() - provStartMs > PROV_TIMEOUT_MS) {
-    Serial.println("[BLE] Provisioning timeout — restarting...");
-    // Stop current provisioning
-    WiFiProv.endProvision();
+    Serial.println("[BLE] Provisioning timeout — restarting device...");
     provActive = false;
-
     delay(500);
-
-    // Restart provisioning
-    bleProvStart(true);
+    ESP.restart();  // Clean restart triggers fresh provisioning cycle
   }
 }
 
@@ -234,8 +229,9 @@ const char* bleProvGetServiceName() {
 
 void bleProvStop() {
   if (provActive) {
-    WiFiProv.endProvision();
     provActive = false;
+    // WiFiProv doesn't expose endProvision — BLE stack freed by HANDLER_FREE_BLE on success
+    // For forced stop, a full restart is cleaner than partial teardown
   }
-  Serial.println("[BLE] BLE provisioning resources freed");
+  Serial.println("[BLE] BLE provisioning stopped");
 }
