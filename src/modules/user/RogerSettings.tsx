@@ -1150,8 +1150,11 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
             <RogerIcon name="svc-finnhub" size={18} color="var(--text-muted)" />
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Finnhub Finance</p>
-              <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Add API key to .env.local · Say "what's Apple at?" or "market brief"</p>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: prefs.finnhub_tickers?.length ? 'var(--green)' : 'var(--text-muted)', margin: 0 }}>
+                {prefs.finnhub_tickers?.length ? `● ${prefs.finnhub_tickers.length} ticker${prefs.finnhub_tickers.length !== 1 ? 's' : ''} tracked` : 'Say "watch Apple" to add to watchlist'}
+              </p>
             </div>
+            <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 8px', border: `1px solid ${prefs.finnhub_tickers?.length ? 'rgba(34,197,94,0.3)' : 'var(--border-subtle)'}`, color: prefs.finnhub_tickers?.length ? '#22c55e' : 'var(--text-muted)', flexShrink: 0 }}>{prefs.finnhub_tickers?.length ? 'Active' : 'Voice Only'}</span>
           </div>
           {prefs.finnhub_tickers?.length ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1171,15 +1174,15 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
           <RogerIcon name="svc-aviation" size={18} color="var(--text-muted)" />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Flight Tracking</p>
-            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Add VITE_AVIATIONSTACK_API_KEY to .env.local · Say "status of EK204"</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Say "status of EK204" to track any flight</p>
           </div>
-          <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 8px', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', flexShrink: 0 }}>AviationStack</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 8px', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', flexShrink: 0 }}>Voice Only</span>
         </div>
 
         {/* Twilio SMS */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}></span>
+            <RogerIcon name="svc-twilio" size={18} color="var(--text-muted)" />
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Twilio SMS</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Say "text Ahmad I'll be late" to send real SMS</p>
@@ -1198,7 +1201,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
 
         {/* Spotify */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}></span>
+          <RogerIcon name="svc-spotify" size={18} color="var(--text-muted)" />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Spotify</p>
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>
@@ -1224,7 +1227,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* Notion */}
         <div style={{ padding: '14px 16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}></span>
+            <RogerIcon name="svc-notion" size={18} color="var(--text-muted)" />
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Notion</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', margin: 0 }}>Say "log this to Notion" to push session notes and tasks</p>
@@ -1256,7 +1259,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* Tuya Smart Home */}
         <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).tuya_uid ? 'rgba(96,165,250,0.3)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).tuya_uid ? 'rgba(96,165,250,0.04)' : 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}></span>
+            <RogerIcon name="svc-tuya" size={18} color="var(--text-muted)" />
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Tuya Smart Home</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: (prefs as Record<string, unknown>).tuya_uid ? '#60a5fa' : 'var(--text-muted)', margin: 0 }}>
@@ -1281,7 +1284,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* SmartThings */}
         <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).smartthings_pat ? 'rgba(96,165,250,0.3)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).smartthings_pat ? 'rgba(96,165,250,0.04)' : 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>📱</span>
+            <RogerIcon name="svc-smartthings" size={18} color="var(--text-muted)" />
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>Samsung SmartThings</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: (prefs as Record<string, unknown>).smartthings_pat ? '#60a5fa' : 'var(--text-muted)', margin: 0 }}>
@@ -1306,7 +1309,7 @@ export default function RogerSettings({ userId, onReplayTour, onReplayOrientatio
         {/* EZVIZ Security */}
         <div style={{ padding: '14px 16px', border: `1px solid ${(prefs as Record<string, unknown>).ezviz_uid ? 'rgba(239,68,68,0.3)' : 'var(--border-subtle)'}`, background: (prefs as Record<string, unknown>).ezviz_uid ? 'rgba(239,68,68,0.04)' : 'var(--bg-elevated)', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>📷</span>
+            <RogerIcon name="svc-ezviz" size={18} color="var(--text-muted)" />
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', fontWeight: 600 }}>EZVIZ Security</p>
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: (prefs as Record<string, unknown>).ezviz_uid ? '#ef4444' : 'var(--text-muted)', margin: 0 }}>
